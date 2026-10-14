@@ -1,0 +1,31 @@
+if (!rootProject.frameworkServerJar.isFile()) {
+    throw new GradleException('需要统一路由版 Framework 服务端 JAR，请指定 -PframeworkDir。')
+}
+dependencies {
+    modImplementation files(rootProject.frameworkServerJar)
+    testImplementation 'net.fabricmc:fabric-loader-junit:0.16.10'
+}
+test { systemProperty 'fabric.side', 'server' }
+sourceSets.create('smoke') {
+    compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+}
+loom {
+    mods {
+        'backpack_storage_3d' { sourceSet sourceSets.main }
+        'bs3d_smoke' { sourceSet sourceSets.smoke }
+    }
+    runs {
+        server {
+            runDir 'build/run'
+            programArg 'nogui'
+        }
+        smoke {
+            server()
+            source sourceSets.smoke
+            runDir "../build/smoke/${project.rootProject.findProperty('smokeRun') ?: 'manual'}/server"
+            property 'bs3d.smoke', 'true'
+            programArg 'nogui'
+        }
+    }
+}

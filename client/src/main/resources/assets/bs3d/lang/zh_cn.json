@@ -1,0 +1,10 @@
+{
+  "key.bs3d.open": "打开 3D 背包",
+  "category.bs3d": "Backpack and Storage 3D",
+  "key.bs3d.rotate_yaw": "物品左右旋转（Shift 反向）",
+  "key.bs3d.rotate_pitch": "物品上下旋转（Shift 反向）",
+  "item.bs3d.grass_pouch": "草包",
+  "item.bs3d.back_basket": "背篓",
+  "item.bs3d.storage_box": "收纳箱",
+  "block.bs3d.placed_bag": "地面背包"
+}

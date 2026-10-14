@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "dev.kizuna.backpack3d.client.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": ["ImportedPackProviderMixin"],
+  "injectors": {"defaultRequire": 1}
+}

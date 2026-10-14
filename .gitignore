@@ -1,0 +1,10 @@
+.gradle/
+.dependencies/
+**/build/
+**/run/
+**/logs/
+**/crash-reports/
+*.hprof
+__pycache__/
+.idea/
+*.iml

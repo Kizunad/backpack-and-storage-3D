@@ -1,0 +1,7 @@
+{
+  "tag": "bs3d:metal_tools",
+  "sound": "minecraft:block.chain.hit",
+  "duration_ticks": 50,
+  "size": [1, 2, 1],
+  "priority": 100
+}

@@ -1,0 +1,10 @@
+{
+  "key.bs3d.open": "Open 3D backpack",
+  "category.bs3d": "Backpack and Storage 3D",
+  "key.bs3d.rotate_yaw": "Rotate item horizontally (Shift reverses)",
+  "key.bs3d.rotate_pitch": "Rotate item vertically (Shift reverses)",
+  "item.bs3d.grass_pouch": "Grass Pouch",
+  "item.bs3d.back_basket": "Back Basket",
+  "item.bs3d.storage_box": "Storage Box",
+  "block.bs3d.placed_bag": "Placed Backpack"
+}

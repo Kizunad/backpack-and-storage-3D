@@ -1,0 +1,42 @@
+if (!rootProject.frameworkJar.isFile()) {
+    throw new GradleException('请先构建 Framework，并指定 -PframeworkDir=/path/to/framework。')
+}
+dependencies {
+    modImplementation files(rootProject.frameworkJar)
+    modImplementation 'io.wispforest:owo-lib:0.11.2+1.20'
+    implementation 'org.tomlj:tomlj:1.1.1'
+    include 'org.tomlj:tomlj:1.1.1'
+    include 'org.antlr:antlr4-runtime:4.11.1'
+}
+sourceSets.create('smoke') {
+    compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+}
+// 客户端包含单机所需的逻辑服务器；两端共用源码，不能复制一份业务实现。
+sourceSets.main.java.srcDir rootProject.file('server/src/main/java')
+processResources {
+    from(rootProject.file('server/src/main/resources')) { exclude 'fabric.mod.json' }
+}
+loom {
+    mods {
+        'backpack_storage_3d' { sourceSet sourceSets.main }
+        'bs3d_smoke' { sourceSet sourceSets.smoke }
+    }
+    runs {
+        client { runDir 'build/run' }
+        smoke {
+            client()
+            source sourceSets.smoke
+            runDir "../build/smoke/${project.rootProject.findProperty('smokeRun') ?: 'manual'}/client"
+            property 'bs3d.smoke', 'true'
+            programArgs '--username', 'VolumeSmoke', '--width', '1440', '--height', '960'
+        }
+        resourceSmoke {
+            client()
+            source sourceSets.smoke
+            runDir "../build/smoke/${project.rootProject.findProperty('smokeRun') ?: 'manual'}/resource-client"
+            property 'bs3d.resourcesSmoke', 'true'
+            programArgs '--username', 'ResourceSmoke', '--width', '960', '--height', '640'
+        }
+    }
+}

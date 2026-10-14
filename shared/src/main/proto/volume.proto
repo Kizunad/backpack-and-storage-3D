@@ -1,0 +1,160 @@
+syntax = "proto3";
+package kizuna.backpack3d.v1;
+option java_package = "dev.kizuna.backpack3d.protocol.pb";
+option java_outer_classname = "VolumeProtocol";
+
+// 坐标单位为格，x=宽、y=从底部向上的高度、z=深度。物品占用闭开长方体。
+message Size {
+  int32 width = 1;
+  int32 height = 2;
+  int32 depth = 3;
+}
+message Cell {
+  int32 x = 1;
+  int32 y = 2;
+  int32 z = 3;
+}
+enum Mount {
+  MOUNT_DEFAULT = 0;
+  WAIST_RIGHT_FRONT = 1;
+  WAIST_LEFT_FRONT = 2;
+  WAIST_RIGHT_BACK = 3;
+  WAIST_LEFT_BACK = 4;
+  TORSO_BACK = 5;
+  TORSO_FRONT = 6;
+}
+message Placement {
+  string container = 1;
+  Mount mount = 2;
+  optional float waist_angle_degrees = 3; // 腰部环绕角度 [0,360)，0 为正前；胸背不使用此字段。
+}
+message Container {
+  string id = 1;
+  string title = 2;
+  Size size = 3;
+  string model = 4;
+  Mount mount = 5;
+  bool worn = 6; // 当前直接装备在身上；收纳中的容器不绘制到身体。
+  optional int32 player_slot = 7; // 原版库存根槽位，仅在容器直接由玩家持有时存在。
+  string parent = 8; // 收纳本容器的上级容器实例 ID；根容器为空。与 worn、player_slot、grounded 互斥。
+  float waist_angle_degrees = 9;
+  Size outer_size = 10; // 实物占格，与 size 内部容量独立。
+  bool grounded = 11; // 已获准访问的地面根容器；不属于身体或原版槽位。
+}
+message EquipRequest {
+  string session = 1;
+  int64 revision = 2;
+  Placement placement = 3;
+}
+message Item {
+  string id = 1; // 物品实例 UUID，不是模板 ID。
+  string container = 2;
+  Cell cell = 3;
+  Size size = 4;
+  bytes stack_nbt = 5; // 仅服务器生成，完整原版 ItemStack NBT。
+  uint32 orientation = 6; // OrthogonalRotation 稳定索引 0..23，0 为原始朝向。
+  Size base_size = 7; // 未旋转的服务器尺寸；size 为当前朝向的占格。
+}
+message OpenRequest {}
+message GroundOpened {
+  string container = 1; // 原版右键通过服务器校验后，通知客户端打开此内景。
+}
+message CloseGroundRequest {
+  string session = 1;
+  repeated string containers = 2; // 空列表关闭当前连接的全部地面容器。
+}
+message MoveRequest {
+  string session = 1;
+  string operation = 2; // UUID；相同请求重试必须复用，不能代替认证身份。
+  int64 revision = 3;
+  string item = 4; // 已存物品 ID；从原版存入、换手或穿脱装备时为空。
+  string target = 5; // 容器实例 UUID；player 表示原版槽位，worn 表示装备到身体。
+  Cell cell = 6;
+  bool auto_place = 7;
+  int32 player_slot = 8; // 原版槽号：主背包 0..35，盔甲 36..39，副手 40。
+  bytes stack_fingerprint = 9; // 原版来源栈的 SHA-256，服务器在开始和提交时对拍，不传 NBT。
+  uint32 orientation = 10; // 目标朝向，不接受客户端尺寸。
+  // target=player 时指定当前主手、副手或盔甲槽；容器取出缺省时自动放入主背包。
+  // v4 身上拖放：item 为空，两端必须是不同的双手/盔甲槽，且必须显式指定目标。
+  // 手持目标只接收空槽或整栈合并；盔甲目标必须为空，且物品部位匹配、数量为 1。
+  optional int32 target_player_slot = 11;
+  Placement worn_target = 12; // target=worn 时的身体落点；仅容器物品可以装备。
+  map<string, int64> ground_revisions = 13; // 当前访问的地面根容器版本，完成计时再次核对。
+}
+// 原版双手与盔甲的展示快照，无业务实例 ID；空槽使用空 stack_nbt。
+message PlayerSlotStack {
+  int32 player_slot = 1;
+  bytes stack_nbt = 2;
+  Size base_size = 3; // 服务器规则提供的未旋转占格。
+  string unavailable_reason = 4; // 绑定诅咒或栈超限时不可拖动；非法 NBT 不发送给客户端。
+}
+message CancelRequest {
+  string session = 1;
+  string operation = 2;
+}
+enum Phase {
+  IDLE = 0;
+  RUNNING = 1;
+  COMPLETED = 2;
+  CANCELLED = 3;
+  REJECTED = 4;
+}
+message Transfer {
+  string operation = 1;
+  Phase phase = 2;
+  int32 elapsed_ticks = 3;
+  int32 duration_ticks = 4; // 服务器 tick，20 tick/秒；卡服不提前提交。
+  string detail = 5;
+  string contact_sound = 6; // 标准 SoundEvent ID；服务端按 item tag 选择。
+  float sound_volume = 7;
+  float sound_pitch = 8;
+  string source = 9;
+  string target = 10;
+}
+message State {
+  string session = 1;
+  int64 revision = 2;
+  repeated Container containers = 3;
+  repeated Item items = 4;
+  Transfer transfer = 5;
+  repeated PlayerSlotStack player_slots = 6; // 当前主手、副手和四个盔甲槽；原版换装也推送，不增加业务修订号。
+  uint32 waist_limit = 7; // 服务端玩家变量；客户端只展示，不可提交修改。
+  map<string, int64> ground_revisions = 8; // 只公布本连接已获得访问权的地面根容器。
+}
+// 世界外观只公开已装备容器的类型与挂点，不携带容器身份、内容或 ItemStack NBT。
+message WornModel {
+  string item_type = 1; // 两端已注册的物品 ID，例如 bs3d:grass_pouch。
+  Mount mount = 2;
+  float waist_angle_degrees = 3; // [0,360)，与 Placement 使用相同身体局部系。
+}
+// 每条事件完整替换一位玩家的外观；本人和原版实体跟踪范围内的观察者接收。
+message EquipmentAppearance {
+  string player_uuid = 1; // 玩家身份；不能仅凭可复用的运行时 entity_id 识别人。
+  int32 entity_id = 2;
+  string dimension = 3; // 原版维度 ID，防止跨维度/重生期间绘制旧实体的装备。
+  repeated WornModel models = 4; // 空列表表示已卸下全部装备。
+  bool removed = 5; // 停止跟踪或断线后删除缓存；再次进入范围时发送完整外观。
+}
+// 容器内容跟随真实 ItemStack NBT；嵌套容器的 NBT 保存在其物品项中。
+message ContainerContents {
+  repeated Item items = 1;
+}
+message WornContainer {
+  bytes stack_nbt = 1; // 真实容器物品及其完整内容。
+  Mount mount = 2;
+  float waist_angle_degrees = 3;
+}
+// 业务库存与原版 Inventory 存在同一玩家 NBT；未完成的转移不落盘。
+message Receipt {
+  string operation = 1;
+  bytes fingerprint = 2;
+}
+message SavedInventory {
+  uint32 format_version = 1;
+  int64 revision = 2;
+  repeated Item items = 3;
+  repeated Receipt receipts = 4;
+  repeated Placement placements = 5;
+  repeated WornContainer worn = 6;
+  optional uint32 waist_limit = 7; // 缺省为 2，显式 0 表示禁止腰挂。
+}

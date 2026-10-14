@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "backpack_storage_3d",
+  "version": "${version}",
+  "name": "Backpack and Storage 3D Server",
+  "environment": "server",
+  "authors": [
+    "Kizunad"
+  ],
+  "license": "MIT",
+  "entrypoints": {
+    "main": [
+      "dev.kizuna.backpack3d.item.ContainerItems",
+      "dev.kizuna.backpack3d.server.VolumeServer"
+    ],
+    "kizuna_inventory_ui_server": [
+      "dev.kizuna.backpack3d.server.VolumeServer"
+    ]
+  },
+  "mixins": [
+    "bs3d.mixins.json"
+  ],
+  "depends": {
+    "java": ">=17",
+    "minecraft": "1.20.1",
+    "fabricloader": ">=0.16.10",
+    "fabric-api": ">=0.92.3+1.20.1",
+    "kizuna_inventory_ui_server": "0.1.0-SNAPSHOT"
+  }
+}

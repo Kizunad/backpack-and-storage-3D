@@ -1,0 +1,87 @@
+plugins {
+    id 'base'
+    id 'fabric-loom' version '1.6-SNAPSHOT' apply false
+    id 'com.google.protobuf' version '0.9.6' apply false
+}
+
+ext {
+    // 默认使用同级源码产物；其他布局通过 -PframeworkDir 显式指定。
+    frameworkDir = file(findProperty('frameworkDir') ?: '../Kizuna-Inventory-UI-Framework')
+    frameworkJar = new File(frameworkDir, 'build/libs/kizuna-inventory-ui-framework-0.1.0-SNAPSHOT.jar')
+    frameworkServerJar = new File(frameworkDir, 'server/build/libs/kizuna-inventory-ui-framework-server-0.1.0-SNAPSHOT.jar')
+    protobufVersion = '4.36.2'
+}
+
+subprojects {
+    apply plugin: 'fabric-loom'
+    apply plugin: 'com.google.protobuf'
+    group = 'dev.kizuna.backpack3d'
+    version = '0.1.0-SNAPSHOT'
+    base.archivesName = "backpack-storage-3d-${project.name}"
+    loom {
+        // 客户端也会打包共享服务器 mixin，两个产物使用同名映射，避免复制配置后丢失引用。
+        mixin { defaultRefmapName = 'bs3d.refmap.json' }
+    }
+    repositories {
+        maven { url = 'https://maven.fabricmc.net/' }
+        maven { url = 'https://maven.wispforest.io/releases' }
+        mavenCentral()
+    }
+    java {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        withSourcesJar()
+    }
+    tasks.withType(JavaCompile).configureEach {
+        options.release = 17
+        options.encoding = 'UTF-8'
+    }
+    dependencies {
+        minecraft 'com.mojang:minecraft:1.20.1'
+        mappings 'net.fabricmc:yarn:1.20.1+build.10:v2'
+        modImplementation 'net.fabricmc:fabric-loader:0.16.10'
+        modImplementation 'net.fabricmc.fabric-api:fabric-api:0.92.3+1.20.1'
+        implementation "com.google.protobuf:protobuf-java:${rootProject.protobufVersion}"
+        testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+    sourceSets.main {
+        java.srcDir rootProject.file('shared/src/main/java')
+        proto.srcDir rootProject.file('shared/src/main/proto')
+    }
+    protobuf {
+        protoc { artifact = "com.google.protobuf:protoc:${rootProject.protobufVersion}" }
+        generateProtoTasks {
+            all().configureEach { task ->
+                // 两端公共生成类均由对应 Framework JAR 提供，只作为业务 proto 的 import。
+                task.includeDirs.from(new File(rootProject.frameworkDir, 'src/main/proto'))
+            }
+            ofSourceSet('main').configureEach { task ->
+                task.generateDescriptorSet = true
+                task.descriptorSetOptions.path = layout.buildDirectory.file('descriptors/backpack-storage-3d-v1.desc').get().asFile.path
+                task.descriptorSetOptions.includeImports = true
+            }
+        }
+    }
+    test { useJUnitPlatform() }
+    processResources {
+        inputs.property 'version', project.version
+        filesMatching('fabric.mod.json') { expand version: project.version }
+    }
+    jar { from rootProject.file('LICENSE') }
+}
+
+tasks.named('build') { dependsOn ':client:build', ':server:build' }
+tasks.named('check') { dependsOn ':client:check', ':server:check' }
+
+// 协议包包含固定版本的公共 schema，方便独立语言实现服务端。
+tasks.register('protocolZip', Zip) {
+    dependsOn ':server:generateProto'
+    archiveFileName = 'backpack-storage-3d-0.1.0-SNAPSHOT-proto.zip'
+    destinationDirectory = layout.buildDirectory.dir('distributions')
+    from('shared/src/main/proto')
+    from(new File(frameworkDir, 'src/main/proto'))
+    from(project(':server').layout.buildDirectory.file('descriptors/backpack-storage-3d-v1.desc')) { into 'descriptors' }
+    from('LICENSE')
+}
+tasks.named('build') { dependsOn tasks.named('protocolZip') }

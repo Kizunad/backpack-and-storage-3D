@@ -1,0 +1,23 @@
+# 路径相对于本文件所在的 config/bs3d，统一使用正斜杠。
+# 未登记的 .bbmodel 不加载；F3+T 重读配置和资源。
+version = 1
+
+[[models]]
+id = "bs3d:grass_pouch"
+file = "models/GrassPouch.bbmodel"
+# 省略时自动寻找 open / close；模型没有动画则保持静态。
+open_animation = "open"
+close_animation = "close"
+# 可选 Ogg Vorbis 文件；省略使用默认声音。
+# [models.sounds]
+# open = "sounds/pouch_open.ogg"
+# close = "sounds/pouch_close.ogg"
+# place = "sounds/pouch_place.ogg"
+# pickup = "sounds/pouch_pickup.ogg"
+# touch = "sounds/pouch_touch.ogg"
+
+[[models]]
+id = "bs3d:back_basket"
+file = "models/BackBasket.bbmodel"
+open_animation = "open"
+close_animation = "close"
