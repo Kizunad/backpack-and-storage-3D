@@ -1,5 +1,6 @@
 package dev.kizuna.backpack3d.item;
 
+import com.google.gson.JsonObject;
 import dev.kizuna.backpack3d.protocol.Messages;
 import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
@@ -57,37 +58,56 @@ public final class ContainerItems implements ModInitializer {
         register(
                 POUCH,
                 "草包",
+                "item.bs3d.grass_pouch.description",
                 "grass_pouch",
                 Volumes.size(1, 2, 2),
                 Volumes.size(2, 2, 2),
                 List.of(
                         Mount.WAIST_RIGHT_FRONT, Mount.WAIST_LEFT_FRONT,
-                        Mount.WAIST_LEFT_BACK, Mount.WAIST_RIGHT_BACK));
+                        Mount.WAIST_LEFT_BACK, Mount.WAIST_RIGHT_BACK),
+                Map.of());
         register(
                 BASKET,
                 "背篓",
+                "item.bs3d.back_basket.description",
                 "back_basket",
                 Volumes.size(3, 3, 3),
                 Volumes.size(3, 3, 4),
-                List.of(Mount.TORSO_FRONT, Mount.TORSO_BACK));
+                List.of(Mount.TORSO_FRONT, Mount.TORSO_BACK),
+                Map.of());
         register(
-                BOX, "收纳箱", "storage_box", Volumes.size(5, 3, 2), Volumes.size(5, 3, 2), List.of());
+                BOX,
+                "收纳箱",
+                "item.bs3d.storage_box.description",
+                "storage_box",
+                Volumes.size(5, 3, 2),
+                Volumes.size(5, 3, 2),
+                List.of(),
+                Map.of());
         GroundBags.initialize();
     }
 
     public static Item register(
             Identifier id,
             String title,
+            String descriptionTranslationKey,
             String model,
             Size inside,
             Size outside,
-            List<Mount> mounts) {
+            List<Mount> mounts,
+            Map<Identifier, JsonObject> optional) {
         // 尺寸由两端共同注册的类型决定，物品 NBT 和客户端请求不能扩大容量。
         requireSize(inside);
         requireSize(outside);
+        var metadata = new ItemMetadata(descriptionTranslationKey, optional);
+        var definition = new Definition(id, title, model, inside, outside, List.copyOf(mounts));
+        if (Registries.ITEM.containsId(id)) {
+            throw new IllegalArgumentException("容器物品重复注册：" + id);
+        }
         ContainerSounds.register(model);
         Item item = Registry.register(Registries.ITEM, id, new ContainerItem());
-        TYPES.put(item, new Definition(id, title, model, inside, outside, List.copyOf(mounts)));
+        TYPES.put(item, definition);
+        ItemMetadata.register(item, metadata);
         return item;
     }
 

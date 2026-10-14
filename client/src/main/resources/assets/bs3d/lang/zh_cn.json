@@ -6,5 +6,8 @@
   "item.bs3d.grass_pouch": "草包",
   "item.bs3d.back_basket": "背篓",
   "item.bs3d.storage_box": "收纳箱",
-  "block.bs3d.placed_bag": "地面背包"
+  "block.bs3d.placed_bag": "地面背包",
+  "item.bs3d.grass_pouch.description": "可挂在腰间的小型草编容器。",
+  "item.bs3d.back_basket.description": "可装备在胸前或背后的编织背篓。",
+  "item.bs3d.storage_box.description": "用于收纳物品和容器，无法穿戴。"
 }

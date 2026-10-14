@@ -6,5 +6,8 @@
   "item.bs3d.grass_pouch": "Grass Pouch",
   "item.bs3d.back_basket": "Back Basket",
   "item.bs3d.storage_box": "Storage Box",
-  "block.bs3d.placed_bag": "Placed Backpack"
+  "block.bs3d.placed_bag": "Placed Backpack",
+  "item.bs3d.grass_pouch.description": "A small woven pouch worn at the waist.",
+  "item.bs3d.back_basket.description": "A woven basket worn on the chest or back.",
+  "item.bs3d.storage_box.description": "Stores items and containers; cannot be worn."
 }

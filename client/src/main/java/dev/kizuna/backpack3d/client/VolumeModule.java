@@ -97,6 +97,7 @@ public final class VolumeModule implements ClientModule {
         WornPreview.register(appearances);
         ModelResources.initialize();
         ContainerItemModels.register();
+        ItemDescriptions.register();
         GroundBagRenderer.register();
         bindings.window(
                 WINDOW,

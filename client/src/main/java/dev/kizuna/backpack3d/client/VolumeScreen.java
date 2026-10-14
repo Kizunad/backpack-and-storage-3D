@@ -170,6 +170,35 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         }
         help.draw(context, textRenderer, width, mouseX, mouseY, status());
         super.render(context, mouseX, mouseY, delta);
+        drawItemTooltip(context, mouseX, mouseY);
+    }
+
+    private void drawItemTooltip(DrawContext context, int mouseX, int mouseY) {
+        // 操作期间不遮挡落点；只查询最上层窗口，不能透过窗口命中人物或被遮住的物品。
+        if (closing || dragging || scenePressed || !camera.isEmpty() || !layerDrag.isEmpty()
+                || !pressedItem.isEmpty() || help.captures(mouseX, mouseY)) {
+            return;
+        }
+        String itemId;
+        var window = windows.hitTest(mouseX, mouseY);
+        if (window != null) {
+            String containerId = window.key().identity();
+            Rect view = viewports.get(containerId);
+            if (window.minimized() || view == null || !view.contains(mouseX, mouseY)) {
+                return;
+            }
+            itemId = interiors.get(containerId).itemAt(mouseX, mouseY);
+        } else {
+            itemId = player.pick(mouseX, mouseY);
+            if (itemId.isEmpty()) {
+                int slot = player.slotAt(mouseX, mouseY);
+                itemId = slot < 0 ? "" : VolumeModule.playerSlotPreviewId(slot);
+            }
+        }
+        var stack = module.stack(itemId);
+        if (!stack.isEmpty()) {
+            context.drawItemTooltip(textRenderer, stack, mouseX, mouseY);
+        }
     }
 
     private void advanceAnimations(float seconds) {

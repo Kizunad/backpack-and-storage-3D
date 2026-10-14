@@ -2,6 +2,52 @@
 
 适用：`0.1.0-SNAPSHOT`。真实 ItemStack 保留原版和模组的 NBT、模型、名称及附魔。缺少专用尺寸规则时按 `1×1×1` 格处理。
 
+## 物品描述与附属字段
+
+状态：2026-10-14 源码已实现并验证，尚无正式发布版本，API 未冻结。新容器注册签名为：
+
+```java
+ContainerItems.register(
+        Identifier id,
+        String title,
+        String descriptionTranslationKey,
+        String model,
+        Size inside,
+        Size outside,
+        List<Mount> mounts,
+        Map<Identifier, JsonObject> optional);
+```
+
+`descriptionTranslationKey` 是简介的语言键，空字符串表示无补充简介。扩展模组在 `assets/<命名空间>/lang/zh_cn.json`、`en_us.json` 等资源中提供文案。客户端会在原版物品 tooltip 与 BS3D 模型悬停 tooltip 中追加该描述，保留原物品名称、Lore、附魔及其他模组提示；拖放、相机拖动和帮助面板捕获期间不显示悬停提示。
+
+`optional` 参数**必须显式传入**且不能为 `null`；没有附属配置时传 `Map.of()`。它是附属扩展字段表，键为带命名空间的 `Identifier`，值为 `JsonObject`。字段结构、单位、合法范围和回退由对应附属定义；BS3D 不解析重量或其他附属业务，也不要求安装对应附属。未安装的附属字段不会参与基础库存逻辑。
+
+例如在注册阶段准备重量附属的单件自重（单位克），无需引用重量附属 Java 类：
+
+```java
+var weight = new JsonObject();
+weight.addProperty("grams", 250);
+var optional = Map.of(new Identifier("bs3d_weights", "weight"), weight);
+
+ContainerItems.register(
+        new Identifier("example", "pouch"),
+        "示例草包",
+        "item.example.pouch.description",
+        "example:pouch",
+        Volumes.size(1, 2, 2),
+        Volumes.size(2, 2, 2),
+        List.of(Mount.WAIST_RIGHT_FRONT),
+        optional);
+```
+
+该片段仅展示当前源码注册入口，需要在两端初始化、注册表冻结前调用，并另行提供模型及语言资源。注册时复制整个字段对象，读取时也返回副本，注册方和附属不能通过修改 JSON 悄悄改写已有配置。
+
+原版及第三方已注册物品通过 `ItemMetadata.register(Item item, String descriptionTranslationKey, Map<Identifier, JsonObject> optional)` 补充描述和附属字段，例如 `ItemMetadata.register(Items.IRON_SWORD, "item.example.iron_sword.description", optional)`。该入口不创建或替换真实物品；每个物品类型只允许登记一次，容器注册已自动登记，不要重复调用。查询入口为 `ItemMetadata.of(ItemStack)`，其 `descriptionTranslationKey()` 返回语言键，`optional(Identifier)` 返回 `Optional<JsonObject>`；未登记类型按无描述和空字段表处理。字段属于物品类型，不是容器 UUID，也不会写入物品 NBT 或由客户端请求上报。
+
+重量附属在逻辑服务器匹配 `bs3d_weights:weight`：合法 `grams` 优先；缺失或无效字段记录 WARN 后回退到现有数据包规则，无匹配时使用 100 克。每个物品类型在一次成功规则加载周期中只警告一次。内置容器传空 `optional`，不在 BS3D 中硬编码附属业务重量，默认值仍由重量附属数据包提供。
+
+迁移：旧的六参数 `ContainerItems.register` 已替换。第三方源码需要在 `title` 后补上描述键，并在最后补上 `optional`；无描述传 `""`，无附属配置传 `Map.of()`，重新编译后两端一起更新。当前没有静默省略 `optional` 的旧签名。此改动不改变业务协议 v6 或库存保存格式。
+
 ## 使用标准 item tag
 
 在数据包中定义 `data/example/tags/items/metal_equipment.json`：
@@ -34,7 +80,7 @@
 
 客户端直接导入 `config/bs3d/config.toml` 登记的 `.bbmodel`，支持可选开合关键帧与五类自定义 OGG 音效。未登记文件不加载并输出 WARN；F3+T 同时重读注册表、模型、贴图和音效。固定格式、Blockbench 支持范围、默认行为和旧导入脚本迁移见[模型资源导入](Model-Resources.md)。
 
-容器规格集中在 `ContainerItems`，`register(Identifier id, String title, String model, Size inside, Size outside, List<Mount> mounts)` 同时注册真实不可堆叠物品及类型定义。两端必须在物品注册表冻结前注册相同类型；空挂点列表表示仅可收纳。当前 API 未冻结。新增模型还需提供对应客户端资源；类型的内部容量与外部占格不受普通 item tag 尺寸规则覆盖。UI 颜色来自 Framework 当前主题的语义令牌。
+容器规格集中在 `ContainerItems`，使用上方带描述与 `optional` 的八参数入口同时注册真实不可堆叠物品及类型定义。两端必须在物品注册表冻结前注册相同类型；空挂点列表表示仅可收纳。当前 API 未冻结。新增模型还需提供对应客户端资源；类型的内部容量与外部占格不受普通 item tag 尺寸规则覆盖。UI 颜色来自 Framework 当前主题的语义令牌。
 
 `ContainerItems.Definition.mounts()` 定义每类容器支持的挂点，UI 与世界玩家外观通过 `WornModelTransform` 共用 body 骨架的局部变换。新增挂点需要同步 protobuf 枚举、服务端合法列表与此变换；当前有腰环与胸背两类挂载，不能仅添加枚举而不实现变换。人物转动不改变持久化挂点；物品朝向使用共享 `OrthogonalRotation`，详见[协议](Protocol.md)。
 
