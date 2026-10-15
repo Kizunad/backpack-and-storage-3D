@@ -98,4 +98,9 @@ public final class StackCodec {
             throw new IllegalStateException(impossible);
         }
     }
+
+    public static ByteString fingerprint(ItemStack stack) {
+        // 空槽使用空字节的哈希作为确定性状态；仍不允许把空栈编码为可存储物品。
+        return fingerprint(stack.isEmpty() ? ByteString.EMPTY : encode(stack));
+    }
 }

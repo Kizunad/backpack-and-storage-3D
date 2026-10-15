@@ -23,7 +23,7 @@ public final class BagAnimation {
         return opened;
     }
 
-    void configure(ModelAsset asset) {
+    public void configure(ModelAsset asset) {
         // 重载后立即使用新资源时长；静态模型不需要等待虚构的开盖时间。
         openSeconds = asset == null ? 0 : asset.openSeconds();
         closeSeconds = asset == null ? 0 : asset.closeSeconds();

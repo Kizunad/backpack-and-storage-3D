@@ -107,3 +107,13 @@ ContainerItems.register(
 注册的容器物品共用潜行右键放置入口；可穿戴类型使用同一份模型资产，不可穿戴类型使用注册物品的原版模型。`GroundBagBlockEntity` 只承载公开外观，禁止向它塞入另一份权威库存。地面目录、访问权、距离检查与跨文件恢复由 `GroundInventory` 管理，物品树和计时转移仍复用 `ContainerTree` 与 `TransferService`。
 
 自定义账户不支持地面库存时保留 `Account.ground()` 的空默认值。实现地面库存时必须在 `ground()` 中仅提供当前已授权根容器副本，在 `groundRevisions()` 中提供版本，并实现三参数 `commit` 的联合提交；不能先保存个人库存、稍后再依赖区块自动保存地面内容。现有 Fabric 实现使用 `GroundJournal` 完成恢复，协议与保存版本见[通信和持久化](Protocol.md)。
+
+## 原版页面的光标交换
+
+2026-10-15 未发布源码增加 `CursorTransfer` 和 `InventoryAccess.previewCursor` / `exchangeCursor`，用于随身容器与当前原版 `ScreenHandler` 的光标栈交换。`CursorTransfer.Request.take(revision, item)` 取出实例，`store(revision, container, cell, orientation)` 按格坐标存入整个光标栈。空槽指纹用新增的 `StackCodec.fingerprint(ItemStack)` 计算，空栈仍不能通过 `StackCodec.encode` 写为物品。
+
+所有实际访问必须在服务器主线程进行；只接受真实玩家与期望指纹。预览不写库存，提交重新校验当前树、修订号、光标、玩家及容器可用性，并拒绝与 BS3D 现有计时事务并行。调用附属负责原版页面身份、幂等、计时、取消及位置锁，不得绕过这些检查使用旧候选。
+
+此入口沿用原版光标关闭与存档生命周期，在同一服务器调用内应用背包和光标变更；不声明玩家与方块跨文件崩溃原子性，也不提供访问未授权地面背包的能力。原有 `TransferService` 和地面日志不变，协议 v6 与保存格式不变。
+
+客户端 `BagAnimation.configure(ModelAsset)` 以及 `LayerRangeSlider` 的构造、布局、输入和绘制入口改为公开，供组合原版页面时复用既有模型和格层筛选。它们只管理展示，不提交库存请求。新附属必须使用包含这些 Java API 的配套 JAR。

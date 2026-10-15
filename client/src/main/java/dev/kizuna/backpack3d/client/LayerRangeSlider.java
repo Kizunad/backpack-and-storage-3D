@@ -8,9 +8,9 @@ import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 
 /** 内景上方的双滑块范围条；只修改本窗口的显示范围，不提交库存操作。 */
-final class LayerRangeSlider {
+public final class LayerRangeSlider {
     // 尺寸单位为 GUI 逻辑像素，命中范围与绘制使用同一布局。
-    static final int HEIGHT = 24;
+    public static final int HEIGHT = 24;
     private static final int SIDE_INSET = 8;
     private static final int LABEL_WIDTH = 34;
     private static final int TRACK_HEIGHT = 2;
@@ -20,19 +20,19 @@ final class LayerRangeSlider {
     private Rect bounds;
     private boolean draggingLower;
 
-    LayerRangeSlider(LayerRange range) {
+    public LayerRangeSlider(LayerRange range) {
         this.range = range;
     }
 
-    void layout(Rect bounds) {
+    public void layout(Rect bounds) {
         this.bounds = bounds;
     }
 
-    boolean contains(double x, double y) {
+    public boolean contains(double x, double y) {
         return bounds != null && bounds.contains(x, y);
     }
 
-    void press(double x, double y) {
+    public void press(double x, double y) {
         // 点击轨道选择较近的端点；等距时按上下半区区分两个手柄。
         double lowerDistance = Math.abs(x - position(range.lower()));
         double upperDistance = Math.abs(x - position(range.upper()));
@@ -41,7 +41,7 @@ final class LayerRangeSlider {
         drag(x);
     }
 
-    void drag(double x) {
+    public void drag(double x) {
         // 拖出控件后仍由原滑块捕获，吸附到整数格层并交给范围模型约束上下界。
         int boundary = (int) Math.round((x - trackLeft()) * range.height() / trackWidth());
         if (draggingLower) {
@@ -51,7 +51,7 @@ final class LayerRangeSlider {
         }
     }
 
-    void draw(DrawContext context, TextRenderer font) {
+    public void draw(DrawContext context, TextRenderer font) {
         int center = centerY();
         int lowerX = position(range.lower());
         int upperX = position(range.upper());
