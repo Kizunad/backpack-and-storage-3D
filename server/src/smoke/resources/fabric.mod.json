@@ -1,4 +1,5 @@
 {
   "schemaVersion": 1, "id": "bs3d_smoke", "version": "1.0.0", "environment": "server",
-  "entrypoints": {"server": ["dev.kizuna.backpack3d.smoke.SmokeServer"]}
+  "entrypoints": {"server": ["dev.kizuna.backpack3d.smoke.SmokeServer"]},
+  "custom": {"bs3d:item_registries": ["bs3d/smoke_items.txtpb"]}
 }

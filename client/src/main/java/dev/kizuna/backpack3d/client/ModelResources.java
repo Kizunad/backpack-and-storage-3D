@@ -1,6 +1,7 @@
 package dev.kizuna.backpack3d.client;
 
 import com.google.gson.JsonObject;
+import dev.kizuna.backpack3d.item.ItemRegistrations;
 
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
@@ -67,7 +68,18 @@ public final class ModelResources implements SimpleSynchronousResourceReloadList
         var assets = new LinkedHashMap<Identifier, ModelAsset>();
         var files = new LinkedHashMap<Identifier, byte[]>();
         JsonObject sounds = ModelSounds.defaults();
-        for (ModelConfig.Entry entry : readRegistrations(directory)) {
+        List<ModelConfig.Entry> configured = readRegistrations(directory);
+        // 先加载附属 JAR 自带模型，玩家 config.toml 中同 ID 的登记随后覆盖它。
+        var overridden = new HashSet<Identifier>();
+        configured.forEach(entry -> overridden.add(entry.id()));
+        for (var bundled : ItemRegistrations.bundledModels()) {
+            if (overridden.contains(bundled.model())) {
+                LOG.info("模型 {} 由 config.toml 覆盖，跳过 {} 自带资源", bundled.model(), bundled.source());
+                continue;
+            }
+            loadModel(bundled.root(), ModelConfig.bundled(bundled), assets, files, sounds);
+        }
+        for (ModelConfig.Entry entry : configured) {
             loadModel(directory, entry, assets, files, sounds);
         }
         files.put(

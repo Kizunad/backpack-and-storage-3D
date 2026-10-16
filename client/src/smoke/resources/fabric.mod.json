@@ -8,5 +8,6 @@
       "dev.kizuna.backpack3d.smoke.SmokeClient",
       "dev.kizuna.backpack3d.client.ResourceImportSmoke"
     ]
-  }
+  },
+  "custom": {"bs3d:item_registries": ["bs3d/smoke_items.txtpb"]}
 }

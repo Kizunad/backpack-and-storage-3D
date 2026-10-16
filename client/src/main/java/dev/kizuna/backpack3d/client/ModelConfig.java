@@ -2,6 +2,8 @@ package dev.kizuna.backpack3d.client;
 
 import dev.kizuna.backpack3d.item.ContainerSounds;
 import dev.kizuna.backpack3d.item.ContainerSounds.Action;
+import dev.kizuna.backpack3d.item.ItemRegistrations;
+import dev.kizuna.backpack3d.item.ResourcePaths;
 
 import net.minecraft.util.Identifier;
 
@@ -111,27 +113,19 @@ final class ModelConfig {
         return Map.copyOf(sounds);
     }
 
+    static Entry bundled(ItemRegistrations.BundledModel model) {
+        // 路径已在启动注册时校验，这里只转换为与 TOML 相同的加载条目。
+        return new Entry(
+                model.model(),
+                model.file(),
+                model.openAnimation(),
+                model.closeAnimation(),
+                model.sounds());
+    }
+
     static Path localPath(Path directory, String value, String suffix) throws IOException {
-        // 配置统一使用正斜杠；禁止路径穿越及符号链接逃出资源目录。
-        Path root = directory.toAbsolutePath().normalize();
-        Path relative = Path.of(value);
-        Path result = root.resolve(relative).normalize();
-        if (value.contains("\\")
-                || value.contains(":")
-                || relative.isAbsolute()
-                || !value.endsWith(suffix)
-                || !result.startsWith(root)) {
-            throw new IllegalArgumentException(
-                    "资源路径必须在 config/bs3d 内并以 " + suffix + " 结尾：" + value);
-        }
-        Path existing = result;
-        while (!Files.exists(existing)) {
-            existing = existing.getParent();
-        }
-        if (!existing.toRealPath().startsWith(root.toRealPath())) {
-            throw new IllegalArgumentException("资源符号链接越过 config/bs3d：" + value);
-        }
-        return result;
+        // 与附属 JAR 内模型共用同一套路径约束。
+        return ResourcePaths.local(directory, value, suffix);
     }
 
     private static String required(TomlTable table, String field) {

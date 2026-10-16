@@ -1,0 +1,62 @@
+syntax = "proto3";
+package kizuna.backpack3d.registry.v1;
+option java_package = "dev.kizuna.backpack3d.registry.pb";
+option java_outer_classname = "ItemRegistryProto";
+
+import "volume.proto";
+
+// 附属模组在启动阶段登记的物品清单，语义与 config.toml 一致：
+// 带格式版本、整份校验后才生效、拒绝未知字段与重复 ID。
+// 文本格式（.txtpb）与二进制格式（.binpb）解析到同一消息。
+message ItemRegistry {
+  uint32 version = 1; // 必填，目前只能为 1。
+  repeated ItemEntry items = 2;
+}
+
+message ItemEntry {
+  string id = 1; // 必填 namespace:path，注册物品类型 ID，不能使用 minecraft 命名空间。
+  string description_translation_key = 2; // 简介语言键；空字符串表示无补充简介。
+  repeated OptionalField optional_fields = 3; // 附属扩展字段，对应 Java 入口的 optional 参数。
+  string creative_tab = 4; // 可选创造模式物品栏 ID，如 minecraft:natural；容器默认进入工具栏。
+  oneof kind {
+    PlainItem plain = 10;
+    ContainerItem container = 11;
+  }
+}
+
+// 普通物品，例如种子、作物或材料；占格和音效继续由数据包 item tag 规则决定。
+message PlainItem {
+  uint32 max_count = 1; // 最大堆叠 1..64；0 表示默认 64。
+}
+
+// 容器物品，字段与 ContainerItems.register 一一对应。
+message ContainerItem {
+  string title = 1; // 必填显示标题。
+  string model = 2; // 必填完整模型 ID，与 config.toml 中 [[models]] 的 id 相同。
+  kizuna.backpack3d.v1.Size inside = 3; // 内部容量，单位为格，宽、高、深均为正整数。
+  kizuna.backpack3d.v1.Size outside = 4; // 整件物品被收纳时的占格。
+  repeated kizuna.backpack3d.v1.Mount mounts = 5; // 可装备部位；空列表表示仅可收纳。
+  ModelAsset asset = 6; // 可选：随附属 JAR 分发的模型，字段同 config.toml 的 [[models]]。
+}
+
+// 路径相对于清单文件所在目录，必须留在该目录内并使用正斜杠。
+// 模型 ID 取 ContainerItem.model；玩家 config.toml 中同 ID 的登记优先。
+message ModelAsset {
+  string file = 1; // 必填 .bbmodel 相对路径。
+  optional string open_animation = 2; // 省略时自动寻找 open；空字符串禁用该方向片段。
+  optional string close_animation = 3; // 省略时自动寻找 close；规则同上。
+  ModelSounds sounds = 4; // 可选 Ogg Vorbis 音效。
+}
+
+message ModelSounds {
+  string open = 1;
+  string close = 2;
+  string place = 3;
+  string pickup = 4;
+  string touch = 5;
+}
+
+message OptionalField {
+  string id = 1; // 附属定义的完整字段 ID，例如 bs3d_weights:weight。
+  string json = 2; // JSON 对象文本，结构由对应附属定义。
+}

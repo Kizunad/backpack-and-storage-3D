@@ -17,6 +17,11 @@ sourceSets.main.java.srcDir rootProject.file('server/src/main/java')
 processResources {
     from(rootProject.file('server/src/main/resources')) { exclude 'fabric.mod.json' }
 }
+// 两端验收模组必须登记相同物品清单，否则客户端连接专服时注册表同步失败。
+processSmokeResources {
+    from(rootProject.file('server/src/smoke/resources/bs3d')) { into 'bs3d' }
+    from(rootProject.file('client/src/main/resources/bs3d/defaults/models/GrassPouch.bbmodel')) { into 'bs3d/models' }
+}
 loom {
     mods {
         'backpack_storage_3d' { sourceSet sourceSets.main }

@@ -48,6 +48,8 @@ ContainerItems.register(
 
 迁移：旧的六参数 `ContainerItems.register` 已替换。第三方源码需要在 `title` 后补上描述键，并在最后补上 `optional`；无描述传 `""`，无附属配置传 `Map.of()`，重新编译后两端一起更新。当前没有静默省略 `optional` 的旧签名。此改动不改变业务协议 v6 或库存保存格式。
 
+附属也可以不写 Java，在 `fabric.mod.json` 中声明 protobuf 清单，于启动时注册普通物品与容器，见 [Protobuf 物品清单](Item-Registry.md)。
+
 ## 使用标准 item tag
 
 在数据包中定义 `data/example/tags/items/metal_equipment.json`：
