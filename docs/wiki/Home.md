@@ -8,6 +8,7 @@
 - [操作与动画](Interaction.md)
 - [通信和持久化](Protocol.md)
 - [物品与声音扩展](Extension-Guide.md)
+- [Protobuf 物品清单](Item-Registry.md)
 - [模型、动画与音效导入](Model-Resources.md)
 - [验证状态](Validation.md)
 

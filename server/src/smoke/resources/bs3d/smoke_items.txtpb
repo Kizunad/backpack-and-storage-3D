@@ -1,0 +1,9 @@
+# 验收夹具：通过 fabric.mod.json 的 bs3d:item_registries 自动发现，覆盖启动期 protobuf 注册。
+version: 1
+items {
+  id: "bs3d_smoke:end_seed"
+  description_translation_key: "item.bs3d_smoke.end_seed.description"
+  creative_tab: "minecraft:natural"
+  optional_fields { id: "bs3d_weights:weight" json: '{"grams": 3}' }
+  plain { max_count: 16 }
+}

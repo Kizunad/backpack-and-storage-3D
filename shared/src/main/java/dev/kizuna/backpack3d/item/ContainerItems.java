@@ -85,6 +85,8 @@ public final class ContainerItems implements ModInitializer {
                 List.of(),
                 Map.of());
         GroundBags.initialize();
+        // 内置类型之后读取各模组 fabric.mod.json 声明的 protobuf 物品清单。
+        ItemRegistrations.discover();
     }
 
     public static Item register(
