@@ -4,7 +4,7 @@
 
 ## Protobuf 物品清单
 
-2026-10-16 源码已实现，尚无正式发布版本。Java 17 `test build` 通过；服务端新增 5 项 `ItemRegistrationsTest`，覆盖范围见[物品清单](Item-Registry.md)。真实 Fabric 专用服务器启动日志确认 `bs3d_smoke` 的 `bs3d:item_registries` 清单被自动发现并注册。未运行四阶段客户端联调；协议与保存格式不变。
+2026-10-16 源码已实现，尚无正式发布版本。Java 17 `test build` 通过；服务端新增 5 项 `ItemRegistrationsTest`，覆盖范围见[物品清单](Item-Registry.md)。真实 Fabric 专用服务器启动日志确认 `bs3d_smoke` 的 `bs3d:item_registries` 清单被自动发现并注册。附属 JAR 自带模型新增服务端 3 项、客户端 2 项测试；Xvfb 真实客户端资源验收结果 `build/smoke/protobuf-assets/resource-client/resources-ok.txt` 含 `bundled-addon-model`，日志为 `build/resource-protobuf-assets-smoke.log`。两端验收模组登记同一清单后，专服加 Xvfb 客户端四阶段回归在 `build/smoke/e0d81273a0bc` 完整通过，修订号仍为 6、16、19、20，日志为 `build/protobuf-four-phase-smoke.log`。协议与保存格式不变。
 
 ## 物品描述与附属字段
 

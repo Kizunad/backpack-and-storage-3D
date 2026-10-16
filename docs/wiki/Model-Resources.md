@@ -53,7 +53,7 @@ place = "sounds/travel_place.ogg"
 
 所有路径都相对于 `config/bs3d`，禁止绝对路径或符号链接越出该目录。TOML 不接受未知字段、重复 ID、错误字段类型或版本；整个注册表无效时，日志报告原因并停用全部导入模型。单个已登记模型缺失或解析失败，仅跳过这个模型。可选声音失败则保留该动作的默认声。
 
-配置只是资源登记，不创建物品、不改变容量、不修改装备规则。扩展模组仍需在两端物品注册阶段调用 `ContainerItems.register`，或通过 [Protobuf 物品清单](Item-Registry.md) 登记，将 `model` 设为同一个完整 ID；详见[物品扩展](Extension-Guide.md)。早期 `grass_pouch` 之类的 Java 短名称兼容为 `bs3d:grass_pouch`，TOML 必须写完整 ID。
+配置只是资源登记，不创建物品、不改变容量、不修改装备规则。扩展模组仍需在两端物品注册阶段调用 `ContainerItems.register`，或通过 [Protobuf 物品清单](Item-Registry.md) 登记，将 `model` 设为同一个完整 ID；详见[物品扩展](Extension-Guide.md)。附属也可以在清单的 `container.asset` 中随 JAR 分发模型、动画和音效，玩家无需改 TOML；本文件登记同一 ID 时覆盖附属资源。早期 `grass_pouch` 之类的 Java 短名称兼容为 `bs3d:grass_pouch`，TOML 必须写完整 ID。
 
 ## Blockbench 编辑约定
 

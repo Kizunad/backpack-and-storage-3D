@@ -65,6 +65,9 @@ public final class ResourceImportSmoke implements ClientModInitializer {
             case 0 -> {
                 require(ModelResources.find("grass_pouch") != null, "默认草包没有登记");
                 require(ModelResources.find("back_basket") != null, "默认背篓没有登记");
+                require(
+                        ModelResources.find("bs3d_smoke:bundled_pouch") != null,
+                        "附属 JAR 自带模型没有加载");
                 original = Files.readString(directory.resolve("config.toml"));
                 var vanilla =
                         client.getSoundManager()
@@ -123,6 +126,10 @@ public final class ResourceImportSmoke implements ClientModInitializer {
             }
             case 2 -> {
                 require(ModelResources.find("grass_pouch") == null, "空白名单仍有模型");
+                // 附属自带模型不属于玩家白名单，清空 config.toml 不影响它。
+                require(
+                        ModelResources.find("bs3d_smoke:bundled_pouch") != null,
+                        "清空 config.toml 后附属自带模型被移除");
                 Identifier texture = new Identifier("bs3d", "imports/bs3d/grass_pouch/0.png");
                 require(client.getResourceManager().getResource(texture).isEmpty(), "旧贴图仍在资源目录");
                 var sound =
@@ -134,6 +141,9 @@ public final class ResourceImportSmoke implements ClientModInitializer {
             }
             case 3 -> {
                 require(ModelResources.find("grass_pouch") == null, "损坏配置没有关闭加载");
+                require(
+                        ModelResources.find("bs3d_smoke:bundled_pouch") != null,
+                        "损坏的 config.toml 连带停用了附属自带模型");
                 reload(client, original);
             }
             case 4 -> {
@@ -143,7 +153,7 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                         "恢复配置后模型没有恢复");
                 String result =
                         "registered-only; invalid-file-isolation; five-custom-ogg-actions; decode;"
-                                + " revoke; malformed-config; restore";
+                                + " revoke; malformed-config; restore; bundled-addon-model";
                 Files.writeString(client.runDirectory.toPath().resolve("resources-ok.txt"), result);
                 System.out.println("BS3D_RESOURCES " + result);
                 step++;

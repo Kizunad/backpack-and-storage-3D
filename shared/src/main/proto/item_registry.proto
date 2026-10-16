@@ -36,6 +36,24 @@ message ContainerItem {
   kizuna.backpack3d.v1.Size inside = 3; // 内部容量，单位为格，宽、高、深均为正整数。
   kizuna.backpack3d.v1.Size outside = 4; // 整件物品被收纳时的占格。
   repeated kizuna.backpack3d.v1.Mount mounts = 5; // 可装备部位；空列表表示仅可收纳。
+  ModelAsset asset = 6; // 可选：随附属 JAR 分发的模型，字段同 config.toml 的 [[models]]。
+}
+
+// 路径相对于清单文件所在目录，必须留在该目录内并使用正斜杠。
+// 模型 ID 取 ContainerItem.model；玩家 config.toml 中同 ID 的登记优先。
+message ModelAsset {
+  string file = 1; // 必填 .bbmodel 相对路径。
+  optional string open_animation = 2; // 省略时自动寻找 open；空字符串禁用该方向片段。
+  optional string close_animation = 3; // 省略时自动寻找 close；规则同上。
+  ModelSounds sounds = 4; // 可选 Ogg Vorbis 音效。
+}
+
+message ModelSounds {
+  string open = 1;
+  string close = 2;
+  string place = 3;
+  string pickup = 4;
+  string touch = 5;
 }
 
 message OptionalField {

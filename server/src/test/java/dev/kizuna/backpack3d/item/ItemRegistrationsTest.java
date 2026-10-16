@@ -14,12 +14,19 @@ import net.minecraft.registry.Registries;
 import net.minecraft.util.Identifier;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class ItemRegistrationsTest {
+    @TempDir Path directory;
     private static final Identifier WEIGHT = new Identifier("bs3d_weights", "weight");
 
     @BeforeAll
@@ -146,6 +153,74 @@ class ItemRegistrationsTest {
                 }
                 """));
         assertFalse(Registries.ITEM.containsId(new Identifier("test_json", "a")));
+    }
+
+    @Test
+    void manifestInZipBundlesModelAssetRelativeToManifest() throws Exception {
+        // 生产环境的模组清单位于 JAR 文件系统内，路径必须按该文件系统解析。
+        Path jar = directory.resolve("addon.jar");
+        try (var zip = FileSystems.newFileSystem(jar, Map.of("create", "true"))) {
+            Files.createDirectories(zip.getPath("bs3d/models"));
+            Files.createDirectories(zip.getPath("bs3d/sounds"));
+            Files.writeString(zip.getPath("bs3d/models/pouch.bbmodel"), "{}");
+            Files.writeString(zip.getPath("bs3d/sounds/open.ogg"), "ogg");
+            Files.writeString(zip.getPath("bs3d/items.txtpb"), containerManifest(
+                    "test_zip:pouch", "file: \"models/pouch.bbmodel\" close_animation: \"\""
+                            + " sounds { open: \"sounds/open.ogg\" }"));
+            ItemRegistrations.registerManifest("test:zip", zip.getPath("bs3d/items.txtpb"));
+        }
+        var bundled = ItemRegistrations.bundledModels().stream()
+                .filter(model -> model.model().equals(new Identifier("test_zip", "pouch")))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("/bs3d/models/pouch.bbmodel", bundled.file().toString());
+        assertNull(bundled.openAnimation());
+        assertEquals("", bundled.closeAnimation());
+        assertEquals("/bs3d/sounds/open.ogg", bundled.sounds().get(ContainerSounds.Action.OPEN).toString());
+        assertTrue(Registries.ITEM.containsId(new Identifier("test_zip", "pouch")));
+    }
+
+    @Test
+    void invalidModelAssetsRegisterNothing() throws Exception {
+        Path manifest = directory.resolve("bs3d/items.txtpb");
+        Files.createDirectories(manifest.getParent());
+        Files.writeString(directory.resolve("outside.bbmodel"), "{}");
+        for (String asset : new String[] {
+                "file: \"models/missing.bbmodel\"",
+                "file: \"../outside.bbmodel\"",
+                "file: \"/tmp/x.bbmodel\"",
+                "file: \"models/pouch.json\""}) {
+            Files.writeString(manifest, containerManifest("test_asset:bad", asset));
+            assertThrows(IllegalArgumentException.class,
+                    () -> ItemRegistrations.registerManifest("test:asset", manifest));
+        }
+        // 不带清单目录的 Java 消息入口不能声明资产。
+        assertThrows(IllegalArgumentException.class, () -> ItemRegistrations.registerText(
+                "test:asset_text", containerManifest("test_asset:bad", "file: \"a.bbmodel\"")));
+        assertFalse(Registries.ITEM.containsId(new Identifier("test_asset", "bad")));
+    }
+
+    @Test
+    void sameModelAssetCannotBeBundledTwice() throws Exception {
+        Path manifest = directory.resolve("twice/items.txtpb");
+        Files.createDirectories(manifest.getParent());
+        Files.writeString(manifest.resolveSibling("m.bbmodel"), "{}");
+        Files.writeString(manifest, containerManifest("test_twice:a", "file: \"m.bbmodel\"", "test_twice:shared"));
+        ItemRegistrations.registerManifest("test:twice_a", manifest);
+        Files.writeString(manifest, containerManifest("test_twice:b", "file: \"m.bbmodel\"", "test_twice:shared"));
+        assertThrows(IllegalArgumentException.class,
+                () -> ItemRegistrations.registerManifest("test:twice_b", manifest));
+        assertFalse(Registries.ITEM.containsId(new Identifier("test_twice", "b")));
+    }
+
+    private static String containerManifest(String id, String asset) {
+        return containerManifest(id, asset, id);
+    }
+
+    private static String containerManifest(String id, String asset, String model) {
+        return "version: 1\nitems { id: \"" + id + "\" container { title: \"袋\" model: \"" + model + "\""
+                + " inside { width: 1 height: 1 depth: 1 } outside { width: 1 height: 1 depth: 1 }"
+                + " asset { " + asset + " } } }";
     }
 
     private static ItemEntry plain(String id) {

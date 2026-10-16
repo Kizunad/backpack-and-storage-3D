@@ -10,6 +10,10 @@ sourceSets.create('smoke') {
     compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
     runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
 }
+// 验收清单的自带模型复用带开合动画的默认模板，不在夹具目录保存第二份 bbmodel。
+processSmokeResources {
+    from(rootProject.file('client/src/main/resources/bs3d/defaults/models/GrassPouch.bbmodel')) { into 'bs3d/models' }
+}
 loom {
     mods {
         'backpack_storage_3d' { sourceSet sourceSets.main }

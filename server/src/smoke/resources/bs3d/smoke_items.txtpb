@@ -7,3 +7,20 @@ items {
   optional_fields { id: "bs3d_weights:weight" json: '{"grams": 3}' }
   plain { max_count: 16 }
 }
+
+# 自带模型：带开合动画的默认模板在构建时复制到清单目录，客户端资源验收确认已加载。
+items {
+  id: "bs3d_smoke:bundled_pouch"
+  container {
+    title: "附属草包"
+    model: "bs3d_smoke:bundled_pouch"
+    inside { width: 1 height: 2 depth: 2 }
+    outside { width: 2 height: 2 depth: 2 }
+    mounts: WAIST_RIGHT_FRONT
+    asset {
+      file: "models/GrassPouch.bbmodel"
+      open_animation: "open"
+      close_animation: "close"
+    }
+  }
+}
