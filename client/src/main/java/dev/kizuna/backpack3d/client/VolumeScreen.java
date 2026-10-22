@@ -78,12 +78,34 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     private double pressX;
     private double pressY;
     private long frameTime;
+    private final Runnable exit;
+    private int scissorX;
+    private int scissorY;
 
     public VolumeScreen(VolumeModule module) {
+        // 独立快捷键入口沿用 Minecraft 屏幕生命周期。
+        this(module, () -> net.minecraft.client.MinecraftClient.getInstance().setScreen(null));
+    }
+
+    VolumeScreen(VolumeModule module, Runnable exit) {
         super(Text.literal("Backpack and Storage 3D"));
+        // 工作台提供所属窗口的关闭动作，场景本身不决定全局屏幕去向。
         this.module = module;
+        this.exit = exit;
         player = new WornPreview(module);
         help = new ControlsHelp(module);
+    }
+
+    void scissorOrigin(int x, int y) {
+        // 顶点与命中采用局部坐标，OpenGL 裁剪仍需要屏幕绝对坐标。
+        scissorX = x;
+        scissorY = y;
+    }
+
+    void cancelInput() {
+        // 场景被其他工作台窗口遮挡或失焦时撤销未完成的鼠标手势。
+        releaseCapture();
+        clearSelection();
     }
 
     @Override
@@ -123,7 +145,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         syncContainers();
         advanceAnimations(seconds);
         if (closing && animations.values().stream().allMatch(BagAnimation::atRest)) {
-            client.setScreen(null);
+            exit.run();
             return;
         }
         if (!selected.isEmpty() && selectionRevision != module.state().getRevision()) {
@@ -313,7 +335,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
                         top ? my : -1,
                         selected,
                         top && !module.busy() ? selectedModel() : null,
-                        orientation);
+                        orientation, scissorX, scissorY);
     }
 
     private void drawRestores(DrawContext context, int mx, int my) {
@@ -890,6 +912,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
 
     @Override
     public void close() {
+        // 先取消权威转移，再播放合盖；结束时仅调用宿主提供的退出动作。
         module.cancel();
         module.closeGround("");
         clearSelection();
@@ -911,6 +934,9 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         module.closeGround("");
         releaseCapture();
         windows.reset();
+        closing = false;
+        clearSelection();
+        animations.clear();
     }
 
     @Override

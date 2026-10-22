@@ -6,6 +6,16 @@
 
 2026-10-16 源码已实现，尚无正式发布版本。Java 17 `test build` 通过；服务端新增 5 项 `ItemRegistrationsTest`，覆盖范围见[物品清单](Item-Registry.md)。真实 Fabric 专用服务器启动日志确认 `bs3d_smoke` 的 `bs3d:item_registries` 清单被自动发现并注册。附属 JAR 自带模型新增服务端 3 项、客户端 2 项测试；Xvfb 真实客户端资源验收结果 `build/smoke/protobuf-assets/resource-client/resources-ok.txt` 含 `bundled-addon-model`，日志为 `build/resource-protobuf-assets-smoke.log`。两端验收模组登记同一清单后，专服加 Xvfb 客户端四阶段回归在 `build/smoke/e0d81273a0bc` 完整通过，修订号仍为 6、16、19、20，日志为 `build/protobuf-four-phase-smoke.log`。协议与保存格式不变。
 
+## 2026-10-23：I 工作台直接操作背包
+
+Java 17 `build` 通过客户端与服务端共 100 项测试。四阶段真实 Fabric 客户端／专服 smoke 在 `build/smoke/19a8f742e652/` 完整通过，落盘修订号依次为 6、16、19、20。
+
+提交前同步远端 Protobuf 物品清单与附属模型支持，保留两端 smoke 的清单及模型资源，同时沿用 common 服务端装配。整合后 Java 17 `build` 通过 110 项测试，四阶段 smoke 在 `build/smoke/3d5c50059296/` 再次完整通过，落盘修订号仍为 6、16、19、20；工作台拖放与退出取消断言包含在同一流程内。
+
+新增回归从实际“功能 → 库存 / 3D 背包”菜单进入，确认仍处于工作台；拖动外框后从模型表面点击开包，再经工作台鼠标路由把真实手持物品拖入内景，确认服务端开始计时。退出工作台后等待超过原转移时长，确认取消、修订号不变、手持 NBT 不变；恢复工作台后旧容器访问已清理。既有双手／盔甲／容器拖放、计时取消、地面存取与重启恢复继续通过。截图为该目录下的 `client/screenshots/workspace-backpack.png` 和 `workspace-transfer.png`。
+
+Windows Native 整套 Meridian 装配在原世界副本 `load-check` 成功加载，通过真实 I 菜单打开背包并点击内容区帮助，未出现玩家 tick 崩溃或新增 NUMERIC_LIMIT。实机截图位于 `D:/Minecraft/Meridian-Animation-Integrated-20261021/evidence/20261023/crash-workspace/` 的 `workspace-backpack.png` 与 `workspace-help.png`。窗口内拖放的完整断言来自上述真实 Fabric smoke；本轮 Windows 验证范围为原世界副本加载、菜单和窗口输入。玩家主存档未迁移或覆盖。
+
 ## 物品描述与附属字段
 
 2026-10-14 源码已实现物品描述和必填 `optional` 字段表，尚无正式发布版本。Java 17 `test build` 通过 **93 项**测试（服务端 62，客户端 31）。新增 6 项覆盖注册与读取副本的深拷贝、显式空表与 null 拒绝、原版物品元数据不改栈、重复注册拒绝、容器注册包含描述及字段、非法参数不产生半注册物品。

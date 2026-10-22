@@ -77,6 +77,14 @@ public final class InteriorRenderer {
             String selected,
             Item preview,
             int orientation) {
+        // 独立页面的屏幕原点为零，嵌入场景共用下一重载的渲染与命中规则。
+        draw(context, module, container, bounds, mouseX, mouseY, selected, preview, orientation, 0, 0);
+    }
+
+    public void draw(
+            DrawContext context, VolumeModule module, Container container, Rect bounds,
+            int mouseX, int mouseY, String selected, Item preview, int orientation,
+            int scissorX, int scissorY) {
         // 保存 UI 批次后启用独立深度场，结束时恢复裁剪和光照，避免影响其他窗口。
         hits.clear();
         itemHits.clear();
@@ -98,7 +106,8 @@ public final class InteriorRenderer {
         matrices.translate(-size.getWidth() / 2f, -size.getHeight() / 2f, -size.getDepth() / 2f);
         var buffers = MinecraftClient.getInstance().getBufferBuilders().getEntityVertexConsumers();
         context.draw();
-        context.enableScissor(bounds.x(), bounds.y(), bounds.right(), bounds.bottom());
+        context.enableScissor(bounds.x() + scissorX, bounds.y() + scissorY,
+                bounds.right() + scissorX, bounds.bottom() + scissorY);
         GuiSceneDepth.clear(context);
         RenderSystem.enableDepthTest();
         DiffuseLighting.enableGuiDepthLighting();

@@ -34,6 +34,7 @@ public final class SmokeClient implements ClientModInitializer {
         WAIT_GROUND,
         VERIFY_WORLD_EQUIPMENT,
         VERIFY_PREVIEW_DEPTH,
+        VERIFY_WORKSPACE,
         ROTATE_PLAYER,
         OPEN_POUCH,
         START_CANCEL_TEST,
@@ -90,6 +91,7 @@ public final class SmokeClient implements ClientModInitializer {
     private float[] basketBeforeOpening;
     private int itemPickAttempts;
     private final GroundSmokeClient groundSmoke = new GroundSmokeClient();
+    private final WorkspaceBackpackProbe workspaceProbe = new WorkspaceBackpackProbe();
 
     @Override
     public void onInitializeClient() {
@@ -220,6 +222,12 @@ public final class SmokeClient implements ClientModInitializer {
             }
             case VERIFY_PREVIEW_DEPTH -> {
                 if (((PreviewDepthProbe) client.currentScreen).done()) {
+                    // 工作台入口先通过真实菜单和三维命中，随后继续原有完整库存流程。
+                    next(Step.VERIFY_WORKSPACE);
+                }
+            }
+            case VERIFY_WORKSPACE -> {
+                if (workspaceProbe.tick(client, module, pouch)) {
                     module.open();
                     next(Step.ROTATE_PLAYER);
                 }

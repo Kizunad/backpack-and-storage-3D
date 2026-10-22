@@ -12,8 +12,6 @@ import dev.kizuna.inventoryui.protocol.*;
 import dev.kizuna.inventoryui.registry.FrameworkCatalog;
 import dev.kizuna.inventoryui.window.UiWindowDefinition;
 
-import io.wispforest.owo.ui.component.Components;
-
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
@@ -33,8 +31,10 @@ import java.util.function.Consumer;
 /** 业务客户端共享权威快照；屏幕关闭后仍接收取消回执，避免连接状态悬空。 */
 public final class VolumeModule implements ClientModule {
     private static final String WINDOW = "bs3d:launcher";
-    private static final int LAUNCHER_WIDTH_PIXELS = 220;
-    private static final int LAUNCHER_HEIGHT_PIXELS = 100;
+    private static final int WINDOW_MIN_WIDTH_PIXELS = 280;
+    private static final int WINDOW_MIN_HEIGHT_PIXELS = 220;
+    private static final int WINDOW_PREFERRED_WIDTH_PIXELS = 640;
+    private static final int WINDOW_PREFERRED_HEIGHT_PIXELS = 420;
     private static final float CONTAINER_SOUND_VOLUME = 0.5f;
     private static final float CONTAINER_SOUND_PITCH = 0.8f;
     private State state = State.getDefaultInstance();
@@ -50,15 +50,20 @@ public final class VolumeModule implements ClientModule {
     private KeyBinding openKey;
     private KeyBinding rotateYaw;
     private KeyBinding rotatePitch;
+    private VolumeComponent embedded;
+    private boolean workspaceVisible;
 
     @Override
     public FrameworkCatalog.Module definition() {
+        // 工作台入口直接承载完整背包场景，推荐尺寸给人物与容器内景留足空间。
         var launcher =
                 new UiWindowDefinition(
                         WINDOW,
                         "3D 背包",
-                        LAUNCHER_WIDTH_PIXELS,
-                        LAUNCHER_HEIGHT_PIXELS,
+                        WINDOW_MIN_WIDTH_PIXELS,
+                        WINDOW_MIN_HEIGHT_PIXELS,
+                        WINDOW_PREFERRED_WIDTH_PIXELS,
+                        WINDOW_PREFERRED_HEIGHT_PIXELS,
                         Set.of(UiWindowDefinition.Capability.WINDOW));
         return FrameworkCatalog.Module.of(
                 Messages.MODULE,
@@ -101,8 +106,19 @@ public final class VolumeModule implements ClientModule {
         GroundBagRenderer.register();
         bindings.window(
                 WINDOW,
-                (host, window) ->
-                        Components.button(Text.literal("打开 3D 背包 · B"), button -> open()));
+                (host, window) -> {
+                    // 窗口工厂只挂载场景；清理和服务端取消与这个窗口的 scope 一起结束。
+                    var component = new VolumeComponent(this, () -> host.workspace().windows().close(window.key()));
+                    embedded = component;
+                    window.scope().addCleanup(() -> {
+                        component.close();
+                        if (embedded == component) {
+                            embedded = null;
+                        }
+                    });
+                    send(Messages.OPEN, OpenRequest.getDefaultInstance());
+                    return component;
+                });
         openKey =
                 KeyBindingHelper.registerKeyBinding(
                         new KeyBinding(
@@ -126,6 +142,16 @@ public final class VolumeModule implements ClientModule {
                                 "category.bs3d"));
         ClientTickEvents.END_CLIENT_TICK.register(
                 client -> {
+                    // 工作台退出时结束背包访问；仅最小化窗口仍保留原有转移语义。
+                    boolean visible = client.currentScreen instanceof WorkspaceScreen;
+                    if (embedded != null) {
+                        if (workspaceVisible && !visible) {
+                            embedded.scene().removed();
+                        } else if (visible) {
+                            embedded.scene().tick();
+                        }
+                    }
+                    workspaceVisible = visible;
                     while (openKey.wasPressed()) {
                         if (client.player != null && client.currentScreen == null) {
                             open();
@@ -160,8 +186,13 @@ public final class VolumeModule implements ClientModule {
     }
 
     public void open() {
-        // 本地模型即使服务器缺失也可查看，但库存操作保持禁用并显示协商原因。
-        MinecraftClient.getInstance().setScreen(new VolumeScreen(this));
+        // 工作台已拥有场景时恢复同一个实例，避免两套界面同时处理背包会话。
+        if (embedded != null) {
+            InventoryUiClient.runtime().open("bs3d:open", "");
+            InventoryUiClient.runtime().openWorkspace();
+        } else {
+            MinecraftClient.getInstance().setScreen(new VolumeScreen(this));
+        }
         if (runtime != null) {
             send(Messages.OPEN, OpenRequest.getDefaultInstance());
         }
@@ -170,6 +201,14 @@ public final class VolumeModule implements ClientModule {
     private void openGround(GroundOpened opened) {
         // 服务器先发完整快照再发打开事件，客户端不猜测地面背包的内容。
         var client = MinecraftClient.getInstance();
+        if (embedded != null) {
+            InventoryUiClient.runtime().open("bs3d:open", "");
+            if (!(client.currentScreen instanceof WorkspaceScreen)) {
+                InventoryUiClient.runtime().openWorkspace();
+            }
+            embedded.scene().openContainer(opened.getContainer());
+            return;
+        }
         if (!(client.currentScreen instanceof VolumeScreen)) {
             client.setScreen(new VolumeScreen(this));
         }

@@ -3,7 +3,7 @@
   "id": "backpack_storage_3d",
   "version": "${version}",
   "name": "Backpack and Storage 3D Server",
-  "environment": "server",
+  "environment": "*",
   "authors": [
     "Kizunad"
   ],

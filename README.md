@@ -40,7 +40,7 @@
 python3 scripts/wiki.py check
 ```
 
-客户端安装 Framework 客户端 JAR、Fabric API、owo 与 `client/build/libs/backpack-storage-3d-client-0.1.0-SNAPSHOT.jar`。专用服务器安装 Framework 服务端 JAR、Fabric API 与 `server/build/libs/backpack-storage-3d-server-0.1.0-SNAPSHOT.jar`。两端产物分别安装。
+客户端安装 Framework client/server、Fabric API、owo 与 BS3D client/server 两个 JAR；专用服务器只安装 Framework server、Fabric API 和 BS3D server。具体产物及单机装配见[安装与构建](docs/wiki/Getting-Started.md)。
 
 默认按 **B** 打开。从角色模型的左手或右手拖动物品到容器内景存入，反向拖到手掌即可取出；双手互拖、盔甲穿脱和容器装备也由拖放完成。支持惯用手设置；目标手仅在为空或能完整叠放同种物品时接收。新玩家可从创造模式工具分类获取草包、背篓或收纳箱；旧存档的固定容器会转换为真实物品。
 
