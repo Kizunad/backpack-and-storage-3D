@@ -2,6 +2,14 @@
 
 适用：`0.1.0-SNAPSHOT`，业务协议 **v6**，玩家保存格式 **3**、地面保存格式 **1**，尚未发布。
 
+## 2026-10-23：Bong 九件收纳装备
+
+[九件容器](Bong-Gear.md)已通过现有 Protobuf 物品清单注册，模型和内嵌 PNG 随 common 服务端 JAR 提供。源模型的 Git blob SHA-1 与固定 Bong 提交一致；`scripts/import_bong_gear.py --check` 确认生成资源可重复得到，Wiki 链接检查与 `git diff --check` 通过。
+
+使用 Java 17 直接编译本次修改的 Java 文件，并复用已有构建类和依赖运行 JUnit Platform：服务端 **86 项**、客户端 **34 项**，共 **120 项通过**。日志为 `build/bong-direct-tests.log`。Fabric 测试环境确认自动发现清单并注册全部 9 件物品；新增用例覆盖合法穿戴、错误挂点拒绝、计时准备不改库存、提交存入真实带名字物品、带内容卸装、序列化后重穿与容量保持。客户端用生产解析器从 ZIP 读取九份模型及贴图，并检查静态立即开包、人体尺度和胸背朝向。
+
+本轮完整 Gradle 构建被运行环境的本地 socket 权限阻断（`java.net.SocketException: Operation not permitted`），日志为 `build/bong-gear-build.log`；上述直接编译与测试不等于新的生产 JAR 构建验收。资源 smoke 已补充九件装备在默认、空白名单和损坏配置下的注册、动态物品模型及贴图检查，源码编译通过，尚未启动真实客户端执行。尚未验证游戏内穿戴外观、物品栏显示或更新 Windows Native 实例。
+
 ## Protobuf 物品清单
 
 2026-10-16 源码已实现，尚无正式发布版本。Java 17 `test build` 通过；服务端新增 5 项 `ItemRegistrationsTest`，覆盖范围见[物品清单](Item-Registry.md)。真实 Fabric 专用服务器启动日志确认 `bs3d_smoke` 的 `bs3d:item_registries` 清单被自动发现并注册。附属 JAR 自带模型新增服务端 3 项、客户端 2 项测试；Xvfb 真实客户端资源验收结果 `build/smoke/protobuf-assets/resource-client/resources-ok.txt` 含 `bundled-addon-model`，日志为 `build/resource-protobuf-assets-smoke.log`。两端验收模组登记同一清单后，专服加 Xvfb 客户端四阶段回归在 `build/smoke/e0d81273a0bc` 完整通过，修订号仍为 6、16、19、20，日志为 `build/protobuf-four-phase-smoke.log`。协议与保存格式不变。

@@ -17,6 +17,8 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.util.*;
@@ -326,6 +328,45 @@ class EquipmentTransferTest {
 
     private ContainerTree tree() {
         return new ContainerTree(account.data, new ArrayList<>(account.inventory));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"gu_jia_bei_lou", "xiu_kuang_bei_jia", "za_pi_xing_nang",
+            "pi_nang_xiong_gua", "herb_pouch", "ore_sack", "water_skin", "moisture_guard", "coin_box"})
+    void bongGearPreservesIdentityContentsAndMountRulesAcrossSave(String name) throws IOException {
+        Identifier typeId = new Identifier("bs3d", name);
+        ItemStack fresh = ContainerItems.create(typeId);
+        var type = ContainerItems.definition(fresh);
+        assertEquals(1, fresh.getMaxCount());
+        String container = wearNew(typeId, type.mounts().get(0));
+        ItemStack keepsake = new ItemStack(Items.DIAMOND, 7);
+        keepsake.setCustomName(Text.literal("随包保存的信物"));
+        account.inventory.set(0, keepsake);
+        var store = fromPlayer(0, container).build();
+        var before = account.data;
+        service.prepare(account, store);
+        assertSame(before, account.data);
+        assertTrue(ItemStack.areEqual(keepsake, account.inventory.get(0)));
+        service.commit(account, store);
+        service.commit(account, move(container, Volumes.PLAYER).setTargetPlayerSlot(0).build());
+        ItemStack carried = account.inventory.get(0);
+        assertEquals(container, ContainerItems.identity(carried));
+        assertTrue(ItemStack.areEqual(keepsake,
+                StackCodec.decode(ContainerItems.contents(carried).getItems(0).getStackNbt())));
+
+        // 两份持久数据重新解码后仍是同一件真实物品，再次穿戴并拒绝错误部位。
+        account.inventory.set(0, StackCodec.decode(StackCodec.encode(carried)));
+        account.data = SavedInventory.parseFrom(account.data.toByteArray());
+        Mount invalid = type.waist() ? Mount.TORSO_BACK
+                : type.mounts().contains(Mount.TORSO_BACK) ? Mount.TORSO_FRONT : Mount.TORSO_BACK;
+        assertThrows(IllegalArgumentException.class, () -> service.commit(account,
+                fromPlayer(0, Volumes.WORN).setWornTarget(Placement.newBuilder().setMount(invalid)).build()));
+        assertEquals(container, ContainerItems.identity(account.inventory.get(0)));
+        service.commit(account, fromPlayer(0, Volumes.WORN)
+                .setWornTarget(Placement.newBuilder().setMount(type.mounts().get(0))).build());
+        assertEquals(type.inside(), tree().containers().get(0).getSize());
+        assertTrue(tree().items().stream().anyMatch(item -> item.getContainer().equals(container)
+                && ItemStack.areEqual(keepsake, StackCodec.decode(item.getStackNbt()))));
     }
 
     @Test

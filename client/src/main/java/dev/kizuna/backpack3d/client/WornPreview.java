@@ -227,9 +227,9 @@ public final class WornPreview {
                     .setWaistAngleDegrees(angle)
                     .build();
         }
-        return Placement.newBuilder()
-                .setMount(local.z < 0 ? Mount.TORSO_FRONT : Mount.TORSO_BACK)
-                .build();
+        Mount mount = local.z < 0 ? Mount.TORSO_FRONT : Mount.TORSO_BACK;
+        // 背负件和胸挂可能只允许一侧；预览与服务端使用同一注册挂点约束。
+        return type.mounts().contains(mount) ? Placement.newBuilder().setMount(mount).build() : null;
     }
 
     private void renderAttachments(MatrixStack body, VertexConsumerProvider buffers) {

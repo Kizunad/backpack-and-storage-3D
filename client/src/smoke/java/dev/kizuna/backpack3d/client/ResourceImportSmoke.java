@@ -2,6 +2,7 @@ package dev.kizuna.backpack3d.client;
 
 import dev.kizuna.backpack3d.item.ContainerSounds;
 import dev.kizuna.backpack3d.item.ContainerSounds.Action;
+import dev.kizuna.backpack3d.item.ContainerItems;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -17,9 +18,13 @@ import net.minecraft.util.math.random.Random;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
+import java.util.List;
 
 /** 只在隔离验收入口执行：真实客户端白名单重载及自定义 OGG 解码。 */
 public final class ResourceImportSmoke implements ClientModInitializer {
+    private static final List<String> BONG_GEAR = List.of(
+            "gu_jia_bei_lou", "xiu_kuang_bei_jia", "za_pi_xing_nang", "pi_nang_xiong_gua",
+            "herb_pouch", "ore_sack", "water_skin", "moisture_guard", "coin_box");
     private static final long TIMEOUT_MILLIS = 120_000;
     private final Path directory = FabricLoader.getInstance().getConfigDir().resolve("bs3d");
     private CompletableFuture<Void> reload;
@@ -63,6 +68,7 @@ public final class ResourceImportSmoke implements ClientModInitializer {
         }
         switch (step) {
             case 0 -> {
+                verifyBongGear(client);
                 require(ModelResources.find("grass_pouch") != null, "默认草包没有登记");
                 require(ModelResources.find("back_basket") != null, "默认背篓没有登记");
                 require(
@@ -125,6 +131,7 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 reload(client, "version = 1\nmodels = []\n");
             }
             case 2 -> {
+                verifyBongGear(client);
                 require(ModelResources.find("grass_pouch") == null, "空白名单仍有模型");
                 // 附属自带模型不属于玩家白名单，清空 config.toml 不影响它。
                 require(
@@ -140,6 +147,7 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 reload(client, "version = 1\n[[models]\n");
             }
             case 3 -> {
+                verifyBongGear(client);
                 require(ModelResources.find("grass_pouch") == null, "损坏配置没有关闭加载");
                 require(
                         ModelResources.find("bs3d_smoke:bundled_pouch") != null,
@@ -153,7 +161,7 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                         "恢复配置后模型没有恢复");
                 String result =
                         "registered-only; invalid-file-isolation; five-custom-ogg-actions; decode;"
-                                + " revoke; malformed-config; restore; bundled-addon-model";
+                                + " revoke; malformed-config; restore; bundled-addon-model; nine-bong-containers";
                 Files.writeString(client.runDirectory.toPath().resolve("resources-ok.txt"), result);
                 System.out.println("BS3D_RESOURCES " + result);
                 step++;
@@ -176,6 +184,26 @@ public final class ResourceImportSmoke implements ClientModInitializer {
     private static void require(boolean condition, String message) {
         if (!condition) {
             throw new IllegalStateException(message);
+        }
+    }
+
+    private static void verifyBongGear(MinecraftClient client) {
+        // 同时验证真实注册、物品动态渲染模型和资源包中的内嵌贴图，覆盖已有空配置的升级。
+        for (String name : BONG_GEAR) {
+            var stack = ContainerItems.create(new Identifier("bs3d", name));
+            var definition = ContainerItems.definition(stack);
+            var asset = ModelResources.find(definition.model());
+            require(asset != null, "Bong 模型未加载：" + name);
+            require(client.getItemRenderer().getModel(stack, null, null, 0).isBuiltin(),
+                    "未启用三维物品渲染：" + name);
+            require(client.getResourceManager()
+                    .getResource(new Identifier("bs3d", "imports/bs3d/" + name + "/0.png")).isPresent(),
+                    "Bong 贴图未加载：" + name);
+            var animation = new BagAnimation();
+            animation.configure(asset);
+            animation.open();
+            animation.advance(0);
+            require(animation.ready(), "静态容器无法直接打开：" + name);
         }
     }
 }

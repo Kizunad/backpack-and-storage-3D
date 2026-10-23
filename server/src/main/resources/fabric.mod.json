@@ -8,6 +8,9 @@
     "Kizunad"
   ],
   "license": "MIT",
+  "custom": {
+    "bs3d:item_registries": ["bs3d/bong-gear/items.txtpb"]
+  },
   "entrypoints": {
     "main": [
       "dev.kizuna.backpack3d.item.ContainerItems",

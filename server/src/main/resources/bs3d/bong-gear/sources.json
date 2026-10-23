@@ -1,0 +1,107 @@
+{
+  "repository": "https://github.com/Kizunad/Bong",
+  "commit": "c01576513e451490bd73df12513227bb8637222b",
+  "models": [
+    {
+      "id": "bs3d:gu_jia_bei_lou",
+      "source": "modelScript/gear/gu_jia_bei_lou/GuJiaBeiLou_tex.bbmodel",
+      "source_blob_sha1": "fd7ce4260c70f80b73cca4649a18560407792ae7",
+      "removed_body_groups": [],
+      "mount": "back",
+      "removed_element_prefixes": [],
+      "cubes": 463
+    },
+    {
+      "id": "bs3d:xiu_kuang_bei_jia",
+      "source": "modelScript/gear/xiu_kuang_bei_jia/XiuKuangBeiJia_tex.bbmodel",
+      "source_blob_sha1": "ff6c3f5b168ba629e4451058a76f4b548380c506",
+      "removed_body_groups": [],
+      "mount": "back",
+      "removed_element_prefixes": [],
+      "cubes": 314
+    },
+    {
+      "id": "bs3d:za_pi_xing_nang",
+      "source": "modelScript/gear/za_pi_xing_nang/ZaPiXingNang_tex.bbmodel",
+      "source_blob_sha1": "c8e30894ca079a140cc4490332c3af50121091db",
+      "removed_body_groups": [],
+      "mount": "back",
+      "removed_element_prefixes": [],
+      "cubes": 206
+    },
+    {
+      "id": "bs3d:pi_nang_xiong_gua",
+      "source": "modelScript/gear/pi_nang_xiong_gua/PiNangXiongGua_tex.bbmodel",
+      "source_blob_sha1": "54128c7993a1a4f0c46f763baf51ba0cab556648",
+      "removed_body_groups": [],
+      "mount": "front",
+      "removed_element_prefixes": [],
+      "cubes": 251
+    },
+    {
+      "id": "bs3d:herb_pouch",
+      "source": "modelScript/gear/herb_pouch/HerbPouch_tex.bbmodel",
+      "source_blob_sha1": "fea6c772a1889f34776112f706b6b1d74a743fd9",
+      "removed_body_groups": [
+        "belt_strap"
+      ],
+      "mount": "waist",
+      "removed_element_prefixes": [],
+      "cubes": 175
+    },
+    {
+      "id": "bs3d:ore_sack",
+      "source": "modelScript/gear/ore_sack/OreSack_tex.bbmodel",
+      "source_blob_sha1": "99e7fc54df4d25833229a18e204584712d362d9b",
+      "removed_body_groups": [
+        "belt_rope"
+      ],
+      "mount": "waist",
+      "removed_element_prefixes": [],
+      "cubes": 208
+    },
+    {
+      "id": "bs3d:water_skin",
+      "source": "modelScript/gear/water_skin/WaterSkin_tex.bbmodel",
+      "source_blob_sha1": "c5dc448371d6218d76d60ddcd864e0b90172a58f",
+      "removed_body_groups": [
+        "strap_shoulder",
+        "strap_front",
+        "strap_back",
+        "belt_waist"
+      ],
+      "mount": "waist",
+      "removed_element_prefixes": [
+        "ring_f_",
+        "ring_b_"
+      ],
+      "cubes": 136
+    },
+    {
+      "id": "bs3d:moisture_guard",
+      "source": "modelScript/gear/moisture_guard/MoistureGuard_tex.bbmodel",
+      "source_blob_sha1": "ffaaf120339ceaf15732a5d29721a72894bebf80",
+      "removed_body_groups": [
+        "belt_rope"
+      ],
+      "mount": "waist",
+      "removed_element_prefixes": [],
+      "cubes": 189
+    },
+    {
+      "id": "bs3d:coin_box",
+      "source": "modelScript/gear/coin_box/CoinBox_tex.bbmodel",
+      "source_blob_sha1": "906ceabec09a74f2b5c9972df9945e9ef891ae0d",
+      "removed_body_groups": [
+        "belt_strap",
+        "belt_buckle",
+        "belt_tab",
+        "rags_front",
+        "rags_back"
+      ],
+      "mount": "waist",
+      "removed_element_prefixes": [],
+      "cubes": 110
+    }
+  ]
+}
