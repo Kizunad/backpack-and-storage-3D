@@ -1,6 +1,12 @@
 package dev.kizuna.backpack3d.protocol;
 
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Cell;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Container;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
 
 import java.util.List;
 
@@ -9,6 +15,7 @@ public final class Volumes {
     public static final String POUCH = "pouch";
     public static final String BASKET = "basket";
     public static final String PLAYER = "player";
+    public static final String CARRIED = "carried";
     public static final String WORN = "worn";
     public static final Size UNIT = size(1, 1, 1);
     public static final List<Container> CONTAINERS =

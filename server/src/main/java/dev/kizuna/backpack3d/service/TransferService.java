@@ -1,18 +1,37 @@
 package dev.kizuna.backpack3d.service;
 
 import dev.kizuna.backpack3d.item.ContainerItems;
-import dev.kizuna.backpack3d.protocol.*;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
+import dev.kizuna.backpack3d.protocol.Messages;
+import dev.kizuna.backpack3d.protocol.OrthogonalRotation;
+import dev.kizuna.backpack3d.protocol.PlayerSlots;
+import dev.kizuna.backpack3d.protocol.StackCodec;
+import dev.kizuna.backpack3d.protocol.Volumes;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Container;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.EquipRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.MoveRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Receipt;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornContainer;
 
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.Function;
 
-/** 先构造完整候选，完成计时后重新对拍并原子提交。 */
+/** 先构造完整候选，再在同一调用内核对来源并原子提交。 */
 public final class TransferService {
     public static final int SAVE_VERSION = 3;
     private static final int PLACEMENT_SAVE_VERSION = 2;
@@ -135,9 +154,30 @@ public final class TransferService {
     }
 
     public Candidate prepare(Account account, MoveRequest request) {
-        // 先验证操作身份与版本，再构造完整物品树副本，计时期间不触碰真实库存。
+        // 先验证操作身份与版本，再构造完整物品树副本，提交前不触碰真实库存。
         OrthogonalRotation.require(request.getOrientation());
         SavedInventory previous = account.data();
+        validateMoveIdentity(account, request, previous);
+        List<ItemStack> vanilla = new ArrayList<>();
+        for (ItemStack stack : account.inventory()) {
+            vanilla.add(stack.copy());
+        }
+        Map<String, ItemStack> ground = new LinkedHashMap<>();
+        account.ground().forEach((id, stack) -> ground.put(id, stack.copy()));
+        ContainerTree tree = new ContainerTree(previous, vanilla, ground);
+        ContainerTree.Entry source = takeSource(account, request, tree, vanilla);
+        ItemStack moved = tree.stack(source);
+        String sourceContainer = source.item().getContainer();
+        placeTarget(account, request, tree, new PlayerDestination(vanilla, moved, source));
+        SavedInventory next = withReceipt(previous, tree.worn(), request);
+        // 重新解析候选同时验证嵌套深度、唯一身份和原版槽位里的整个子树。
+        validate(next);
+        new ContainerTree(next, vanilla, ground);
+        return new Candidate(next, vanilla, moved, sourceContainer, ground);
+    }
+
+    private static void validateMoveIdentity(Account account, MoveRequest request, SavedInventory previous) {
+        // 操作身份、修订号与目标类型必须在读取来源前一致。
         if (!validId(request.getOperation())) {
             throw new IllegalArgumentException("转移操作号不是有效 UUID");
         }
@@ -153,14 +193,11 @@ public final class TransferService {
         if (request.hasWornTarget() && !request.getTarget().equals(Volumes.WORN)) {
             throw new IllegalArgumentException("只有装备容器时才能指定身体挂点");
         }
-        List<ItemStack> vanilla = new ArrayList<>();
-        for (ItemStack stack : account.inventory()) {
-            vanilla.add(stack.copy());
-        }
-        Map<String, ItemStack> ground = new LinkedHashMap<>();
-        account.ground().forEach((id, stack) -> ground.put(id, stack.copy()));
-        ContainerTree tree = new ContainerTree(previous, vanilla, ground);
-        ContainerTree.Entry source;
+    }
+
+    private ContainerTree.Entry takeSource(Account account, MoveRequest request,
+                                            ContainerTree tree, List<ItemStack> vanilla) {
+        // 身体来源先验证当前槽位，内景来源由容器树按实例身份取出。
         if (request.getItem().isEmpty()) {
             int slot = request.getPlayerSlot();
             if (request.getTarget().equals(Volumes.PLAYER)) {
@@ -170,12 +207,17 @@ public final class TransferService {
                 }
             }
             ItemStack stack = readVanillaStack(account, request, vanilla);
-            source = tree.takePlayer(slot, stack, request.getOperation(), sizeOf(stack));
-        } else {
-            source = tree.take(request.getItem());
+            return tree.takePlayer(slot, stack, request.getOperation(), sizeOf(stack));
         }
-        ItemStack moved = tree.stack(source);
-        String sourceContainer = source.item().getContainer();
+        return tree.take(request.getItem());
+    }
+
+    private static void placeTarget(Account account, MoveRequest request,
+                                     ContainerTree tree, PlayerDestination destination) {
+        // 目标规则统一作用于候选树，原版快捷取回交给宿主 insertItem。
+        var source = destination.source();
+        var vanilla = destination.inventory();
+        var moved = destination.moved();
         switch (request.getTarget()) {
             case Volumes.PLAYER -> {
                 int slot;
@@ -185,7 +227,7 @@ public final class TransferService {
                     insertInPlayerSlot(vanilla, slot, moved);
                 } else {
                     // 自动取回仅搜索主背包，副手和盔甲必须显式指定。
-                    slot = insert(vanilla.subList(0, PlayerInventory.MAIN_SIZE), moved.copy());
+                    slot = account.insertPlayer(vanilla, moved.copy());
                 }
                 tree.putPlayer(source, slot);
             }
@@ -195,14 +237,12 @@ public final class TransferService {
                 }
                 tree.wear(source, request.getWornTarget());
             }
+            case Volumes.CARRIED -> tree.placeCarried(source, request.getOrientation());
             default -> tree.place(source, request);
         }
-        SavedInventory next = withReceipt(previous, tree.worn(), request);
-        // 重新解析候选同时验证嵌套深度、唯一身份和原版槽位里的整个子树。
-        validate(next);
-        new ContainerTree(next, vanilla, ground);
-        return new Candidate(next, vanilla, moved, sourceContainer, ground);
     }
+
+    private record PlayerDestination(List<ItemStack> inventory, ItemStack moved, ContainerTree.Entry source) {}
 
     private Size sizeOf(ItemStack stack) {
         var type = ContainerItems.definition(stack);
@@ -210,7 +250,7 @@ public final class TransferService {
     }
 
     private static void requireInteractiveSlot(Account account, int slot) {
-        // 开始与提交都按当前主手槽检查，计时期间切换快捷栏不能操作旧手持槽。
+        // 按当前主手槽检查，快捷栏切换后不能操作旧手持槽。
         if (!PlayerSlots.isInteractive(slot, account.selectedSlot())) {
             throw new IllegalArgumentException("目标必须是当前双手或盔甲部位");
         }
@@ -324,7 +364,7 @@ public final class TransferService {
     }
 
     public void commit(Account account, MoveRequest request) throws IOException {
-        // 计时结束时再次取当前原版库存，避免覆盖期间来自其他系统的无关物品变化。
+        // 提交前重新读取真实库存，来源指纹、修订号和地面租约仍需全部匹配。
         if (!committed(account, request)) {
             var candidate = prepare(account, request);
             account.commit(candidate.data(), candidate.vanilla(), candidate.ground());
@@ -365,8 +405,9 @@ public final class TransferService {
         inventory.set(slot, source.copy());
     }
 
-    private static int insert(List<ItemStack> inventory, ItemStack remaining) {
+    static int insert(List<ItemStack> vanilla, ItemStack remaining) {
         // 先合并同 NBT 栈，再找空槽；全部容纳不下就丢弃候选，不进行部分转移。
+        List<ItemStack> inventory = vanilla.subList(0, PlayerInventory.MAIN_SIZE);
         for (var stack : inventory) {
             if (!stack.isEmpty() && ItemStack.canCombine(stack, remaining)) {
                 int count = Math.min(stack.getMaxCount() - stack.getCount(), remaining.getCount());
@@ -386,13 +427,13 @@ public final class TransferService {
         throw new IllegalArgumentException("原版背包已满");
     }
 
-    /** data/vanilla 是待提交副本；moved 用于材质规则，source 是计时展示的来源 ID。 */
+    /** data/vanilla 是待提交副本；moved 用于材质规则，source 是回执中的来源 ID。 */
     public record Candidate(
             // 业务库存与收据的完整候选。
             SavedInventory data,
             // 原版完整槽位副本，主背包、盔甲和副手与 data 一起提交。
             List<ItemStack> vanilla,
-            // 被移动的真实栈，用来选择声音和耗时。
+            // 被移动的真实栈，用来选择完成声音。
             ItemStack moved,
             // 来源容器 ID，原版库存使用 player。
             String source,

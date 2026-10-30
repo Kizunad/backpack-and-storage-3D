@@ -46,6 +46,7 @@ place = "sounds/travel_place.ogg"
 | 字段 | 约束与默认行为 |
 |---|---|
 | `version` | 必填整数，目前只能为 `1` |
+| `controls` | 可选旋转键表，仅含 `rotate_yaw` 与 `rotate_pitch`，省略采用 R/T；见[操作说明](Interaction.md) |
 | `models` | `[[models]]` 数组；`models = []` 表示明确禁用全部导入模型 |
 | `id` | 必填、唯一的 `namespace:path`，对应容器类型注册时的模型 ID，不是容器实例 UUID |
 | `file` | 必填 `.bbmodel` 相对路径，路径统一使用 `/` |
@@ -88,7 +89,7 @@ place = "sounds/travel_place.ogg"
 
 `place` / `pickup` 在服务器完成实际地面放置或收回后广播，附近玩家都能收到。两端按容器类型登记稳定的 `bs3d:container/<模型命名空间>/<模型路径>/<动作>` SoundEvent，客户端资源配置仅替换它的音频文件。未配置时使用默认的布料、木头或包裹声音。
 
-服务端无需安装 `.bbmodel` 或 OGG，也不读取客户端 TOML。希望所有人看到、听到相同效果，需要给所有客户端分发相同目录；本功能不提供自动下载。新增声音事件要求客户端和服务端同时更新此版本 JAR，协议仍为 v6，保存格式不变。
+服务端无需安装 `.bbmodel` 或 OGG，也不读取客户端 TOML。希望所有人看到、听到相同效果，需要给所有客户端分发相同目录；本功能不提供自动下载。新增声音事件要求客户端和服务端同时更新此版本 JAR，协议为 v7，保存格式不变。
 
 ## 可选复制工具与迁移
 
@@ -102,3 +103,7 @@ python3 scripts/import_models.py "/path/to/travel_bag.bbmodel" \
 旧脚本的“两份固定模型目录 → 构建期 JSON”模式已替换；运行时不再读取旧的 `assets/bs3d/models/<名称>.json`。`models/` 保留原始编辑源，带开合片段的首次启动模板位于客户端资源的 `bs3d/defaults/`。已有玩家库存、容器 UUID、装备和地面保存均无需迁移。
 
 具体测试证据与限制见[验证状态](Validation.md)。
+
+## 服务端搬运规则
+
+数据包 data/<namespace>/bs3d/handling/*.json 支持 tag、sound、size（宽/高/深，1..3）和 priority；size 缺省为一格。sound 是已注册 SoundEvent，每次成功转移播放一次完成声。duration_ticks 已废弃：只要文件带该字段，即使值为零也整份拒绝并报告“duration_ticks 已废弃”；任何文件失败保留重载前的完整目录。内置金属工具规则已移除旧字段。模型开合动画时长不受影响。

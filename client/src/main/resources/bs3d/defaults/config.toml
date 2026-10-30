@@ -2,6 +2,11 @@
 # 未登记的 .bbmodel 不加载；F3+T 重读配置和资源。
 version = 1
 
+# 只在背包界面选中或拖动物品时读取，不占用全局按键；F3+T 重载。
+[controls]
+rotate_yaw = "key.keyboard.r"
+rotate_pitch = "key.keyboard.t"
+
 [[models]]
 id = "bs3d:grass_pouch"
 file = "models/GrassPouch.bbmodel"

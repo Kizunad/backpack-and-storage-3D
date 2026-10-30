@@ -1,6 +1,26 @@
 # 验证状态
 
-适用：`0.1.0-SNAPSHOT`，业务协议 **v6**，玩家保存格式 **3**、地面保存格式 **1**，尚未发布。
+适用：`0.1.0-SNAPSHOT`，业务协议 **v7**，玩家保存格式 **3**、地面保存格式 **1**，尚未发布。
+
+## 2026-10-30：即时转移、双向快捷搬运与模型投放
+
+Java 17 离线 `test build :client:compileSmokeJava :server:compileSmokeJava` 通过：客户端 **37 项**、服务端 **93 项**，共 **130 项测试**，无失败或跳过。覆盖同调用提交、幂等重试、失败不修改库存、旧计时字段非零拒绝、带 `duration_ticks` 的规则整次重载失败并保留旧目录，以及自动寻位、朝向和容量约束。
+
+真实 Fabric 专服与 Xvfb 客户端四阶段 smoke 在 `build/smoke/823cdef4a695/` 全部通过，修订号依次为 **8、24、27、28**。覆盖即时拖放、拒绝原位恢复、完成后关闭不撤销、原有重力属性保留、Shift 双向搬运、随身合盖模型投放、地面放置与附近合盖模型发现、开盖取物后合盖投放、非法落点拒绝、重启后 NBT 与身份恢复及原版潜行收回。B 页面与 I 工作台共用场景入口，地面租约仅在实际打开场景时获取，页内合盖仍可投放，退出页面或超距释放。
+
+构建与烟测日志分别为远程会话仓库的 `handoff/logs/bs3d-instant-core-test-build.log`、`handoff/logs/bs3d-instant-core-smoke.log`。业务协议升级为 v7，客户端与服务端必须同步更新；玩家和地面保存格式不变。规则旧字段会明确报废弃，不再静默采用计时。以下较早记录中的计时、进度和取消行为仅说明对应历史版本。
+
+Vanilla 原版页面的联动验证见附属仓库 `docs/wiki/Validation.md`。本次没有启动 Windows Native，也未单独联调自定义 Pocket 页面；E 键验证范围为真实原版 `InventoryScreen`。模型开合动画及 PA 惯性摆动保持各自原有含义，不包含转移时长动画。
+
+## 2026-10-28：背包局部旋转键
+
+旋转键由背包界面读取，默认 R/T，不再登记为原版全局按键；打开背包的 B 键仍使用原版改键。`config/bs3d/config.toml` 的 `controls` 表支持独立设置两轴按键，F3+T 重读。配置兼容性与用法见[交互](Interaction.md)。
+
+Java 17 `test build :client:compileSmokeJava :server:compileSmokeJava` 通过：客户端 **37 项**、服务端 **86 项**，共 **123 项测试**，无失败或跳过。新增测试覆盖旧配置默认值、单轴覆盖、鼠标键以及非法字段／键值拒绝；日志为 `build/r-key-test-build.log`。
+
+真实 Fabric 客户端／专服四阶段 smoke 在 `build/smoke/fe08c910ea7f/` 完整通过，修订号依次为 **6、16、19、20**，日志为 `build/r-key-four-phase-smoke.log`。输入断言确认未选中物品时不消费 R/T、全局按键表没有旋转条目且仍有 B、从真实 TOML 重读改键后旧 R 不再旋转而新 Y 生效。既有拖放、计时取消、装备、地面背包与重启恢复流程继续通过。
+
+资源重载专项 smoke 通过，结果为 `build/smoke/r-key-resources/resource-client/resources-ok.txt`，日志为 `build/r-key-resource-smoke.log`；覆盖配置损坏／恢复、注册撤销、模型／声音加载以及九件 Bong 容器。Wiki 链接检查与 `git diff --check` 通过。未更新或启动 Windows Native 手动实例。
 
 ## 2026-10-23：Bong 九件收纳装备
 

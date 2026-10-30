@@ -49,7 +49,14 @@ public final class PlayerAccount implements Account {
 
     @Override
     public boolean creative() {
+        // 装备卸下权限沿用宿主当前游戏模式。
         return player.isCreative();
+    }
+
+    @Override
+    public int insertPlayer(List<ItemStack> inventory, ItemStack stack) {
+        // 快捷取回使用原版菜单插入规则，Pocket 等槽位限制可在同一入口生效。
+        return PlayerInsertion.insert(player, inventory, stack);
     }
 
     NbtCompound snapshot(SavedInventory next, List<ItemStack> inventory) throws IOException {

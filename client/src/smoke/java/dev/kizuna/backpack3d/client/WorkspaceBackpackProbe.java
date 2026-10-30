@@ -71,28 +71,30 @@ public final class WorkspaceBackpackProbe {
                 }
             }
             case 7 -> {
-                if (module.state().getTransfer().getPhase() != Phase.RUNNING) {
+                if (module.busy() || module.state().getTransfer().getPhase() != Phase.COMPLETED) {
                     return false;
                 }
-                if (module.state().getRevision() != revisionBeforeTransfer) {
-                    throw new IllegalStateException("工作台拖放计时结束前改变库存");
+                if (module.state().getRevision() != revisionBeforeTransfer + 1) {
+                    throw new IllegalStateException("工作台拖放未即时提交");
                 }
                 ScreenshotRecorder.saveScreenshot(client.runDirectory, "workspace-transfer.png",
                         client.getFramebuffer(), message -> {});
-                // I 退出必须取消实际权威转移；随后等待超过原转移时长再检查库存。
                 client.setScreen(null);
             }
             case 8 -> {
-                if (module.state().getTransfer().getPhase() != Phase.CANCELLED) {
-                    return false;
-                }
-                ticks = -module.state().getTransfer().getDurationTicks();
+                var item = module.state().getItemsList().stream()
+                        .filter(value -> value.getContainer().equals(pouch))
+                        .findFirst()
+                        .orElseThrow();
+                module.withdraw(item.getId(), client.player.getInventory().selectedSlot);
             }
             case 9 -> {
-                if (module.state().getRevision() != revisionBeforeTransfer
-                        || !module.playerSlot(client.player.getInventory().selectedSlot)
-                                .getStackNbt().equals(handBeforeTransfer)) {
-                    throw new IllegalStateException("退出工作台取消后库存或手持 NBT 变化");
+                if (module.busy() || module.state().getRevision() != revisionBeforeTransfer + 2) {
+                    return false;
+                }
+                if (!module.playerSlot(client.player.getInventory().selectedSlot)
+                        .getStackNbt().equals(handBeforeTransfer)) {
+                    throw new IllegalStateException("即时取回未保留原手持 NBT");
                 }
                 runtime.openWorkspace();
                 runtime.open("bs3d:open", null);

@@ -1,6 +1,9 @@
 package dev.kizuna.backpack3d.server;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.kizuna.backpack3d.protocol.Volumes;
 
@@ -18,12 +21,20 @@ import net.minecraft.resource.ResourceManager;
 import net.minecraft.resource.ResourcePack;
 import net.minecraft.util.Identifier;
 
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
@@ -61,10 +72,9 @@ class HandlingRulesTest {
 
     @Test
     void omittedSizeAndPriorityUseDefaults() {
-        rules.reload(resources(Map.of("default", rule("minecraft:block.chain.hit", 50, ""))));
+        rules.reload(resources(Map.of("default", rule("minecraft:block.chain.hit", ""))));
         var material = rules.material(new ItemStack(Items.APPLE));
         assertEquals("minecraft:block.chain.hit", material.sound());
-        assertEquals(50, material.ticks());
         assertEquals(Volumes.UNIT, material.size());
     }
 
@@ -72,63 +82,66 @@ class HandlingRulesTest {
     void priorityWinsAndEqualPrioritiesUseResourceOrder() {
         // 故意按反向插入，证明同级规则的顺序不依赖 ResourceManager 的 Map 顺序。
         var files = new LinkedHashMap<String, String>();
-        files.put("z_high", rule("minecraft:block.chain.hit", 60, ",\"priority\":10"));
-        files.put("b_high", rule("minecraft:entity.item.pickup", 70, ",\"priority\":10"));
-        files.put("a_default", rule("minecraft:block.chain.hit", 80, ""));
+        files.put("z_high", rule("minecraft:block.chain.hit", ",\"priority\":10"));
+        files.put("b_high", rule("minecraft:entity.item.pickup", ",\"priority\":10"));
+        files.put("a_default", rule("minecraft:block.chain.hit", ""));
         rules.reload(resources(files));
-        assertEquals(70, rules.material(new ItemStack(Items.APPLE)).ticks());
+        assertEquals("minecraft:entity.item.pickup", rules.material(new ItemStack(Items.APPLE)).sound());
     }
 
     @Test
-    void sizeAxesAndDurationLimitsAreAccepted() {
+    void sizeAxesAreAccepted() {
         rules.reload(
                 resources(
-                        Map.of("min", rule("minecraft:block.chain.hit", 1, ",\"size\":[1,2,3]"))));
+                        Map.of("min", rule("minecraft:block.chain.hit", ",\"size\":[1,2,3]"))));
         assertEquals(Volumes.size(1, 2, 3), rules.material(new ItemStack(Items.APPLE)).size());
-        assertEquals(1, rules.material(new ItemStack(Items.APPLE)).ticks());
-        rules.reload(resources(Map.of("max", rule("minecraft:block.chain.hit", 200, ""))));
-        assertEquals(200, rules.material(new ItemStack(Items.APPLE)).ticks());
+        rules.reload(resources(Map.of("max", rule("minecraft:block.chain.hit", ""))));
     }
 
     @Test
     void invalidFieldsReportResourceAndField() {
-        assertInvalid(rule("test:missing", 40, ""), "sound");
-        assertInvalid(rule("bad sound", 40, ""), "sound");
-        assertInvalid(rule("minecraft:block.chain.hit", 0, ""), "duration_ticks");
-        assertInvalid(rule("minecraft:block.chain.hit", 201, ""), "duration_ticks");
-        assertInvalid(rule("minecraft:block.chain.hit", 40, ",\"size\":[0,1,1]"), "size.宽");
-        assertInvalid(rule("minecraft:block.chain.hit", 40, ",\"size\":[1,4,1]"), "size.高");
-        assertInvalid(rule("minecraft:block.chain.hit", 40, ",\"size\":[1,1,-1]"), "size.深");
-        assertInvalid(rule("minecraft:block.chain.hit", 40, ",\"size\":[1,1]"), "size");
-        assertInvalid(rule("minecraft:block.chain.hit", 40, ",\"size\":[1,1,1,1]"), "size");
+        assertInvalid(rule("test:missing", ""), "sound");
+        assertInvalid(rule("bad sound", ""), "sound");
+        assertInvalid(rule("minecraft:block.chain.hit", ",\"size\":[0,1,1]"), "size.宽");
+        assertInvalid(rule("minecraft:block.chain.hit", ",\"size\":[1,4,1]"), "size.高");
+        assertInvalid(rule("minecraft:block.chain.hit", ",\"size\":[1,1,-1]"), "size.深");
+        assertInvalid(rule("minecraft:block.chain.hit", ",\"size\":[1,1]"), "size");
+        assertInvalid(rule("minecraft:block.chain.hit", ",\"size\":[1,1,1,1]"), "size");
         assertInvalid(
-                rule("minecraft:block.chain.hit", 40, "").replace("test:handling", "invalid tag"),
+                rule("minecraft:block.chain.hit", "").replace("test:handling", "invalid tag"),
                 "tag");
         assertInvalid("{\"tag\":\"test:handling\"}", "sound");
     }
 
     @Test
     void numericFieldsRejectStringValues() {
-        String valid = rule("minecraft:block.chain.hit", 40, "");
-        assertInvalid(
-                valid.replace("\"duration_ticks\":40", "\"duration_ticks\":\"40\""),
-                "duration_ticks");
-        assertInvalid(rule("minecraft:block.chain.hit", 40, ",\"priority\":\"10\""), "priority");
-        assertInvalid(rule("minecraft:block.chain.hit", 40, ",\"size\":[1,\"2\",1]"), "size.高");
+        assertInvalid(rule("minecraft:block.chain.hit", ",\"priority\":\"10\""), "priority");
+        assertInvalid(rule("minecraft:block.chain.hit", ",\"size\":[1,\"2\",1]"), "size.高");
     }
 
     @Test
     void failedReloadKeepsEntirePreviousCatalog() {
-        rules.reload(resources(Map.of("old", rule("minecraft:block.chain.hit", 50, ""))));
+        rules.reload(resources(Map.of("old", rule("minecraft:block.chain.hit", ""))));
         var replacement =
                 resources(
                         Map.of(
-                                "a_valid", rule("minecraft:entity.item.pickup", 90, ""),
-                                "z_invalid", rule("test:missing", 40, "")));
+                                "a_valid", rule("minecraft:entity.item.pickup", ""),
+                                "z_invalid", rule("test:missing", "")));
         assertThrows(IllegalArgumentException.class, () -> rules.reload(replacement));
-        assertEquals(50, rules.material(new ItemStack(Items.APPLE)).ticks());
         assertEquals(
                 "minecraft:block.chain.hit", rules.material(new ItemStack(Items.APPLE)).sound());
+    }
+
+    @Test
+    void retiredDurationRejectsEntireReload() {
+        // 旧字段即使为零也必须明确报废弃，且不能发布部分重载的新目录。
+        rules.reload(resources(Map.of("old", rule("minecraft:block.chain.hit", ""))));
+        var replacement = resources(Map.of(
+                "a_valid", rule("minecraft:entity.item.pickup", ""),
+                "z_retired", rule("minecraft:entity.item.pickup", ",\"duration_ticks\":0")));
+        var failure = assertThrows(IllegalArgumentException.class, () -> rules.reload(replacement));
+        assertTrue(failure.getMessage().contains("duration_ticks 已废弃"));
+        assertEquals("minecraft:block.chain.hit", rules.material(new ItemStack(Items.APPLE)).sound());
     }
 
     @Test
@@ -149,7 +162,7 @@ class HandlingRulesTest {
 
     @Test
     void untaggedItemsKeepVanillaFallbacks() {
-        rules.reload(resources(Map.of("tagged", rule("minecraft:block.chain.hit", 70, ""))));
+        rules.reload(resources(Map.of("tagged", rule("minecraft:block.chain.hit", ""))));
         var block = rules.material(new ItemStack(Items.STONE));
         var vanillaSound =
                 net.minecraft.block.Blocks.STONE
@@ -161,7 +174,6 @@ class HandlingRulesTest {
         assertEquals(vanillaSound, block.sound());
         assertEquals(
                 "minecraft:entity.item.pickup", rules.material(new ItemStack(Items.STICK)).sound());
-        assertEquals(HandlingRules.DEFAULT_DURATION_TICKS, block.ticks());
         assertEquals(Volumes.UNIT, block.size());
     }
 
@@ -176,11 +188,10 @@ class HandlingRulesTest {
         assertTrue(failure.getMessage().contains(field), failure.getMessage());
     }
 
-    private static String rule(String sound, int ticks, String optionalFields) {
+    private static String rule(String sound, String optionalFields) {
         return "{\"tag\":\"test:handling\",\"sound\":\""
                 + sound
-                + "\",\"duration_ticks\":"
-                + ticks
+                + "\""
                 + optionalFields
                 + "}";
     }

@@ -20,6 +20,11 @@ public interface Account {
     /** 创造模式允许取下绑定诅咒装备；由真实玩家状态提供，客户端不能声明。 */
     boolean creative();
 
+    default int insertPlayer(List<ItemStack> inventory, ItemStack stack) {
+        // 纯服务账户使用同样的整栈合并语义，Minecraft 宿主覆盖为真实 insertItem。
+        return TransferService.insert(inventory, stack);
+    }
+
     /** 仅包含当前已获准访问的地面根容器；不是额外的原版槽位。 */
     default Map<String, ItemStack> ground() {
         return Map.of();

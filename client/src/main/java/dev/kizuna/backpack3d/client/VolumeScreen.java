@@ -3,8 +3,16 @@ package dev.kizuna.backpack3d.client;
 import dev.kizuna.backpack3d.client.InteriorRenderer.Rect;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.item.ContainerSounds;
-import dev.kizuna.backpack3d.protocol.*;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
+import dev.kizuna.backpack3d.protocol.OrthogonalRotation;
+import dev.kizuna.backpack3d.protocol.PlayerSlots;
+import dev.kizuna.backpack3d.protocol.Volumes;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Cell;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Container;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Phase;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.PlayerSlotStack;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
 import dev.kizuna.inventoryui.client.InventoryUiClient;
 import dev.kizuna.inventoryui.client.VanillaHudHidden;
 import dev.kizuna.inventoryui.theme.ThemeTokens;
@@ -13,11 +21,18 @@ import dev.kizuna.inventoryui.window.UiWindowManager;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 
 import org.lwjgl.glfw.GLFW;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** 人物装备预览与多个轻量容器窗口；窗口管理能力复用 Framework。 */
@@ -33,7 +48,6 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     private static final int MIN_WINDOW_WIDTH = 158;
     private static final int MIN_WINDOW_HEIGHT = 180;
     private static final int RESTORE_WIDTH = 70;
-    private static final int PROGRESS_HEIGHT = 3;
     private static final int DRAG_THRESHOLD_SQUARED_PIXELS = 9;
     private static final float NANOS_PER_SECOND = 1_000_000_000f;
     private static final float MAX_FRAME_SECONDS = 0.05f;
@@ -73,6 +87,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     private boolean sceneDragged;
     private boolean dragging;
     private boolean closing;
+    private boolean sceneAuthorized;
     private int orientation;
     private long selectionRevision;
     private double pressX;
@@ -110,6 +125,11 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
 
     @Override
     public void tick() {
+        // 初次显示及工作台恢复时取得访问权；改分辨率和后续帧不重复扫描地面目录。
+        if (!closing && !sceneAuthorized && module.ready()) {
+            sceneAuthorized = true;
+            module.openScene();
+        }
         // 鼠标在窗口外松开时游戏可能收不到释放事件，失焦立即撤销残留捕获。
         if (!client.isWindowFocused()) {
             releaseCapture();
@@ -135,12 +155,12 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        // 动画按时间推进；服务端计时不受渲染速度和窗口是否最小化影响。
+        // 动画按时间推进；合盖不影响已经完成的即时转移。
         long now = System.nanoTime();
-        float seconds =
-                frameTime == 0
-                        ? 0
-                        : Math.min(MAX_FRAME_SECONDS, (now - frameTime) / NANOS_PER_SECOND);
+        float seconds = 0;
+        if (frameTime != 0) {
+            seconds = Math.min(MAX_FRAME_SECONDS, (now - frameTime) / NANOS_PER_SECOND);
+        }
         frameTime = now;
         syncContainers();
         advanceAnimations(seconds);
@@ -148,9 +168,22 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             exit.run();
             return;
         }
+        refreshSelection();
+        drawScene(context, mouseX, mouseY);
+        help.draw(context, textRenderer, width, mouseX, mouseY, status());
+        super.render(context, mouseX, mouseY, delta);
+        drawItemTooltip(context, mouseX, mouseY);
+    }
+
+    private void refreshSelection() {
+        // 抓取时的修订号或身体栈变化后，不能沿用旧来源提交拖放。
         if (!selected.isEmpty() && selectionRevision != module.state().getRevision()) {
             clearSelection();
         }
+    }
+
+    private void drawScene(DrawContext context, int mouseX, int mouseY) {
+        // 人物、容器窗口及落点提示沿同一场景顺序绘制。
         if (selectedPlayerStack != null
                 && !selectedPlayerStack.equals(
                         module.playerSlot(selectedPlayerStack.getPlayerSlot()))) {
@@ -160,6 +193,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         buttons.clear();
         viewports.clear();
         // 页面直接保留世界画面；打开、关闭或最小化容器都不移动人物取景。
+        player.dropSource(selected);
         player.draw(
                 context,
                 (int) (width * PLAYER_CENTER_RATIO),
@@ -177,7 +211,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             }
         }
         drawRestores(context, mouseX, mouseY);
-        drawProgress(context);
+        player.drawDropTarget(context, textRenderer, mouseX, mouseY);
         // 附属只提供文本，不接管场景、窗口输入或原版 HUD。
         context.drawTextWithShadow(textRenderer, ContainerDetails.summary(), MARGIN, MARGIN,
                 color(ThemeTokens.MUTED_TEXT));
@@ -190,9 +224,6 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
                     mouseY - CONTROL_HEIGHT,
                     color(ThemeTokens.ACCENT));
         }
-        help.draw(context, textRenderer, width, mouseX, mouseY, status());
-        super.render(context, mouseX, mouseY, delta);
-        drawItemTooltip(context, mouseX, mouseY);
     }
 
     private void drawItemTooltip(DrawContext context, int mouseX, int mouseY) {
@@ -339,7 +370,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     }
 
     private void drawRestores(DrawContext context, int mx, int my) {
-        // 仅最小化容器留下小卡片，恢复和关闭使用独立命中区；关闭仍走取消转移及合盖流程。
+        // 仅最小化容器留下小卡片，恢复和关闭使用独立命中区；关闭仍走合盖与地面访问释放流程。
         int x = MARGIN;
         int y = height - FOOTER_HEIGHT;
         int cardWidth = RESTORE_WIDTH + CONTROL_HEIGHT * 2;
@@ -384,38 +415,11 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     }
 
     private String status() {
-        // 说明和操作结果只在帮助面板内展示，主页面保留转移进度条。
-        if (module.busy()) {
-            return "转移中，角色与物品已锁定；ESC 取消";
+        // 服务端拒绝优先展示，来源占位随回执自动恢复。
+        if (module.state().getTransfer().getPhase() == Phase.REJECTED) {
+            return module.status();
         }
         return hint.isEmpty() ? module.status() : hint;
-    }
-
-    private void drawProgress(DrawContext context) {
-        if (!module.busy()) {
-            return;
-        }
-        var transfer = module.state().getTransfer();
-        float progress =
-                transfer.getDurationTicks() <= 0
-                        ? 0
-                        : Math.min(
-                                1,
-                                transfer.getElapsedTicks() / (float) transfer.getDurationTicks());
-        int top = height - MARGIN;
-        int availableWidth = width - MARGIN * 2;
-        context.fill(
-                MARGIN,
-                top,
-                width - MARGIN,
-                top + PROGRESS_HEIGHT,
-                color(ThemeTokens.PROGRESS_TRACK));
-        context.fill(
-                MARGIN,
-                top,
-                MARGIN + (int) (availableWidth * progress),
-                top + PROGRESS_HEIGHT,
-                color(ThemeTokens.PROGRESS_FILL));
     }
 
     private void button(
@@ -468,9 +472,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     }
 
     public void closeContainer(String id) {
-        // 关闭即取消，合盖仅为视觉过渡，不能延迟解锁服务器中的玩家。
-        module.cancel();
-        module.closeGround(id);
+        // 合盖保留场景中的地面模型，退出页面时再释放其访问权。
         windows.close(key(id));
         BagAnimation animation = animations.get(id);
         if (animation != null && animation.opened()) {
@@ -507,7 +509,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     }
 
     private void turn(boolean vertical) {
-        // 只更改待放置姿态，点击或松开鼠标才会发起计时转移。
+        // 只更改待放置姿态，点击或松开鼠标才会提交转移意图。
         Item item = selectedModel();
         if (item == null || module.busy()) {
             return;
@@ -556,6 +558,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
 
     @Override
     public boolean mouseClicked(double x, double y, int button) {
+        // 帮助与顶层窗口先消费输入，其后才允许身体栈或人物旋转捕获。
         if (closing) {
             return true;
         }
@@ -563,11 +566,12 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             releaseCapture();
             return true;
         }
-        if (!selected.isEmpty() && module.rotateYaw().matchesMouse(button)) {
+        var mouseKey = InputUtil.Type.MOUSE.createFromCode(button);
+        if (!selected.isEmpty() && module.rotateYaw().equals(mouseKey)) {
             turn(false);
             return true;
         }
-        if (!selected.isEmpty() && module.rotatePitch().matchesMouse(button)) {
+        if (!selected.isEmpty() && module.rotatePitch().equals(mouseKey)) {
             turn(true);
             return true;
         }
@@ -595,29 +599,46 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             }
         }
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && !module.busy()) {
-            int slot = player.slotAt(x, y);
-            PlayerSlotStack snapshot = module.playerSlot(slot);
-            if (slot >= 0
-                    && (!PlayerSlots.isArmor(slot)
-                            || snapshot != null
-                                    && (!snapshot.getStackNbt().isEmpty()
-                                            || !snapshot.getUnavailableReason().isEmpty()))) {
-                // 已穿盔甲和手持栈可直接抓取；没有装备的身体区域仍用于旋转人物。
-                clearSelection();
-                if (snapshot != null && !snapshot.getUnavailableReason().isEmpty()) {
-                    hint = snapshot.getUnavailableReason();
-                } else if (snapshot != null && !snapshot.getStackNbt().isEmpty()) {
-                    selectedPlayerStack = snapshot;
-                    selected = VolumeModule.playerSlotPreviewId(slot);
-                    selectionRevision = module.state().getRevision();
-                    pressedItem = selected;
-                    pressX = x;
-                    pressY = y;
-                    hint = "";
-                }
+            if (selectPlayerStack(x, y)) {
                 return true;
             }
         }
+        return pressScene(x, y, button);
+    }
+
+    private boolean selectPlayerStack(double x, double y) {
+        // 已穿盔甲和手持栈可抓取，空身体部位仍留给人物旋转。
+        int slot = player.slotAt(x, y);
+        PlayerSlotStack snapshot = module.playerSlot(slot);
+        if (slot >= 0
+                && (!PlayerSlots.isArmor(slot)
+                        || snapshot != null
+                                && (!snapshot.getStackNbt().isEmpty()
+                                        || !snapshot.getUnavailableReason().isEmpty()))) {
+            // 已穿盔甲和手持栈可直接抓取；没有装备的身体区域仍用于旋转人物。
+            clearSelection();
+            if (snapshot != null && !snapshot.getUnavailableReason().isEmpty()) {
+                hint = snapshot.getUnavailableReason();
+            } else if (snapshot != null && !snapshot.getStackNbt().isEmpty()) {
+                if (hasShiftDown()) {
+                    module.quickStore(snapshot);
+                    return true;
+                }
+                selectedPlayerStack = snapshot;
+                selected = VolumeModule.playerSlotPreviewId(slot);
+                selectionRevision = module.state().getRevision();
+                pressedItem = selected;
+                pressX = x;
+                pressY = y;
+                hint = "";
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private boolean pressScene(double x, double y, int button) {
+        // 记录人物模型的按下位置，释放时区分点击开盖和拖动旋转。
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
             scenePressed = true;
             sceneDragged = false;
@@ -696,18 +717,9 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         pressX = x;
         pressY = y;
         if (hasShiftDown()) {
-            // 快速转移只选择另一个已打开窗口，不再根据草包/背篓的固定名称猜目标。
-            for (var target : windows.snapshot()) {
-                if (!target.minimized() && !target.key().identity().equals(container)) {
-                    module.move(
-                            selected,
-                            target.key().identity(),
-                            Cell.getDefaultInstance(),
-                            true,
-                            orientation);
-                    break;
-                }
-            }
+            // 内景快捷取出只进入原版随身槽位，不依赖其他窗口是否打开。
+            module.move(selected, Volumes.PLAYER, Cell.getDefaultInstance(), true /* automatic */, orientation);
+            clearSelection();
         }
     }
 
@@ -779,36 +791,63 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             }
         }
         if (dragging && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            var window = windows.hitTest(x, y);
-            if (window != null) {
-                String id = window.key().identity();
-                var view = viewports.get(id);
-                if (view != null && view.contains(x, y)) {
-                    drop(id, x, y);
-                }
-            } else if (!help.captures(x, y) && !selected.isEmpty()) {
-                int targetSlot = player.slotAt(x, y);
-                var type = ContainerItems.definition(module.stack(selected));
-                Placement placement = type == null ? null : player.wearAt(x, y, type);
-                if (placement != null && (targetSlot < 0 || PlayerSlots.isArmor(targetSlot))) {
-                    module.wear(selected, selectedPlayerStack, placement);
-                    releaseCapture();
-                    return true;
-                }
-                if (targetSlot >= 0) {
-                    // 身体落点包括双手和盔甲部位，服务端验证穿戴类型和卸装限制。
-                    if (selectedPlayerStack != null) {
-                        module.movePlayerStack(selectedPlayerStack, targetSlot);
-                    } else {
-                        module.withdraw(selected, targetSlot);
-                    }
-                }
-            }
+            dropAt(x, y);
         } else if (scenePressed && !sceneDragged && !pressedBag.isEmpty()) {
             openContainer(pressedBag);
         }
         releaseCapture();
         return true;
+    }
+
+    private void dropAt(double x, double y) {
+        // 内景窗口使用格位落点，人物和地面模型使用自动放置。
+        var window = windows.hitTest(x, y);
+        if (window != null) {
+            String id = window.key().identity();
+            var view = viewports.get(id);
+            if (view != null && view.contains(x, y)) {
+                drop(id, x, y);
+            }
+            return;
+        }
+        if (help.captures(x, y) || selected.isEmpty()) {
+            return;
+        }
+        String bag = player.pick(x, y);
+        if (!bag.isEmpty() && !bag.equals(selected)) {
+            dropOnContainer(bag);
+            return;
+        }
+        dropOnBody(x, y);
+    }
+
+    private void dropOnBody(double x, double y) {
+        // 身体落点包括挂点、双手与盔甲，服务端验证穿戴类型和卸装限制。
+        int targetSlot = player.slotAt(x, y);
+        var type = ContainerItems.definition(module.stack(selected));
+        Placement placement = null;
+        if (type != null) {
+            placement = player.wearAt(x, y, type);
+        }
+        if (placement != null && (targetSlot < 0 || PlayerSlots.isArmor(targetSlot))) {
+            module.wear(selected, selectedPlayerStack, placement);
+        } else if (targetSlot >= 0) {
+            if (selectedPlayerStack != null) {
+                module.movePlayerStack(selectedPlayerStack, targetSlot);
+            } else {
+                module.withdraw(selected, targetSlot);
+            }
+        }
+    }
+
+    private void dropOnContainer(String id) {
+        // 模型落点始终自动寻位，已开盖与合盖容器共用完整容量规则。
+        if (selectedPlayerStack != null) {
+            module.deposit(selectedPlayerStack, id, Cell.getDefaultInstance(), true /* automatic */, orientation);
+        } else {
+            module.move(selected, id, Cell.getDefaultInstance(), true /* automatic */, orientation);
+        }
+        hint = "";
     }
 
     private boolean openItemContainer(String item) {
@@ -871,10 +910,9 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
 
     @Override
     public boolean keyPressed(int key, int scan, int modifiers) {
-        // ESC 始终保留取消语义，即使用户把旋转动作绑定到同一个键。
+        // ESC 始终保留关闭语义，即使用户把旋转动作绑定到同一个键。
         if (key == GLFW.GLFW_KEY_ESCAPE) {
             if (help.visible()) {
-                module.cancel();
                 help.close();
                 releaseCapture();
                 return true;
@@ -890,11 +928,12 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             return true;
         }
         // 旋转使用配置后的按键；只在选中物品时消耗，支持 Shift 反向。
-        if (!selected.isEmpty() && module.rotateYaw().matchesKey(key, scan)) {
+        var pressedKey = InputUtil.fromKeyCode(key, scan);
+        if (!selected.isEmpty() && module.rotateYaw().equals(pressedKey)) {
             turn(false);
             return true;
         }
-        if (!selected.isEmpty() && module.rotatePitch().matchesKey(key, scan)) {
+        if (!selected.isEmpty() && module.rotatePitch().equals(pressedKey)) {
             turn(true);
             return true;
         }
@@ -912,8 +951,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
 
     @Override
     public void close() {
-        // 先取消权威转移，再播放合盖；结束时仅调用宿主提供的退出动作。
-        module.cancel();
+        // 先释放地面访问，再播放合盖；结束时仅调用宿主提供的退出动作。
         module.closeGround("");
         clearSelection();
         releaseCapture();
@@ -930,8 +968,8 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     @Override
     public void removed() {
         // 外部替换屏幕、断线和分辨率变化之外的销毁均释放所有窗口作用域。
-        module.cancel();
         module.closeGround("");
+        sceneAuthorized = false;
         releaseCapture();
         windows.reset();
         closing = false;

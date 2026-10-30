@@ -5,10 +5,33 @@ import com.google.protobuf.Message;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.item.ContainerSounds;
 import dev.kizuna.backpack3d.item.ContainerSounds.Action;
-import dev.kizuna.backpack3d.protocol.*;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
-import dev.kizuna.inventoryui.client.*;
-import dev.kizuna.inventoryui.protocol.*;
+import dev.kizuna.backpack3d.protocol.Messages;
+import dev.kizuna.backpack3d.protocol.StackCodec;
+import dev.kizuna.backpack3d.protocol.Volumes;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.CancelRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Cell;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.CloseGroundRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Container;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.EquipRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.EquipmentAppearance;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.GroundOpened;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.MoveRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.OpenRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Phase;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.PlayerSlotStack;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.State;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Transfer;
+import dev.kizuna.inventoryui.client.ClientBindings;
+import dev.kizuna.inventoryui.client.ClientModule;
+import dev.kizuna.inventoryui.client.ClientRuntime;
+import dev.kizuna.inventoryui.client.InventoryUiClient;
+import dev.kizuna.inventoryui.client.WorkspaceScreen;
+import dev.kizuna.inventoryui.protocol.UiMessageRouter;
+import dev.kizuna.inventoryui.protocol.UiProtocolSession;
+import dev.kizuna.inventoryui.protocol.UiWire;
 import dev.kizuna.inventoryui.registry.FrameworkCatalog;
 import dev.kizuna.inventoryui.window.UiWindowDefinition;
 
@@ -25,10 +48,13 @@ import net.minecraft.util.Identifier;
 
 import org.lwjgl.glfw.GLFW;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 
-/** 业务客户端共享权威快照；屏幕关闭后仍接收取消回执，避免连接状态悬空。 */
+/** 业务客户端共享权威快照；屏幕关闭后仍接收即时回执，避免连接状态悬空。 */
 public final class VolumeModule implements ClientModule {
     private static final String WINDOW = "bs3d:launcher";
     private static final int WINDOW_MIN_WIDTH_PIXELS = 280;
@@ -41,15 +67,13 @@ public final class VolumeModule implements ClientModule {
     private final EquipmentAppearances appearances = new EquipmentAppearances();
     private ClientRuntime runtime;
     private String requestedOperation = "";
-    private String contactPlayed = "";
-    private String beginPlayed = "";
     private String completionPlayed = "";
+    private String pendingItem = "";
+    private String pendingPreview = "";
     private String error = "等待服务器同步";
     private Map<String, ItemStack> stacks = Map.of();
     private long generation;
     private KeyBinding openKey;
-    private KeyBinding rotateYaw;
-    private KeyBinding rotatePitch;
     private VolumeComponent embedded;
     private boolean workspaceVisible;
 
@@ -104,10 +128,16 @@ public final class VolumeModule implements ClientModule {
         ContainerItemModels.register();
         ItemDescriptions.register();
         GroundBagRenderer.register();
+        registerWindow(bindings);
+        registerOpenKey();
+    }
+
+    private void registerWindow(ClientBindings bindings) {
+        // 工作台窗口的访问权随作用域释放，最小化仍保留场景。
         bindings.window(
                 WINDOW,
                 (host, window) -> {
-                    // 窗口工厂只挂载场景；清理和服务端取消与这个窗口的 scope 一起结束。
+                    // 窗口工厂只挂载场景；清理和地面访问释放与这个窗口的 scope 一起结束。
                     var component = new VolumeComponent(this, () -> host.workspace().windows().close(window.key()));
                     embedded = component;
                     window.scope().addCleanup(() -> {
@@ -116,29 +146,18 @@ public final class VolumeModule implements ClientModule {
                             embedded = null;
                         }
                     });
-                    send(Messages.OPEN, OpenRequest.getDefaultInstance());
                     return component;
                 });
+    }
+
+    private void registerOpenKey() {
+        // 世界快捷键和工作台场景推进共享客户端 tick，不引入转移计时。
         openKey =
                 KeyBindingHelper.registerKeyBinding(
                         new KeyBinding(
                                 "key.bs3d.open",
                                 InputUtil.Type.KEYSYM,
                                 GLFW.GLFW_KEY_B,
-                                "category.bs3d"));
-        rotateYaw =
-                KeyBindingHelper.registerKeyBinding(
-                        new KeyBinding(
-                                "key.bs3d.rotate_yaw",
-                                InputUtil.Type.KEYSYM,
-                                GLFW.GLFW_KEY_R,
-                                "category.bs3d"));
-        rotatePitch =
-                KeyBindingHelper.registerKeyBinding(
-                        new KeyBinding(
-                                "key.bs3d.rotate_pitch",
-                                InputUtil.Type.KEYSYM,
-                                GLFW.GLFW_KEY_T,
                                 "category.bs3d"));
         ClientTickEvents.END_CLIENT_TICK.register(
                 client -> {
@@ -156,13 +175,6 @@ public final class VolumeModule implements ClientModule {
                         if (client.player != null && client.currentScreen == null) {
                             open();
                         }
-                    }
-                    if (busy() && client.player != null) {
-                        // 客户端阻止继续行走；服务端另有位置锁，不能只依赖界面拦截。
-                        client.player.input.movementForward = 0;
-                        client.player.input.movementSideways = 0;
-                        client.player.input.jumping = false;
-                        client.player.setVelocity(net.minecraft.util.math.Vec3d.ZERO);
                     }
                 });
     }
@@ -182,7 +194,8 @@ public final class VolumeModule implements ClientModule {
         var contract =
                 new UiMessageRouter.Contract<>(
                         Messages.MODULE, id, Messages.VERSION, direction, type, handler);
-        bindings.message(new UiWire.Contract<>(contract, UiWire.Codec.protobuf(sample), true));
+        UiWire.Codec<T> codec = UiWire.Codec.protobuf(sample, value -> value, Messages::validatePayload);
+        bindings.message(new UiWire.Contract<>(contract, codec, true /* required */));
     }
 
     public void open() {
@@ -193,9 +206,14 @@ public final class VolumeModule implements ClientModule {
         } else {
             MinecraftClient.getInstance().setScreen(new VolumeScreen(this));
         }
-        if (runtime != null) {
-            send(Messages.OPEN, OpenRequest.getDefaultInstance());
-        }
+    }
+
+    void openScene() {
+        // 页面真正可见时才授权附近地面模型，普通同步请求不取得租约。
+        var request = OpenRequest.newBuilder()
+                .setIncludeNearbyGround(true /* includeNearbyGround */)
+                .build();
+        send(Messages.OPEN, request);
     }
 
     private void openGround(GroundOpened opened) {
@@ -241,7 +259,8 @@ public final class VolumeModule implements ClientModule {
     }
 
     public boolean busy() {
-        return !requestedOperation.isEmpty() || state.getTransfer().getPhase() == Phase.RUNNING;
+        // 只阻止同一客户端重复提交，服务器不存在跨 tick 转移锁。
+        return !requestedOperation.isEmpty();
     }
 
     public boolean ready() {
@@ -281,51 +300,54 @@ public final class VolumeModule implements ClientModule {
         var transfer = next.getTransfer();
         error = "";
         if (transfer.getOperation().equals(requestedOperation)) {
-            // OPEN 的较早快照不能抹掉已经发出的 MOVE，否则关闭界面会漏发 CANCEL。
+            // OPEN 的较早快照不能抹掉已经发出的 MOVE。
             requestedOperation = "";
+            pendingItem = "";
         }
         playTransferSounds(transfer);
     }
 
     private void playTransferSounds(Transfer transfer) {
-        // 进度快照会重复到达，每个操作的开始、接触和完成音效分别去重。
-        boolean touchesContainer =
-                !transfer.getSource().equals(Volumes.PLAYER)
-                        || !transfer.getTarget().equals(Volumes.PLAYER);
-        if (transfer.getPhase() == Phase.RUNNING) {
-            if (!transfer.getOperation().equals(beginPlayed)) {
-                beginPlayed = transfer.getOperation();
-                if (touchesContainer) {
-                    transferContainerSound(transfer);
-                }
-            }
-            if (transfer.getElapsedTicks() >= transfer.getDurationTicks() / 2
-                    && !transfer.getOperation().equals(contactPlayed)) {
-                contactPlayed = transfer.getOperation();
-                sound(
-                        transfer.getContactSound(),
-                        transfer.getSoundVolume(),
-                        transfer.getSoundPitch());
-            }
-        } else if (transfer.getPhase() == Phase.COMPLETED
+        // 同一操作的重复快照只播放一次材质完成声，不再播放开始和中段声音。
+        if (transfer.getPhase() == Phase.COMPLETED
                 && !transfer.getOperation().equals(completionPlayed)) {
             completionPlayed = transfer.getOperation();
-            if (touchesContainer) {
-                transferContainerSound(transfer);
-            }
+            sound(transfer.getContactSound(), transfer.getSoundVolume(), transfer.getSoundPitch());
         }
+    }
+
+    public boolean pendingItem(String id) {
+        // 权威回执前保留原位置，仅把该物品绘制成半透明占位。
+        return !id.isEmpty() && (pendingItem.equals(id) || pendingPreview.equals(id));
+    }
+
+    public void showPendingPreview(String id) {
+        // 原版页面与独立页面共用来源占位渲染，库存仍由各自权威回执更新。
+        pendingPreview = id;
+    }
+
+    public void clearPendingPreview() {
+        // 附属的终态回执或断线只清理展示，不修改库存。
+        pendingPreview = "";
+    }
+
+    public void quickStore(PlayerSlotStack source) {
+        // 自动目标由服务端按腰挂优先顺序选择，客户端不使用显示切片计算容量。
+        deposit(source, Volumes.CARRIED, Cell.getDefaultInstance(), true /* automatic */, 0);
     }
 
     public KeyBinding openKey() {
         return openKey;
     }
 
-    public KeyBinding rotateYaw() {
-        return rotateYaw;
+    public InputUtil.Key rotateYaw() {
+        // 只提供场景局部键值，不注册或更新全局 KeyBinding 映射。
+        return ModelResources.rotationControls().yaw();
     }
 
-    public KeyBinding rotatePitch() {
-        return rotatePitch;
+    public InputUtil.Key rotatePitch() {
+        // 与左右旋转共用同一次配置重载结果。
+        return ModelResources.rotationControls().pitch();
     }
 
     public Mount mount(String id) {
@@ -423,7 +445,7 @@ public final class VolumeModule implements ClientModule {
 
     public void deposit(
             PlayerSlotStack source, String target, Cell cell, boolean automatic, int orientation) {
-        // 指纹固定为按下鼠标时的快照；服务器在开始和完成时都重新读取真实槽位。
+        // 指纹固定为按下鼠标时的快照；服务器在校验和提交时都读取真实槽位。
         if (!canMovePlayerStack(source)) {
             return;
         }
@@ -451,7 +473,7 @@ public final class VolumeModule implements ClientModule {
     }
 
     public void movePlayerStack(PlayerSlotStack source, int targetSlot) {
-        // 拖回原部位不发请求；换手和穿脱装备都通过服务器计时转移。
+        // 拖回原部位不发请求；换手和穿脱装备都通过服务器即时转移。
         if (!canMovePlayerStack(source) || playerSlot(targetSlot) == null) {
             return;
         }
@@ -467,7 +489,7 @@ public final class VolumeModule implements ClientModule {
     }
 
     public void wear(String item, PlayerSlotStack source, Placement placement) {
-        // 装备实物与容器间转移共用计时请求，不通过本地换挂点提前改变服务器状态。
+        // 装备实物与容器间转移共用即时请求，不通过本地换挂点提前改变服务器状态。
         if (!ready() || busy()) {
             return;
         }
@@ -487,10 +509,6 @@ public final class VolumeModule implements ClientModule {
     private boolean canMovePlayerStack(PlayerSlotStack source) {
         // 所有身上来源共用可用性检查，客户端提示与服务器快照中的卸装限制一致。
         if (!ready() || busy() || source == null) {
-            return false;
-        }
-        if (!source.equals(playerSlot(source.getPlayerSlot()))) {
-            error = "物品已变化，请重新选择";
             return false;
         }
         if (!source.getUnavailableReason().isEmpty()) {
@@ -513,27 +531,17 @@ public final class VolumeModule implements ClientModule {
     }
 
     private void request(MoveRequest value) {
-        // 发起后立即锁定输入，等待服务端开始计时；取消请求可越过此等待状态。
+        // 仅防止同一来源重复提交，不限制角色移动或页面关闭。
         requestedOperation = value.getOperation();
+        pendingItem = value.getItem();
+        if (pendingItem.isEmpty()) {
+            pendingItem = playerSlotPreviewId(value.getPlayerSlot());
+        }
         send(Messages.MOVE, value);
     }
 
-    public void cancel() {
-        String operation =
-                requestedOperation.isEmpty()
-                        ? state.getTransfer().getOperation()
-                        : requestedOperation;
-        if (ready() && busy() && !operation.isEmpty()) {
-            send(
-                    Messages.CANCEL,
-                    CancelRequest.newBuilder()
-                            .setSession(state.getSession())
-                            .setOperation(operation)
-                            .build());
-        }
-    }
-
     private void send(String id, Message value) {
+        // 等待认证连接后发送意图，失败只恢复占位并请求权威快照。
         if (runtime == null || runtime.protocol().state() != UiProtocolSession.State.READY) {
             return;
         }
@@ -544,7 +552,12 @@ public final class VolumeModule implements ClientModule {
                         outcome -> {
                             // 重连前的回调不能覆盖新会话；超时只重同步，不重放转移。
                             if (current == generation && !outcome.accepted()) {
+                                if (value instanceof MoveRequest move
+                                        && state.getTransfer().getOperation().equals(move.getOperation())) {
+                                    return;
+                                }
                                 requestedOperation = "";
+                                pendingItem = "";
                                 error = "操作未完成：" + outcome.code();
                                 if (!id.equals(Messages.OPEN)) {
                                     send(Messages.OPEN, OpenRequest.getDefaultInstance());
@@ -561,26 +574,17 @@ public final class VolumeModule implements ClientModule {
 
     @Override
     public void disconnected(ClientRuntime host) {
-        // 所有会话内的进度、音效去重键和 NBT 缓存都随断线失效。
+        // 所有会话内的来源占位、音效去重键和 NBT 缓存都随断线失效。
         generation++;
         runtime = null;
         state = State.getDefaultInstance();
         appearances.clear();
         stacks = Map.of();
         requestedOperation = "";
-        beginPlayed = "";
-        contactPlayed = "";
+        pendingItem = "";
+        pendingPreview = "";
         completionPlayed = "";
         error = "连接已断开";
-    }
-
-    private void transferContainerSound(Transfer transfer) {
-        // 优先使用目标容器的触碰声；取出到手上时使用来源容器。
-        String id = transfer.getTarget();
-        if (id.equals(Volumes.PLAYER) || id.equals(Volumes.WORN)) {
-            id = transfer.getSource();
-        }
-        containerSound(id, Action.TOUCH);
     }
 
     public void containerSound(String containerId, Action action) {

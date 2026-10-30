@@ -1,12 +1,29 @@
 package dev.kizuna.backpack3d.service;
 
 import dev.kizuna.backpack3d.item.ContainerItems;
-import dev.kizuna.backpack3d.protocol.*;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
+import dev.kizuna.backpack3d.protocol.OrthogonalRotation;
+import dev.kizuna.backpack3d.protocol.StackCodec;
+import dev.kizuna.backpack3d.protocol.Volumes;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Cell;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Container;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.MoveRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornContainer;
 
 import net.minecraft.item.ItemStack;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 /** 一次事务的容器树副本；所有内容最终写回所属的真实容器物品，禁止跨物品悬挂库存。 */
 public final class ContainerTree {
@@ -179,11 +196,18 @@ public final class ContainerTree {
         Size base = Volumes.baseSize(entry.item);
         Size rotated = OrthogonalRotation.size(base, request.getOrientation());
         List<Item> items = target.entries.stream().map(value -> value.item).toList();
-        Cell cell =
-                request.getAutoPlace()
-                        ? Volumes.firstFree(items, target.id, target.type.inside(), rotated, "")
-                        : request.getCell();
+        Cell cell = request.getCell();
+        if (request.getAutoPlace()) {
+            try {
+                cell = Volumes.firstFree(items, target.id, target.type.inside(), rotated, "");
+            } catch (IllegalArgumentException full) {
+                throw new IllegalArgumentException(target.type.title() + "里放不下");
+            }
+        }
         if (!Volumes.fits(items, target.id, target.type.inside(), cell, rotated, "")) {
+            if (request.getAutoPlace()) {
+                throw new IllegalArgumentException(target.type.title() + "里放不下");
+            }
             throw new IllegalArgumentException("目标格被占用或空间不足");
         }
         if (entry.item.getContainer().equals(target.id)
@@ -204,6 +228,37 @@ public final class ContainerTree {
             entry.container.playerSlot = -1;
         }
         target.entries.add(entry);
+    }
+
+    public void placeCarried(Entry entry, int orientation) {
+        // 只搜索身上根容器，腰挂优先，顺序相同则沿用装备顺序；不读取客户端切片范围。
+        var targets = roots.stream()
+                .filter(node -> node.playerSlot < 0 && !node.grounded && node != entry.container)
+                .sorted(Comparator.comparingInt(node -> {
+                    if (node.type.waist()) {
+                        return 0;
+                    }
+                    return 1;
+                }))
+                .toList();
+        Size rotated = OrthogonalRotation.size(Volumes.baseSize(entry.item), orientation);
+        for (Node target : targets) {
+            List<Item> items = target.entries.stream().map(value -> value.item).toList();
+            Cell cell;
+            try {
+                cell = Volumes.firstFree(items, target.id, target.type.inside(), rotated, "");
+            } catch (IllegalArgumentException full) {
+                continue;
+            }
+            var request = MoveRequest.newBuilder()
+                    .setTarget(target.id)
+                    .setOrientation(orientation)
+                    .setCell(cell)
+                    .build();
+            place(entry, request);
+            return;
+        }
+        throw new IllegalArgumentException("随身容器里放不下");
     }
 
     public void wear(Entry entry, Placement placement) {

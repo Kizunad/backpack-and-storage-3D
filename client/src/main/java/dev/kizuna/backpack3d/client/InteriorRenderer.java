@@ -2,14 +2,25 @@ package dev.kizuna.backpack3d.client;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 
-import dev.kizuna.backpack3d.protocol.*;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
+import dev.kizuna.backpack3d.protocol.OrthogonalRotation;
+import dev.kizuna.backpack3d.protocol.Volumes;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Cell;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Container;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
 import dev.kizuna.inventoryui.client.InventoryUiClient;
 import dev.kizuna.inventoryui.theme.ThemeTokens;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.*;
+import net.minecraft.client.render.DiffuseLighting;
+import net.minecraft.client.render.LightmapTextureManager;
+import net.minecraft.client.render.OverlayTexture;
+import net.minecraft.client.render.RenderLayer;
+import net.minecraft.client.render.VertexConsumer;
+import net.minecraft.client.render.VertexConsumerProvider;
+import net.minecraft.client.render.VertexFormat;
+import net.minecraft.client.render.WorldRenderer;
 import net.minecraft.client.render.model.json.ModelTransformationMode;
 import net.minecraft.client.util.math.MatrixStack;
 
@@ -18,10 +29,17 @@ import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /** 三维格子、真实物品和鼠标命中共用相机及可见层范围。 */
 public final class InteriorRenderer {
+    private static final int RGB_MASK = 0x00FFFFFF;
+    private static final int PENDING_ALPHA = 0x70000000;
     private static final float ITEM_SCALE = 0.82f;
     private static final float CELL_INSET = 0.04f;
     private static final float FLOOR_THICKNESS = 0.025f;
@@ -208,36 +226,51 @@ public final class InteriorRenderer {
             if (!item.getContainer().equals(container)) {
                 continue;
             }
-            var position = item.getCell();
-            var size = item.getSize();
-            if (!layers.intersects(position.getY(), size.getHeight())) {
-                continue;
-            }
-            float bottom = Math.max(position.getY(), layers.lower());
-            float top = Math.min(position.getY() + size.getHeight(), layers.upper());
-            var itemPoints =
-                    ModelAsset.vertices(
-                            new Vector3f(position.getX(), bottom, position.getZ()),
-                            new Vector3f(
-                                    position.getX() + size.getWidth(),
-                                    top,
-                                    position.getZ() + size.getDepth()));
-            for (var point : itemPoints) {
-                matrices.peek().getPositionMatrix().transformPosition(point);
-            }
-            itemHits.put(item.getId(), new CellHit(position, itemPoints));
-            renderItem(matrices, buffers, module, item, position, item.getOrientation());
-            if (selected.equals(item.getId())) {
-                wire(
-                        matrices,
-                        buffers,
+            drawStoredItem(matrices, buffers, module, item, selected);
+        }
+    }
+
+    private void drawStoredItem(MatrixStack matrices, VertexConsumerProvider buffers,
+                                VolumeModule module, Item item, String selected) {
+        // 单物品的绘制、占位和命中共享裁剪后的体积。
+        var position = item.getCell();
+        var size = item.getSize();
+        if (!layers.intersects(position.getY(), size.getHeight())) {
+            return;
+        }
+        float bottom = Math.max(position.getY(), layers.lower());
+        float top = Math.min(position.getY() + size.getHeight(), layers.upper());
+        var itemPoints =
+                ModelAsset.vertices(
                         new Vector3f(position.getX(), bottom, position.getZ()),
                         new Vector3f(
                                 position.getX() + size.getWidth(),
                                 top,
-                                position.getZ() + size.getDepth()),
-                        color(ThemeTokens.ACCENT));
-            }
+                                position.getZ() + size.getDepth()));
+        for (var point : itemPoints) {
+            matrices.peek().getPositionMatrix().transformPosition(point);
+        }
+        itemHits.put(item.getId(), new CellHit(position, itemPoints));
+        if (module.pendingItem(item.getId())) {
+            // 未收到回执时保留原占格，用半透明实体占位，不预测移动库存。
+            int tint = color(ThemeTokens.ACCENT) & RGB_MASK | PENDING_ALPHA;
+            solid(matrices, buffers,
+                    new Vector3f(position.getX(), bottom, position.getZ()),
+                    new Vector3f(position.getX() + size.getWidth(), top, position.getZ() + size.getDepth()),
+                    tint);
+        } else {
+            renderItem(matrices, buffers, module, item, position, item.getOrientation());
+        }
+        if (selected.equals(item.getId())) {
+            wire(
+                    matrices,
+                    buffers,
+                    new Vector3f(position.getX(), bottom, position.getZ()),
+                    new Vector3f(
+                            position.getX() + size.getWidth(),
+                            top,
+                            position.getZ() + size.getDepth()),
+                    color(ThemeTokens.ACCENT));
         }
     }
 
@@ -452,8 +485,9 @@ public final class InteriorRenderer {
             Vector3f from,
             Vector3f to,
             int color) {
+        // 半透明实体保留来源体积，不用不透明物品遮住待确认状态。
         var vertices = ModelAsset.vertices(from, to);
-        var consumer = buffers.getBuffer(RenderLayer.getEntityCutoutNoCull(ModelAsset.WHITE));
+        var consumer = buffers.getBuffer(RenderLayer.getEntityTranslucent(ModelAsset.WHITE));
         for (var face : CUBE_FACES) {
             for (int index : face) {
                 var point = vertices[index];

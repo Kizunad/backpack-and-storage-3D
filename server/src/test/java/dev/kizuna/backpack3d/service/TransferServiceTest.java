@@ -1,10 +1,26 @@
 package dev.kizuna.backpack3d.service;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.kizuna.backpack3d.item.ContainerItems;
-import dev.kizuna.backpack3d.protocol.*;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
+import dev.kizuna.backpack3d.server.ImmediateTransfer;
+import dev.kizuna.backpack3d.server.HandlingRules;
+import dev.kizuna.backpack3d.protocol.OrthogonalRotation;
+import dev.kizuna.backpack3d.protocol.StackCodec;
+import dev.kizuna.backpack3d.protocol.Volumes;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.EquipRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.MoveRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Phase;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Receipt;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 
 import net.minecraft.Bootstrap;
 import net.minecraft.SharedConstants;
@@ -13,10 +29,17 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.text.Text;
 
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 class TransferServiceTest {
     private final TransferService service =
@@ -29,6 +52,80 @@ class TransferServiceTest {
         SharedConstants.createGameVersion();
         Bootstrap.initialize();
         ContainerItems.initialize();
+    }
+
+    @Test
+    void moveReturnsCompletedAfterSameCallCommitAndReplayDoesNotRepeat() throws IOException {
+        // 调用生产会话使用的即时入口，不调用 tick 就必须得到已提交库存和终态。
+        account.inventory.set(0, new ItemStack(Items.APPLE));
+        var request = deposit(Volumes.POUCH);
+        var immediate = new ImmediateTransfer(
+                service, new HandlingRules());
+        var response = immediate.execute(account, request);
+        assertEquals(Phase.COMPLETED, response.getPhase());
+        assertEquals(1, account.commits);
+        assertTrue(account.inventory.get(0).isEmpty());
+        assertEquals(1, stored(account.data).size());
+        var replay = immediate.execute(account, request);
+        assertEquals(Phase.COMPLETED, replay.getPhase());
+        assertTrue(replay.getContactSound().isEmpty());
+        assertEquals(1, account.commits);
+    }
+
+    @Test
+    void automaticCarriedTargetPrefersWaistAndQuickTakeMergesBack() throws IOException {
+        // 随身自动目标不依赖 UI 窗口，优先腰挂；取回保留整栈数量。
+        account.inventory.set(0, new ItemStack(Items.APPLE));
+        var request = deposit(Volumes.POUCH).toBuilder()
+                .setTarget(Volumes.CARRIED)
+                .build();
+        service.commit(account, request);
+        var item = stored(account.data).get(0);
+        assertEquals(bag(Volumes.POUCH), item.getContainer());
+        account.inventory.set(0, new ItemStack(Items.APPLE));
+        service.commit(account, move(item.getId(), Volumes.PLAYER));
+        assertEquals(2, account.inventory.get(0).getCount());
+        assertTrue(stored(account.data).isEmpty());
+    }
+
+    @Test
+    void fullWaistFallsThroughToTorsoAndKeepsRequestedOrientation() throws IOException {
+        // 腰挂满了才尝试胸背；自动寻位使用完整容量并保持选定朝向。
+        final int pouchCells = 4;
+        for (int index = 0; index < pouchCells; index++) {
+            account.inventory.set(0, new ItemStack(Items.APPLE));
+            service.commit(account, deposit(Volumes.POUCH));
+        }
+        account.inventory.set(0, new ItemStack(Items.IRON_SWORD));
+        int orientation = OrthogonalRotation.turn(0, true /* vertical */, false /* reverse */);
+        var request = deposit(Volumes.POUCH).toBuilder()
+                .setTarget(Volumes.CARRIED)
+                .setOrientation(orientation)
+                .build();
+        service.commit(account, request);
+        var sword = stored(account.data).stream()
+                .filter(item -> StackCodec.decode(item.getStackNbt()).isOf(Items.IRON_SWORD))
+                .findFirst().orElseThrow();
+        assertEquals(bag(Volumes.BASKET), sword.getContainer());
+        assertEquals(orientation, sword.getOrientation());
+    }
+
+    @Test
+    void fullModelTargetRejectsAndLeavesOriginalSlotUntouched() throws IOException {
+        // 指定模型目标不能偷偷改投其他容器；失败必须保留完整源栈。
+        final int pouchCells = 4;
+        for (int index = 0; index < pouchCells; index++) {
+            account.inventory.set(0, new ItemStack(Items.APPLE));
+            service.commit(account, deposit(Volumes.POUCH));
+        }
+        var original = new ItemStack(Items.IRON_SWORD);
+        account.inventory.set(0, original);
+        var before = account.data;
+        var request = deposit(Volumes.POUCH);
+        var failure = assertThrows(IllegalArgumentException.class, () -> service.commit(account, request));
+        assertTrue(failure.getMessage().contains("里放不下"));
+        assertSame(before, account.data);
+        assertSame(original, account.inventory.get(0));
     }
 
     @Test

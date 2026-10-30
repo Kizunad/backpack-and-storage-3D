@@ -36,9 +36,11 @@ final class ModelConfig {
             String closeAnimation,
             Map<Action, Path> sounds) {}
 
+    record Configuration(List<Entry> models, RotationControls controls) {}
+
     private ModelConfig() {}
 
-    static List<Entry> read(Path directory, Consumer<String> warning) throws IOException {
+    static Configuration read(Path directory, Consumer<String> warning) throws IOException {
         // 先验证整个注册表；语法、重复身份及未知字段错误不能导致半份配置生效。
         Path file = directory.resolve("config.toml");
         if (Files.size(file) > MAX_CONFIG_BYTES) {
@@ -48,10 +50,11 @@ final class ModelConfig {
         if (document.hasErrors()) {
             throw new IllegalArgumentException("config.toml: " + document.errors());
         }
-        requireKeys(document, Set.of("version", "models"), "config.toml");
+        requireKeys(document, Set.of("version", "models", "controls"), "config.toml");
         if (!Long.valueOf(FORMAT_VERSION).equals(document.getLong("version"))) {
             throw new IllegalArgumentException("config.toml: version 必须为 " + FORMAT_VERSION);
         }
+        var controls = RotationControls.read(document.getTable("controls"));
         var entries = new ArrayList<Entry>();
         var identities = new HashSet<Identifier>();
         var registeredFiles = new HashSet<Path>();
@@ -73,7 +76,7 @@ final class ModelConfig {
                     .sorted()
                     .forEach(path -> warning.accept("未注册模型，跳过加载：" + path));
         }
-        return List.copyOf(entries);
+        return new Configuration(List.copyOf(entries), controls);
     }
 
     private static Entry readEntry(Path directory, TomlTable table) throws IOException {

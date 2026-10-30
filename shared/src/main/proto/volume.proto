@@ -55,7 +55,9 @@ message Item {
   uint32 orientation = 6; // OrthogonalRotation 稳定索引 0..23，0 为原始朝向。
   Size base_size = 7; // 未旋转的服务器尺寸；size 为当前朝向的占格。
 }
-message OpenRequest {}
+message OpenRequest {
+  bool include_nearby_ground = 1; // 打开场景时授权附近地面模型；空请求仅同步个人库存。
+}
 message GroundOpened {
   string container = 1; // 原版右键通过服务器校验后，通知客户端打开此内景。
 }
@@ -79,7 +81,7 @@ message MoveRequest {
   // 手持目标只接收空槽或整栈合并；盔甲目标必须为空，且物品部位匹配、数量为 1。
   optional int32 target_player_slot = 11;
   Placement worn_target = 12; // target=worn 时的身体落点；仅容器物品可以装备。
-  map<string, int64> ground_revisions = 13; // 当前访问的地面根容器版本，完成计时再次核对。
+  map<string, int64> ground_revisions = 13; // 当前访问的地面根容器版本，提交前核对。
 }
 // 原版双手与盔甲的展示快照，无业务实例 ID；空槽使用空 stack_nbt。
 message PlayerSlotStack {
@@ -94,7 +96,8 @@ message CancelRequest {
 }
 enum Phase {
   IDLE = 0;
-  RUNNING = 1;
+  reserved 1;
+  reserved "RUNNING";
   COMPLETED = 2;
   CANCELLED = 3;
   REJECTED = 4;
@@ -102,8 +105,8 @@ enum Phase {
 message Transfer {
   string operation = 1;
   Phase phase = 2;
-  int32 elapsed_ticks = 3;
-  int32 duration_ticks = 4; // 服务器 tick，20 tick/秒；卡服不提前提交。
+  reserved 3, 4;
+  reserved "elapsed_ticks", "duration_ticks";
   string detail = 5;
   string contact_sound = 6; // 标准 SoundEvent ID；服务端按 item tag 选择。
   float sound_volume = 7;

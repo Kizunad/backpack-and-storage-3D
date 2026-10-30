@@ -32,6 +32,7 @@ public final class ModelResources implements SimpleSynchronousResourceReloadList
     private static final Logger LOG = LoggerFactory.getLogger("bs3d/resources");
     private static final String PACK_NAME = "bs3d/imported";
     private static Map<Identifier, ModelAsset> models = Map.of();
+    private static RotationControls rotationControls = RotationControls.DEFAULTS;
     private static final Set<String> missing = new HashSet<>();
 
     private ModelResources() {}
@@ -104,12 +105,20 @@ public final class ModelResources implements SimpleSynchronousResourceReloadList
         // 配置整体校验失败时停用全部导入，不能让前半份注册表意外生效。
         try {
             installDefaults(directory);
-            return ModelConfig.read(directory, LOG::warn);
+            var configuration = ModelConfig.read(directory, LOG::warn);
+            rotationControls = configuration.controls();
+            return configuration.models();
         } catch (IOException | RuntimeException invalid) {
+            rotationControls = RotationControls.DEFAULTS;
             LOG.warn(
                     "无法加载 {}，全部导入模型已停用：{}", directory.resolve("config.toml"), invalid.getMessage());
             return List.of();
         }
+    }
+
+    static RotationControls rotationControls() {
+        // 界面每次读当前配置，重载后帮助文字与输入匹配同步更新。
+        return rotationControls;
     }
 
     private static void loadModel(

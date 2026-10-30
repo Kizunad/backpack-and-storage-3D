@@ -1,10 +1,19 @@
 package dev.kizuna.backpack3d.protocol;
 
-import static dev.kizuna.inventoryui.protocol.pb.WireProtocol.Direction.*;
+import static dev.kizuna.inventoryui.protocol.pb.WireProtocol.Direction.CLIENT_TO_SERVER;
+import static dev.kizuna.inventoryui.protocol.pb.WireProtocol.Direction.SERVER_TO_CLIENT;
 
 import com.google.protobuf.Message;
 
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.CancelRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.CloseGroundRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.EquipRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.EquipmentAppearance;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.GroundOpened;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.MoveRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.OpenRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Phase;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.State;
 import dev.kizuna.inventoryui.protocol.pb.WireProtocol;
 
 import java.util.Map;
@@ -20,13 +29,27 @@ public final class Messages {
     public static final String APPEARANCE = "bs3d:appearance";
     public static final String GROUND_OPENED = "bs3d:ground_opened";
     public static final String CLOSE_GROUND = "bs3d:close_ground";
-    public static final int VERSION = 6;
+    public static final int VERSION = 7;
     public static final int MAX_NBT_MEMORY_BYTES = 262_144;
     public static final int MAX_NBT_BYTES = 16_384;
     public static final int MAX_NBT_DEPTH = 32;
     public static final int MAX_SAVE_BYTES = 196_608;
     public static final int RECEIPT_LIMIT = 128;
     public static final int TICKS_PER_SECOND = 20;
+    private static final int RETIRED_ELAPSED_FIELD = 3;
+    private static final int RETIRED_DURATION_FIELD = 4;
+
+    public static <T extends Message> T validatePayload(T value) {
+        // Protobuf 保留字段以未知字段解码，必须在业务分派前拒绝旧计时和未知阶段。
+        if (value instanceof State state) {
+            var transfer = state.getTransfer();
+            RetiredTiming.validate(transfer, RETIRED_ELAPSED_FIELD, RETIRED_DURATION_FIELD);
+            if (transfer.getPhase() == Phase.UNRECOGNIZED) {
+                throw new IllegalArgumentException("转移阶段无效");
+            }
+        }
+        return value;
+    }
 
     private Messages() {}
 

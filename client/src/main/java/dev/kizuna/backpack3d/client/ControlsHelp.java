@@ -110,10 +110,11 @@ final class ControlsHelp {
                         "拖动内景空白处：旋转场景；右键拖动也可旋转；滚轮：缩放。",
                         "内景上方范围条：下方滑块控制最低层，上方滑块控制最高层；至少保留一层，各窗口独立。",
                         "已占用格以连接轮廓高亮，相邻格不显示内部亮线。手动放置须让物品完整占格处于可见层内。",
-                        "拖动物品：放入目标格；选中后单击空格：放置；Shift 点击物品：快速转移。",
-                        module.rotateYaw().getBoundKeyLocalizedText().getString()
+                        "拖动物品：放入目标格；拖到容器模型：自动找空位，合盖时也可用。",
+                        "Shift 点击原版物品：放入随身容器，腰挂优先；Shift 点击内景物品：取回原版背包。",
+                        module.rotateYaw().getLocalizedText().getString()
                                 + "：左右旋转物品；"
-                                + module.rotatePitch().getBoundKeyLocalizedText().getString()
+                                + module.rotatePitch().getLocalizedText().getString()
                                 + "：上下旋转；Shift：反向。",
                         "拖动角色手中的物品到内景格位存入；从内景拖到左手或右手取出。双手也可互相拖放，目标手为空或能整组叠放同种物品时接收。",
                         "盔甲可在身体部位、双手与容器之间拖放；装备部位须匹配且为空。",
@@ -121,8 +122,8 @@ final class ControlsHelp {
                         "右键手中或内景里的容器物品：打开它的内景。容器不可放入自身或子孙。",
                         "世界中手持背包 Shift＋右键：放到地面；右键地面背包：打开；关闭内景后空手 Shift＋右键：收回整包。",
                         "拖动细标题：移动窗口；−：最小化；×：关闭。",
-                        "ESC：取消转移 / 关闭帮助与背包；转移期间角色和物品锁定。",
-                        "按键可在游戏设置中修改。",
+                        "转移即时完成；ESC 只关闭帮助或合盖退出。拒绝时物品保留原位。",
+                        "旋转键在 config/bs3d/config.toml 的 controls 表修改，F3+T 重载；打开背包键在游戏设置中修改。",
                         "当前状态：" + status)) {
             lines.addAll(font.wrapLines(Text.literal(paragraph), textWidth));
         }

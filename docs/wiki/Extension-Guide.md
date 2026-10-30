@@ -4,9 +4,9 @@
 
 ## 工作台场景
 
-2026-10-23：`bs3d:open` 仍映射到 `bs3d:launcher`，窗口工厂直接返回 `VolumeComponent`。它在工作台内容区复用 `VolumeScreen` 的相机、容器内景、命中和操作请求；窗口平移由统一模型视图处理，鼠标保持场景局部坐标，内景裁剪使用屏幕绝对坐标。工厂不切换全局 Screen，窗口 scope 释放时取消访问与未完成转移。退出工作台也会结束访问，最小化保留会话。
+2026-10-23：`bs3d:open` 仍映射到 `bs3d:launcher`，窗口工厂直接返回 `VolumeComponent`。它在工作台内容区复用 `VolumeScreen` 的相机、容器内景、命中和操作请求；窗口平移由统一模型视图处理，鼠标保持场景局部坐标，内景裁剪使用屏幕绝对坐标。工厂不切换全局 Screen，窗口 scope 释放时结束地面访问和鼠标捕获，不撤销已提交的转移。退出工作台也会结束访问，最小化保留会话。
 
-本次不改变业务协议 v6、库存保存格式或 Inventory UI Framework 公共接口。开发客户端与 smoke 的运行 classpath 同时装配 common 服务端源集，由 common 入口完成物品和方块注册，与完整客户端安装一致。
+本次不改变业务协议 v7、库存保存格式或 Inventory UI Framework 公共接口。开发客户端与 smoke 的运行 classpath 同时装配 common 服务端源集，由 common 入口完成物品和方块注册，与完整客户端安装一致。
 
 ## 物品描述与附属字段
 
@@ -52,7 +52,7 @@ ContainerItems.register(
 
 重量附属在逻辑服务器匹配 `bs3d_weights:weight`：合法 `grams` 优先；缺失或无效字段记录 WARN 后回退到现有数据包规则，无匹配时使用 100 克。每个物品类型在一次成功规则加载周期中只警告一次。内置容器传空 `optional`，不在 BS3D 中硬编码附属业务重量，默认值仍由重量附属数据包提供。
 
-迁移：旧的六参数 `ContainerItems.register` 已替换。第三方源码需要在 `title` 后补上描述键，并在最后补上 `optional`；无描述传 `""`，无附属配置传 `Map.of()`，重新编译后两端一起更新。当前没有静默省略 `optional` 的旧签名。此改动不改变业务协议 v6 或库存保存格式。
+迁移：旧的六参数 `ContainerItems.register` 已替换。第三方源码需要在 `title` 后补上描述键，并在最后补上 `optional`；无描述传 `""`，无附属配置传 `Map.of()`，重新编译后两端一起更新。当前没有静默省略 `optional` 的旧签名。此改动不改变业务协议 v7 或库存保存格式。
 
 附属也可以不写 Java，在 `fabric.mod.json` 中声明 protobuf 清单，于启动时注册普通物品与容器，见 [Protobuf 物品清单](Item-Registry.md)。
 
@@ -70,15 +70,14 @@ ContainerItems.register(
 {
   "tag": "example:metal_equipment",
   "sound": "minecraft:block.chain.hit",
-  "duration_ticks": 50,
   "size": [1, 2, 1],
   "priority": 100
 }
 ```
 
-`size` 顺序为宽、高、深，必须恰好包含三个数值，每维 1..3；省略时使用 `1×1×1`。`duration_ticks` 为 1..200 tick。声音必须是服务器注册表中存在的 SoundEvent。`priority` 默认 0，优先级越高越先匹配，相同优先级按资源 ID 排序。
+`size` 顺序为宽、高、深，必须恰好包含三个数值，每维 1..3；省略时使用 `1×1×1`。`duration_ticks` 已废弃，出现该字段会拒绝整次加载。声音必须是服务器注册表中存在的 SoundEvent。`priority` 默认 0，优先级越高越先匹配，相同优先级按资源 ID 排序。
 
-规则先完整读取并校验，再整体替换当前目录。任一文件失败都会中止本次规则重载并保留旧目录；错误包含资源 ID 和出错字段，例如 `size.高` 或 `duration_ticks`。2026-10-13 的可读性整理同时明确了配置类型：数值字段使用 JSON 数值，不接受数字字符串；`size` 多余的轴也会报错，之前版本会忽略第三轴之后的值。合法配置不需要迁移。
+规则先完整读取并校验，再整体替换当前目录。任一文件失败都会中止本次规则重载并保留旧目录；错误包含资源 ID 和出错字段，例如 `size.高` 或废弃字段 `duration_ticks`。2026-10-13 的可读性整理同时明确了配置类型：数值字段使用 JSON 数值，不接受数字字符串；`size` 多余的轴也会报错，之前版本会忽略第三轴之后的值。旧规则须删除 duration_ticks。
 
 原版 `/reload` 重新加载这些规则。新尺寸用于之后存入的物品，已存实例保留未旋转原始尺寸，放置时根据朝向置换轴，避免重载造成重叠或丢失。规则允许匹配第三方模组的物品 tag。
 
@@ -112,7 +111,7 @@ ContainerItems.register(
 
 ## 地面容器接入
 
-注册的容器物品共用潜行右键放置入口；可穿戴类型使用同一份模型资产，不可穿戴类型使用注册物品的原版模型。`GroundBagBlockEntity` 只承载公开外观，禁止向它塞入另一份权威库存。地面目录、访问权、距离检查与跨文件恢复由 `GroundInventory` 管理，物品树和计时转移仍复用 `ContainerTree` 与 `TransferService`。
+注册的容器物品共用潜行右键放置入口；可穿戴类型使用同一份模型资产，不可穿戴类型使用注册物品的原版模型。`GroundBagBlockEntity` 只承载公开外观，禁止向它塞入另一份权威库存。地面目录、访问权、距离检查与跨文件恢复由 `GroundInventory` 管理，物品树和即时转移仍复用 `ContainerTree` 与 `TransferService`。
 
 自定义账户不支持地面库存时保留 `Account.ground()` 的空默认值。实现地面库存时必须在 `ground()` 中仅提供当前已授权根容器副本，在 `groundRevisions()` 中提供版本，并实现三参数 `commit` 的联合提交；不能先保存个人库存、稍后再依赖区块自动保存地面内容。现有 Fabric 实现使用 `GroundJournal` 完成恢复，协议与保存版本见[通信和持久化](Protocol.md)。
 
@@ -120,7 +119,7 @@ ContainerItems.register(
 
 2026-10-15 未发布源码增加 `CursorTransfer` 和 `InventoryAccess.previewCursor` / `exchangeCursor`，用于随身容器与当前原版 `ScreenHandler` 的光标栈交换。`CursorTransfer.Request.take(revision, item)` 取出实例，`store(revision, container, cell, orientation)` 按格坐标存入整个光标栈。空槽指纹用新增的 `StackCodec.fingerprint(ItemStack)` 计算，空栈仍不能通过 `StackCodec.encode` 写为物品。
 
-所有实际访问必须在服务器主线程进行；只接受真实玩家与期望指纹。预览不写库存，提交重新校验当前树、修订号、光标、玩家及容器可用性，并拒绝与 BS3D 现有计时事务并行。调用附属负责原版页面身份、幂等、计时、取消及位置锁，不得绕过这些检查使用旧候选。
+所有实际访问必须在服务器主线程进行；只接受真实玩家与期望指纹。预览不写库存，提交重新校验当前树、修订号、光标、玩家及容器可用性。调用附属负责原版页面身份、幂等、即时点击及失败恢复，不得绕过这些检查使用旧候选。
 
 此入口沿用原版光标关闭与存档生命周期，在同一服务器调用内应用背包和光标变更；不声明玩家与方块跨文件崩溃原子性，也不提供访问未授权地面背包的能力。原有 `TransferService` 和地面日志不变，协议 v6 与保存格式不变。
 

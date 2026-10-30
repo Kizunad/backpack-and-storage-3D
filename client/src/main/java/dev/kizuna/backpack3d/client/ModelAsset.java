@@ -99,7 +99,9 @@ public final class ModelAsset {
             Integer tint,
             int light,
             int overlay) {
-        render(matrices, buffers, new BagAnimation.Sample(false, lid), tint, light, overlay);
+        // 环境光与覆盖纹理作为同一组渲染参数传递。
+        render(matrices, buffers, new BagAnimation.Sample(false /* closing */, lid), tint,
+                new Lighting(light, overlay));
     }
 
     public void render(
@@ -107,13 +109,13 @@ public final class ModelAsset {
             VertexConsumerProvider buffers,
             BagAnimation.Sample pose,
             Integer tint) {
+        // GUI 固定光照与世界渲染共用同一几何路径。
         render(
                 matrices,
                 buffers,
                 pose,
                 tint,
-                LightmapTextureManager.MAX_LIGHT_COORDINATE,
-                OverlayTexture.DEFAULT_UV);
+                new Lighting(LightmapTextureManager.MAX_LIGHT_COORDINATE, OverlayTexture.DEFAULT_UV));
     }
 
     private void render(
@@ -121,17 +123,9 @@ public final class ModelAsset {
             VertexConsumerProvider buffers,
             BagAnimation.Sample pose,
             Integer tint,
-            int light,
-            int overlay) {
+            Lighting lighting) {
         // 高亮轮廓使用同一几何，普通绘制保留模型原有贴图和逐面光照。
-        float red =
-                tint == null ? OPAQUE : ColorHelper.Argb.getRed(tint) / (float) COLOR_CHANNEL_MASK;
-        float green =
-                tint == null
-                        ? OPAQUE
-                        : ColorHelper.Argb.getGreen(tint) / (float) COLOR_CHANNEL_MASK;
-        float blue =
-                tint == null ? OPAQUE : ColorHelper.Argb.getBlue(tint) / (float) COLOR_CHANNEL_MASK;
+        var context = new RenderContext(matrices, buffers, Paint.from(tint), lighting);
         for (var cube : cubes) {
             matrices.push();
             try {
@@ -142,42 +136,60 @@ public final class ModelAsset {
                     if (uv == null) {
                         continue;
                     }
-                    Identifier activeTexture = tint == null ? uv.texture() : WHITE;
-                    var consumer =
-                            buffers.getBuffer(RenderLayer.getEntityCutoutNoCull(activeTexture));
-                    float[][] coords = {
-                        {uv.u0(), uv.v1()},
-                        {uv.u1(), uv.v1()},
-                        {uv.u1(), uv.v0()},
-                        {uv.u0(), uv.v0()}
-                    };
-                    var normal = NORMALS[face];
-                    for (int vertex = 0; vertex < VERTICES_PER_FACE; vertex++) {
-                        var point = vertices[FACE_VERTICES[face][vertex]];
-                        // UV 旋转只改变四角的对应关系，不改变面片顶点顺序。
-                        int uvCorner = Math.floorMod(vertex - uv.rotation(), VERTICES_PER_FACE);
-                        float u = coords[uvCorner][0];
-                        float v = coords[uvCorner][1];
-                        consumer.vertex(
-                                        matrices.peek().getPositionMatrix(),
-                                        point.x,
-                                        point.y,
-                                        point.z)
-                                .color(red, green, blue, OPAQUE)
-                                .texture(u, v)
-                                .overlay(overlay)
-                                .light(light)
-                                .normal(
-                                        matrices.peek().getNormalMatrix(),
-                                        normal.x,
-                                        normal.y,
-                                        normal.z)
-                                .next();
-                    }
+                    renderFace(context, vertices, face, uv);
                 }
             } finally {
                 matrices.pop();
             }
+        }
+    }
+
+    private static void renderFace(RenderContext context, Vector3f[] vertices, int face, Face uv) {
+        // 半透明占位保留原模型几何，UV 旋转仅改变贴图四角的对应关系。
+        var paint = context.paint();
+        Identifier texture = WHITE;
+        if (paint.tint() == null) {
+            texture = uv.texture();
+        }
+        RenderLayer layer = RenderLayer.getEntityCutoutNoCull(texture);
+        if (paint.alpha() < OPAQUE) {
+            layer = RenderLayer.getEntityTranslucent(texture);
+        }
+        var consumer = context.buffers().getBuffer(layer);
+        float[][] coords = {
+            {uv.u0(), uv.v1()}, {uv.u1(), uv.v1()}, {uv.u1(), uv.v0()}, {uv.u0(), uv.v0()}
+        };
+        var normal = NORMALS[face];
+        var entry = context.matrices().peek();
+        for (int vertex = 0; vertex < VERTICES_PER_FACE; vertex++) {
+            var point = vertices[FACE_VERTICES[face][vertex]];
+            int uvCorner = Math.floorMod(vertex - uv.rotation(), VERTICES_PER_FACE);
+            consumer.vertex(entry.getPositionMatrix(), point.x, point.y, point.z)
+                    .color(paint.red(), paint.green(), paint.blue(), paint.alpha())
+                    .texture(coords[uvCorner][0], coords[uvCorner][1])
+                    .overlay(context.lighting().overlay())
+                    .light(context.lighting().light())
+                    .normal(entry.getNormalMatrix(), normal.x, normal.y, normal.z)
+                    .next();
+        }
+    }
+
+    private record Lighting(int light, int overlay) {}
+
+    private record RenderContext(MatrixStack matrices, VertexConsumerProvider buffers,
+                                 Paint paint, Lighting lighting) {}
+
+    private record Paint(Integer tint, float red, float green, float blue, float alpha) {
+        private static Paint from(Integer tint) {
+            // 无染色时保留贴图颜色，有染色时统一拆出 ARGB 通道。
+            if (tint == null) {
+                return new Paint(null, OPAQUE, OPAQUE, OPAQUE, OPAQUE);
+            }
+            return new Paint(tint,
+                    ColorHelper.Argb.getRed(tint) / (float) COLOR_CHANNEL_MASK,
+                    ColorHelper.Argb.getGreen(tint) / (float) COLOR_CHANNEL_MASK,
+                    ColorHelper.Argb.getBlue(tint) / (float) COLOR_CHANNEL_MASK,
+                    ColorHelper.Argb.getAlpha(tint) / (float) COLOR_CHANNEL_MASK);
         }
     }
 

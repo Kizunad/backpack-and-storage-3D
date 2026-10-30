@@ -1,30 +1,46 @@
 package dev.kizuna.backpack3d.smoke;
 
-import dev.kizuna.backpack3d.client.*;
+import java.util.UUID;
+import dev.kizuna.backpack3d.client.WorkspaceBackpackProbe;
+import net.minecraft.client.gui.screen.Screen;
+
+import dev.kizuna.backpack3d.client.ModelResources;
+import dev.kizuna.backpack3d.client.VolumeModule;
+import dev.kizuna.backpack3d.client.VolumeScreen;
 import dev.kizuna.backpack3d.protocol.OrthogonalRotation;
 import dev.kizuna.backpack3d.protocol.PlayerSlots;
 import dev.kizuna.backpack3d.protocol.Volumes;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
-import dev.kizuna.inventoryui.client.*;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Cell;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Phase;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.State;
+import dev.kizuna.inventoryui.client.ClientModule;
+import dev.kizuna.inventoryui.client.InventoryUiClient;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.*;
-import net.minecraft.client.network.*;
+import net.minecraft.client.gui.screen.AccessibilityOnboardingScreen;
+import net.minecraft.client.gui.screen.ConnectScreen;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.screen.TitleScreen;
+import net.minecraft.client.network.ServerAddress;
+import net.minecraft.client.network.ServerInfo;
 import net.minecraft.client.util.ScreenshotRecorder;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.Items;
-import net.minecraft.network.packet.c2s.play.*;
+import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.util.Arm;
 
 import org.lwjgl.glfw.GLFW;
 
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
-/** 真实渲染、服务器计时、移动锁、ESC 撤销及重启恢复的集成验收。 */
+/** 真实渲染、即时转移、拒绝恢复、模型落点及重启恢复的集成验收。 */
 public final class SmokeClient implements ClientModInitializer {
     private static final String ADDRESS = "127.0.0.1:25579";
     private static final long TIMEOUT_MILLIS = 240_000;
@@ -92,6 +108,8 @@ public final class SmokeClient implements ClientModInitializer {
     private int itemPickAttempts;
     private final GroundSmokeClient groundSmoke = new GroundSmokeClient();
     private final WorkspaceBackpackProbe workspaceProbe = new WorkspaceBackpackProbe();
+    private int instantStep;
+    private int instantTicks;
 
     @Override
     public void onInitializeClient() {
@@ -238,6 +256,9 @@ public final class SmokeClient implements ClientModInitializer {
                     return;
                 }
                 if (!rotatedScene) {
+                    require(screen.selectedItem().isEmpty(), "未选物品验收前已有选中物品");
+                    require(!screen.keyPressed(GLFW.GLFW_KEY_R, 0, 0), "未选物品时背包仍消费 R 键");
+                    require(!screen.keyPressed(GLFW.GLFW_KEY_T, 0, 0), "未选物品时背包仍消费 T 键");
                     initialBagBounds = screen.bagBounds(pouch);
                     rotatedScene = true;
                     ticks = 0;
@@ -274,45 +295,22 @@ public final class SmokeClient implements ClientModInitializer {
                                     ((VolumeScreen) client.currentScreen).bagBounds(basket)),
                             "打开草包改变了人物取景或缩放");
                     shot(client, "02-open-pouch");
-                    module.deposit(pouch);
+                    module.move(UUID.randomUUID().toString(), pouch, Cell.getDefaultInstance(),
+                            true /* automatic */);
                     next(Step.START_CANCEL_TEST);
                 }
             }
             case START_CANCEL_TEST -> {
-                if (transfer.getPhase() == Phase.RUNNING && transfer.getElapsedTicks() >= 6) {
-                    require(state.getRevision() == 0 && storedItems(state).size() == 0, "提前挪动物品");
-                    require(client.player.getMainHandStack().isOf(Items.IRON_SWORD), "计时中手持物品丢失");
-                    require(
-                            transfer.getContactSound().equals("minecraft:block.chain.hit"),
-                            "tag 音效规则未加载");
-                    anchorX = client.player.getX();
-                    client.getNetworkHandler()
-                            .sendPacket(
-                                    new PlayerMoveC2SPacket.PositionAndOnGround(
-                                            anchorX + 3,
-                                            client.player.getY(),
-                                            client.player.getZ(),
-                                            true));
-                    movementAttempted = true;
-                    next(Step.VERIFY_MOVEMENT_LOCK);
-                }
-            }
-            case VERIFY_MOVEMENT_LOCK -> {
-                if (transfer.getPhase() == Phase.RUNNING && transfer.getElapsedTicks() >= 14) {
-                    require(
-                            movementAttempted && Math.abs(client.player.getX() - anchorX) < 0.05,
-                            "服务器位置锁失败");
-                    shot(client, "03-transfer-progress");
+                if (transfer.getPhase() == Phase.REJECTED && !module.busy()) {
+                    require(state.getRevision() == 2 && storedItems(state).isEmpty(), "拒绝改变了库存");
+                    require(client.player.getMainHandStack().isOf(Items.IRON_SWORD), "拒绝未恢复来源");
                     client.currentScreen.keyPressed(GLFW.GLFW_KEY_ESCAPE, 0, 0);
                     next(Step.VERIFY_ESCAPE_CANCEL);
                 }
             }
             case VERIFY_ESCAPE_CANCEL -> {
-                if (ticks > 25 && transfer.getPhase() == Phase.CANCELLED) {
-                    require(
-                            state.getRevision() == 0 && storedItems(state).size() == 0,
-                            "ESC 取消后仍提交");
-                    require(client.player.getMainHandStack().isOf(Items.IRON_SWORD), "取消丢物品");
+                if (ticks > 25 && client.currentScreen == null) {
+                    require(state.getRevision() == 2, "关闭页面改变了被拒绝的操作");
                     module.open();
                     ((VolumeScreen) client.currentScreen).openContainer(pouch);
                     next(Step.DEPOSIT_SWORD);
@@ -328,7 +326,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case VERIFY_SWORD -> {
-                if (state.getRevision() == 1 && !module.busy()) {
+                if (state.getRevision() == 3 && !module.busy()) {
                     sword = storedItems(state).get(0).getId();
                     require(storedItems(state).get(0).getSize().getHeight() == 2, "工具三维尺寸失效");
                     require(module.stack(sword).getDamage() == 17, "存入丢失 NBT");
@@ -343,7 +341,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case SELECT_PICKAXE -> {
-                if (state.getRevision() == 2 && !module.busy()) {
+                if (state.getRevision() == 4 && !module.busy()) {
                     slot(client, 2);
                     next(Step.DEPOSIT_PICKAXE);
                 }
@@ -355,7 +353,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case OPEN_BASKET -> {
-                if (state.getRevision() == 3 && !module.busy()) {
+                if (state.getRevision() == 5 && !module.busy()) {
                     ((VolumeScreen) client.currentScreen).openContainer(basket);
                     next(Step.DRAG_WINDOW);
                 }
@@ -392,7 +390,7 @@ public final class SmokeClient implements ClientModInitializer {
                     require(
                             java.util.Arrays.equals(screen.visibleLayers(pouch), new int[] {0, 2}),
                             "范围条影响了另一容器");
-                    require(state.getRevision() == 3 && !module.busy(), "范围条拖动意外提交库存操作");
+                    require(state.getRevision() == 5 && !module.busy(), "范围条拖动意外提交库存操作");
                     shot(client, "layer-range-middle");
                     dragLayerHandle(screen, basket, true, 1, 0);
                     dragLayerHandle(screen, basket, false, 2, 3);
@@ -467,13 +465,13 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case CAPTURE_TRANSFER -> {
-                if (transfer.getPhase() == Phase.RUNNING && transfer.getElapsedTicks() >= 24) {
+                if (transfer.getPhase() == Phase.COMPLETED && !module.busy()) {
                     shot(client, "05-cross-container");
                     next(Step.VERIFY_TRANSFER);
                 }
             }
             case VERIFY_TRANSFER -> {
-                if (state.getRevision() == 4 && !module.busy()) {
+                if (state.getRevision() == 6 && !module.busy()) {
                     require(storedItems(state).size() == 3, "跨容器发生复制或丢失");
                     require(
                             state.getItemsList().stream()
@@ -500,14 +498,14 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case EQUIP_BASKET -> {
-                if (state.getRevision() == 5) {
+                if (state.getRevision() == 7) {
                     require(module.mount(pouch) == Mount.WAIST_LEFT_FRONT, "草包挂点未同步");
                     module.cycleMount(basket);
                     next(Step.CLOSE_SCREEN);
                 }
             }
             case CLOSE_SCREEN -> {
-                if (state.getRevision() == 6 && ticks > 10) {
+                if (state.getRevision() == 8 && ticks > 10) {
                     require(module.mount(basket) == Mount.TORSO_FRONT, "背篓前后挂点未同步");
                     shot(client, "07-equipment-front");
                     ((VolumeScreen) client.currentScreen).close();
@@ -521,10 +519,10 @@ public final class SmokeClient implements ClientModInitializer {
                 if (ticks > 40) {
                     finish(
                             client,
-                            "revision=6; world-equipment; worn-model; scene-rotation;"
+                            "revision=8; world-equipment; worn-model; scene-rotation;"
                                 + " model-picking; two-windows; drag-window; minimize-restore;"
-                                + " rotated-drag-drop; remapped-keys; equipment; timed-transfer;"
-                                + " movement-lock; ESC-cancel; tags; NBT");
+                                + " rotated-drag-drop; remapped-keys; equipment; instant-transfer;"
+                                + " rejected-unchanged; close-after-commit; tags; NBT");
                 }
             }
             default -> {}
@@ -538,7 +536,7 @@ public final class SmokeClient implements ClientModInitializer {
                 if (!client.player.isOnGround()) {
                     return;
                 }
-                require(state.getRevision() == 6 && storedItems(state).size() == 3, "重启恢复失败");
+                require(state.getRevision() == 8 && storedItems(state).size() == 3, "重启恢复失败");
                 sword =
                         state.getItemsList().stream()
                                 .filter(item -> module.stack(item.getId()).isOf(Items.IRON_SWORD))
@@ -570,7 +568,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case DEPOSIT_OFFHAND_SWORD -> {
-                if (state.getRevision() == 7 && !module.busy()) {
+                if (state.getRevision() == 9 && !module.busy()) {
                     require(
                             client.player.getOffHandStack().isOf(Items.IRON_SWORD)
                                     && client.player.getOffHandStack().getDamage() == 17,
@@ -591,7 +589,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case WITHDRAW_MAINHAND_SWORD -> {
-                if (state.getRevision() == 8 && !module.busy()) {
+                if (state.getRevision() == 10 && !module.busy()) {
                     require(client.player.getOffHandStack().isEmpty(), "从副手存入后仍持有同一栈");
                     sword =
                             state.getItemsList().stream()
@@ -609,7 +607,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case HAND_TO_OFFHAND -> {
-                if (state.getRevision() == 9
+                if (state.getRevision() == 11
                         && !module.busy()
                         && dragPlayerSlot(
                                 client,
@@ -619,7 +617,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case HAND_TO_MAINHAND -> {
-                if (state.getRevision() == 10 && !module.busy()) {
+                if (state.getRevision() == 12 && !module.busy()) {
                     require(
                             client.player.getMainHandStack().isEmpty()
                                     && client.player.getOffHandStack().isOf(Items.IRON_SWORD),
@@ -633,7 +631,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case ARMOR_TO_OFFHAND -> {
-                if (state.getRevision() == 11 && !module.busy()) {
+                if (state.getRevision() == 13 && !module.busy()) {
                     require(
                             client.player.getMainHandStack().getDamage() == 17
                                     && client.player.getOffHandStack().isEmpty(),
@@ -647,7 +645,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case ARMOR_TO_HEAD -> {
-                if (state.getRevision() == 12 && !module.busy()) {
+                if (state.getRevision() == 14 && !module.busy()) {
                     require(
                             client.player.getEquippedStack(EquipmentSlot.HEAD).isEmpty()
                                     && client.player.getOffHandStack().isOf(Items.IRON_HELMET),
@@ -661,7 +659,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case BAG_TO_BASKET -> {
-                if (state.getRevision() == 13 && !module.busy()) {
+                if (state.getRevision() == 15 && !module.busy()) {
                     require(
                             client.player
                                     .getEquippedStack(EquipmentSlot.HEAD)
@@ -673,7 +671,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case BAG_TO_WAIST -> {
-                if (state.getRevision() == 14 && !module.busy()) {
+                if (state.getRevision() == 16 && !module.busy()) {
                     require(
                             module.container(pouch).getParent().equals(basket)
                                     && !module.container(pouch).getWorn(),
@@ -684,7 +682,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case BASKET_TO_BACK -> {
-                if (state.getRevision() == 15 && !module.busy()) {
+                if (state.getRevision() == 17 && !module.busy()) {
                     require(module.container(pouch).getWorn(), "草包没有重新挂上腰部");
                     require(module.container(pouch).getWaistAngleDegrees() != 45, "腰部位置仍锁定旧挂点");
                     if (dragContainerToBody(client, basket, null, Mount.TORSO_BACK)) {
@@ -693,7 +691,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case CANCEL_BEFORE_ACK -> {
-                if (state.getRevision() == 16 && !module.busy()) {
+                if (state.getRevision() == 18 && !module.busy()) {
                     require(
                             client.player.getInventory().main.stream()
                                     .anyMatch(
@@ -707,46 +705,182 @@ public final class SmokeClient implements ClientModInitializer {
                                     .findFirst()
                                     .orElseThrow();
                     module.move(block.getId(), pouch, Cell.getDefaultInstance(), true);
-                    // 尚未收到开始回执时关闭屏幕，验证取消不会漏过请求排队窗口。
+                    // 发送后立即关窗，验证已发送请求仍即时完成。
                     client.currentScreen.close();
                     next(Step.VERIFY_EARLY_CANCEL);
                 }
             }
             case VERIFY_EARLY_CANCEL -> {
-                if (ticks > 60) {
-                    require(
-                            state.getRevision() == 16
-                                    && state.getTransfer().getPhase() == Phase.CANCELLED,
-                            "开始回执前关闭未得到取消结果：revision="
-                                    + state.getRevision()
-                                    + ", phase="
-                                    + state.getTransfer().getPhase()
-                                    + ", detail="
-                                    + state.getTransfer().getDetail());
+                if (ticks > 30 && !module.busy()) {
+                    require(state.getRevision() == 19 && state.getTransfer().getPhase() == Phase.COMPLETED,
+                            "关窗撤销了已经提交的即时转移");
                     module.open();
-                    var block =
-                            state.getItemsList().stream()
-                                    .filter(item -> module.stack(item.getId()).isOf(Items.STONE))
-                                    .findFirst()
-                                    .orElseThrow();
-                    module.move(block.getId(), pouch, Cell.getDefaultInstance(), true);
+                    var block = state.getItemsList().stream()
+                            .filter(item -> module.stack(item.getId()).isOf(Items.STONE))
+                            .findFirst()
+                            .orElseThrow();
+                    module.move(block.getId(), basket, Cell.getDefaultInstance(), true /* automatic */);
                     next(Step.DISCONNECT_DURING_TRANSFER);
                 }
             }
             case DISCONNECT_DURING_TRANSFER -> {
-                if (state.getTransfer().getPhase() == Phase.RUNNING
-                        && state.getTransfer().getElapsedTicks() >= 6) {
-                    // 运行中直接断线，脚本核对服务器最终保存的 revision 仍为 16。
-                    finish(
-                            client,
-                            "revision=16; restart-persistence; hand-to-hand; armor-drag;"
-                                    + " portable-bag; waist-drag; torso-drag;"
-                                    + " hand-drag-both-directions; left-handed; early-close-cancel;"
-                                    + " disconnect-cancel; gravity-preserved");
+                if (verifyInstantInputs(client, module)) {
+                    finish(client, "revision=24; restart-persistence; hand-to-hand; armor-drag;"
+                            + " portable-bag; waist-drag; torso-drag; instant-transfer; close-after-commit;"
+                            + " hand-drag-both-directions; left-handed; shift-both-directions;"
+                            + " closed-model-drop; gravity-preserved");
                 }
             }
             default -> {}
         }
+    }
+
+    private boolean verifyInstantInputs(MinecraftClient client, VolumeModule module) {
+        // 使用 Xvfb 的真实 Shift 键状态，鼠标仍通过实际 Screen 分派。
+        if (module.busy()) {
+            return false;
+        }
+        var screen = (VolumeScreen) client.currentScreen;
+        instantTicks++;
+        try {
+            boolean progressed;
+            if (instantStep < 5) {
+                progressed = verifyShiftInputs(client, module, screen);
+            } else if (instantStep < 7) {
+                progressed = verifyModelDrag(client, module, screen);
+            } else {
+                progressed = verifyModelResult(client, module, screen);
+                if (instantStep == 8) {
+                    return progressed;
+                }
+            }
+            if (!progressed) {
+                return false;
+            }
+        } finally {
+            // 未按住 Shift 的步骤不留下上一操作的按键状态。
+            if (instantStep > 4) {
+                SmokeShift.release();
+            }
+        }
+        instantStep++;
+        instantTicks = 0;
+        return false;
+    }
+
+
+    private boolean verifyShiftInputs(MinecraftClient client, VolumeModule module, VolumeScreen screen) {
+        // 通过真实 Shift 键状态验证腰挂优先存入及原版快捷取回。
+        switch (instantStep) {
+            case 0 -> {
+                if (module.state().getRevision() != 20) {
+                    return false;
+                }
+                SmokeShift.press();
+            }
+            case 1 -> {
+                if (!Screen.hasShiftDown()) {
+                    return false;
+                }
+                int[] source = visibleSlot(screen, client.player.getInventory().selectedSlot);
+                if (source == null) {
+                    rotatePreview(screen);
+                    return false;
+                }
+                screen.mouseClicked(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                screen.mouseReleased(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                SmokeShift.release();
+            }
+            case 2 -> {
+                if (module.state().getRevision() != 21) {
+                    return false;
+                }
+                var stored = storedItems(module.state()).stream()
+                        .filter(item -> module.stack(item.getId()).isOf(Items.IRON_SWORD))
+                        .findFirst().orElseThrow();
+                require(stored.getContainer().equals(pouch), "Shift 未优先选择腰挂容器");
+                sword = stored.getId();
+                screen.openContainer(pouch);
+            }
+            case 3 -> {
+                if (instantTicks < 30 || screen.viewport(pouch) == null) {
+                    return false;
+                }
+                SmokeShift.press();
+            }
+            case 4 -> {
+                if (!Screen.hasShiftDown()) {
+                    return false;
+                }
+                selectSword(screen);
+                SmokeShift.release();
+            }
+            default -> throw new IllegalStateException("未知即时输入验收步骤");
+        }
+        return true;
+    }
+
+
+    private boolean verifyModelDrag(MinecraftClient client, VolumeModule module, VolumeScreen screen) {
+        // 等待模型合盖后，以真实命中坐标提交自动放入。
+        switch (instantStep) {
+            case 5 -> {
+                if (module.state().getRevision() != 22) {
+                    return false;
+                }
+                int swordSlot = -1;
+                for (int index = 0; index < PlayerInventory.MAIN_SIZE; index++) {
+                    if (client.player.getInventory().getStack(index).isOf(Items.IRON_SWORD)) {
+                        swordSlot = index;
+                        break;
+                    }
+                }
+                require(swordSlot >= 0, "Shift 取出未进入原版槽位");
+                slot(client, swordSlot);
+                screen.closeContainer(pouch);
+            }
+            case 6 -> {
+                if (instantTicks < 30) {
+                    return false;
+                }
+                int[] source = visibleSlot(screen, client.player.getInventory().selectedSlot);
+                int[] target = visibleBag(screen, basket);
+                if (source == null || target == null) {
+                    rotatePreview(screen);
+                    return false;
+                }
+                require(!screen.openContainers().contains(basket), "模型自动放置验收要求合盖");
+                screen.mouseClicked(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                screen.mouseDragged(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT,
+                        target[0] - source[0], target[1] - source[1]);
+                screen.mouseReleased(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
+            }
+            default -> throw new IllegalStateException("未知即时输入验收步骤");
+        }
+        return true;
+    }
+
+
+    private boolean verifyModelResult(MinecraftClient client, VolumeModule module, VolumeScreen screen) {
+        // 权威回执必须保留目标容器并允许立即进行下一次操作。
+        switch (instantStep) {
+            case 7 -> {
+                if (module.state().getRevision() != 23) {
+                    return false;
+                }
+                var stored = storedItems(module.state()).stream()
+                        .filter(item -> module.stack(item.getId()).isOf(Items.IRON_SWORD))
+                        .findFirst().orElseThrow();
+                require(stored.getContainer().equals(basket), "拖到合盖模型未自动放入");
+                shot(client, "instant-closed-model-drop");
+                module.move(stored.getId(), Volumes.PLAYER, Cell.getDefaultInstance(), true /* automatic */);
+            }
+            case 8 -> {
+                return module.state().getRevision() == 24;
+            }
+            default -> throw new IllegalStateException("未知即时输入验收步骤");
+        }
+        return true;
     }
 
     private static java.util.List<Item> storedItems(State state) {
@@ -1002,7 +1136,8 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
         }
-        require(picked && screen.selectedItem().equals(sword), "三维物品命中失败");
+        require(picked && (Screen.hasShiftDown()
+                || screen.selectedItem().equals(sword)), "三维物品命中失败");
     }
 
     private static java.util.List<Cell> sampleCells(VolumeScreen screen, String container) {
@@ -1047,22 +1182,41 @@ public final class SmokeClient implements ClientModInitializer {
         throw new IllegalStateException("找不到可拖动的内景空白处");
     }
 
-    private int rotateWithReboundKey(VolumeScreen screen, VolumeModule module) {
+    private int rotateWithReboundKey(VolumeScreen screen, VolumeModule module) throws java.io.IOException {
+        // 旋转键不进入原版全局表；打开背包键仍可在控制设置里改键。
+        var client = MinecraftClient.getInstance();
+        for (var binding : client.options.allKeys) {
+            String id = binding.getTranslationKey();
+            require(!id.equals("key.bs3d.rotate_yaw"), "左右旋转仍注册为全局按键");
+            require(!id.equals("key.bs3d.rotate_pitch"), "上下旋转仍注册为全局按键");
+        }
+        require(java.util.Arrays.asList(client.options.allKeys).contains(module.openKey()), "全局背包键丢失");
         screen.keyPressed(GLFW.GLFW_KEY_T, 0, 0);
-        // 重绑定后只响应新键，证明并非在屏幕中硬编码 R。
-        module.rotateYaw()
-                .setBoundKey(
-                        net.minecraft.client.util.InputUtil.Type.KEYSYM.createFromCode(
-                                GLFW.GLFW_KEY_Y));
-        screen.keyPressed(GLFW.GLFW_KEY_Y, 0, 0);
-        module.rotateYaw()
-                .setBoundKey(
-                        net.minecraft.client.util.InputUtil.Type.KEYSYM.createFromCode(
-                                GLFW.GLFW_KEY_R));
+        verifyConfiguredRotation(screen);
         int orientation =
                 OrthogonalRotation.turn(OrthogonalRotation.turn(0, true, false), false, false);
         require(screen.selectedOrientation() == orientation, "可配置旋转键未应用");
         return orientation;
+    }
+
+    private void verifyConfiguredRotation(VolumeScreen screen) throws java.io.IOException {
+        // 从真实 TOML 重读新键，旧键不再旋转；结束后恢复夹具配置。
+        Path directory = FabricLoader.getInstance().getConfigDir().resolve("bs3d");
+        Path config = directory.resolve("config.toml");
+        String original = Files.readString(config);
+        String rebound = original.replace("key.keyboard.r", "key.keyboard.y");
+        try {
+            Files.writeString(config, rebound);
+            ModelResources.registerPack(ignored -> {});
+            int before = screen.selectedOrientation();
+            screen.keyPressed(GLFW.GLFW_KEY_R, 0, 0);
+            require(screen.selectedOrientation() == before, "改键后旧 R 键仍旋转物品");
+            screen.keyPressed(GLFW.GLFW_KEY_Y, 0, 0);
+            require(screen.selectedOrientation() != before, "TOML 新旋转键未生效");
+        } finally {
+            Files.writeString(config, original);
+            ModelResources.registerPack(ignored -> {});
+        }
     }
 
     private void dropSwordIntoBasket(

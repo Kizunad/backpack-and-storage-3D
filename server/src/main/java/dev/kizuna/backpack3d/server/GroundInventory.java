@@ -327,6 +327,26 @@ public final class GroundInventory implements GroundBags.Actions {
         leases.put(id, player.getUuid());
     }
 
+    List<String> acquireNearby(ServerPlayerEntity player, Set<String> current, int limit) {
+        // 计入已有访问权，补齐当前可见且未被他人使用的地面根，不突破页面上限。
+        var result = new ArrayList<>(current);
+        for (String id : entries.keySet()) {
+            if (result.size() == limit) {
+                break;
+            }
+            if (current.contains(id)) {
+                continue;
+            }
+            try {
+                acquire(player, id);
+                result.add(id);
+            } catch (IllegalArgumentException unavailable) {
+                // 不可见、超距或被占用的容器不出现在当前页面。
+            }
+        }
+        return List.copyOf(result);
+    }
+
     public void release(UUID player, String id) {
         leases.remove(id, player);
     }
@@ -387,7 +407,6 @@ public final class GroundInventory implements GroundBags.Actions {
         if (!player.isAlive()
                 || player.isSpectator()
                 || player.hasVehicle()
-                || VolumeServer.locked(player)
                 || player.currentScreenHandler != player.playerScreenHandler
                 || !player.playerScreenHandler.getCursorStack().isEmpty()) {
             throw new IllegalArgumentException("当前不能操作地面背包");

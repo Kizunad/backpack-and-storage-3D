@@ -26,11 +26,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
-/** 数据包用原版 item tag 选择材质声音、处理时长与占用体积。 */
+/** 数据包用原版 item tag 选择完成声音与占用体积。 */
 public final class HandlingRules implements SimpleSynchronousResourceReloadListener {
-    public static final int DEFAULT_DURATION_TICKS = 40;
-    private static final int MIN_DURATION_TICKS = 1;
-    private static final int MAX_DURATION_TICKS = 200;
     private static final int DIMENSION_COUNT = 3;
     private static final int MIN_SIZE_CELLS = 1;
     private static final int MAX_SIZE_CELLS = 3;
@@ -66,6 +63,9 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
         // 文件边界负责关闭 reader 和补充文件名；字段错误由下面的解析步骤说明。
         try (var reader = resource.getReader()) {
             JsonObject json = JsonHelper.asObject(JsonParser.parseReader(reader), "规则根节点");
+            if (json.has("duration_ticks")) {
+                throw new IllegalArgumentException("duration_ticks 已废弃");
+            }
 
             Identifier tagId = readIdentifier(json, "tag");
             TagKey<Item> tag = TagKey.of(RegistryKeys.ITEM, tagId);
@@ -75,19 +75,9 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
                 throw new IllegalArgumentException("sound 未注册：" + soundId);
             }
 
-            int durationTicks = JsonHelper.getInt(json, "duration_ticks");
-            if (durationTicks < MIN_DURATION_TICKS || durationTicks > MAX_DURATION_TICKS) {
-                throw new IllegalArgumentException(
-                        "duration_ticks 必须在 "
-                                + MIN_DURATION_TICKS
-                                + ".."
-                                + MAX_DURATION_TICKS
-                                + " tick 之间");
-            }
-
             Size size = readSize(json);
             int priority = JsonHelper.getInt(json, "priority", DEFAULT_PRIORITY);
-            return new Rule(tag, soundId.toString(), durationTicks, size, priority);
+            return new Rule(tag, soundId.toString(), size, priority);
         } catch (IOException | JsonParseException | IllegalArgumentException failure) {
             throw new IllegalArgumentException(
                     "无法加载规则 " + resourceId + "：" + failure.getMessage(), failure);
@@ -134,7 +124,7 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
         for (Rule rule : rules) {
             if (stack.isIn(rule.tag())) {
                 return new Material(
-                        rule.sound(), rule.ticks(), DEFAULT_VOLUME, DEFAULT_PITCH, rule.size());
+                        rule.sound(), DEFAULT_VOLUME, DEFAULT_PITCH, rule.size());
             }
         }
 
@@ -145,20 +135,18 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
             sound = soundGroup.getPlaceSound().getId().toString();
         }
         return new Material(
-                sound, DEFAULT_DURATION_TICKS, DEFAULT_VOLUME, DEFAULT_PITCH, Volumes.UNIT);
+                sound, DEFAULT_VOLUME, DEFAULT_PITCH, Volumes.UNIT);
     }
 
     /** 一次物品转移采用的材质规则。 */
     public record Material(
             // 服务器注册的 SoundEvent ID。
             String sound,
-            // 处理时长，单位为服务器 tick。
-            int ticks,
             // 播放音量与音高倍率。
             float volume,
             float pitch,
             // 物品未旋转的宽、高、深，单位为格。
             Size size) {}
 
-    private record Rule(TagKey<Item> tag, String sound, int ticks, Size size, int priority) {}
+    private record Rule(TagKey<Item> tag, String sound, Size size, int priority) {}
 }

@@ -25,6 +25,7 @@ import java.util.List;
 final class PlayerSlotTargets {
     private static final float MODEL_UNITS_PER_BLOCK = 16;
     private static final float COLOR_CHANNEL_MAX = 255f;
+    private static final float PENDING_OPACITY = 0.45f;
     // 以下边界以皮肤像素为单位；盔甲外扩一像素，裤腿与靴子在腿部八像素处分界。
     private static final Bounds HEAD = bounds(-5, -9, -5, 5, 1, 5);
     private static final Bounds CHEST = bounds(-5, 0, -3, 5, 12, 3);
@@ -135,6 +136,23 @@ final class PlayerSlotTargets {
                     ColorHelper.Argb.getGreen(color) / COLOR_CHANNEL_MAX,
                     ColorHelper.Argb.getBlue(color) / COLOR_CHANNEL_MAX,
                     1);
+        }
+    }
+
+    void renderPending(VolumeModule module, VertexConsumerProvider buffers) {
+        // 手持和装备的来源保留半透明占位，拒绝回执后恢复真实模型。
+        int color = InventoryUiClient.runtime().color(ThemeTokens.ACCENT);
+        for (Target target : targets) {
+            if (!module.pendingItem(VolumeModule.playerSlotPreviewId(target.slot()))) {
+                continue;
+            }
+            Vector3f from = target.bounds().from();
+            Vector3f to = target.bounds().to();
+            WorldRenderer.renderFilledBox(target.transform(), buffers.getBuffer(RenderLayer.getDebugFilledBox()),
+                    from.x, from.y, from.z, to.x, to.y, to.z,
+                    ColorHelper.Argb.getRed(color) / COLOR_CHANNEL_MAX,
+                    ColorHelper.Argb.getGreen(color) / COLOR_CHANNEL_MAX,
+                    ColorHelper.Argb.getBlue(color) / COLOR_CHANNEL_MAX, PENDING_OPACITY);
         }
     }
 

@@ -12,9 +12,11 @@ import net.minecraft.resource.ResourceType;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
-/** Framework 独占通道，业务只管理每连接计时事务与物品规则。 */
+/** Framework 独占通道，业务只管理每连接即时事务与物品规则。 */
 public final class VolumeServer implements ModInitializer, FabricServerModule {
     public static final HandlingRules RULES = new HandlingRules();
     private static final Set<VolumeSession> SESSIONS = new HashSet<>();
@@ -52,10 +54,6 @@ public final class VolumeServer implements ModInitializer, FabricServerModule {
 
     static void forget(VolumeSession session) {
         SESSIONS.remove(session);
-    }
-
-    public static boolean locked(ServerPlayerEntity player) {
-        return SESSIONS.stream().anyMatch(session -> session.locks(player));
     }
 
     public static VolumeSession session(ServerPlayerEntity player) {

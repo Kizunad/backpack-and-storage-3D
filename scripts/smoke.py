@@ -13,8 +13,8 @@ TIMEOUT_SECONDS = 300
 SERVER_POLL_SECONDS = 0.5
 SERVER_STOP_SECONDS = 30
 PROCESS_TERMINATE_SECONDS = 10
-PHASE_REVISIONS = {"first": "revision=6", "second": "revision=16",
-                   "ground": "revision=19", "ground_restart": "revision=20"}
+PHASE_REVISIONS = {"first": "revision=8", "second": "revision=24",
+                   "ground": "revision=27", "ground_restart": "revision=28"}
 
 
 def parse_args():

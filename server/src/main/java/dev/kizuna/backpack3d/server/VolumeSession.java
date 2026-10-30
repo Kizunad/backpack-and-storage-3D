@@ -1,46 +1,51 @@
 package dev.kizuna.backpack3d.server;
 
 import dev.kizuna.backpack3d.item.ContainerItems;
-import dev.kizuna.backpack3d.protocol.*;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
+import dev.kizuna.backpack3d.protocol.Messages;
+import dev.kizuna.backpack3d.protocol.PlayerSlots;
+import dev.kizuna.backpack3d.protocol.StackCodec;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.CancelRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.CloseGroundRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.EquipRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.GroundOpened;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.MoveRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.OpenRequest;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Phase;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.PlayerSlotStack;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.State;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Transfer;
 import dev.kizuna.backpack3d.service.ContainerTree;
 import dev.kizuna.backpack3d.service.TransferService;
-import dev.kizuna.inventoryui.server.*;
+import dev.kizuna.inventoryui.server.ServerConnection;
+import dev.kizuna.inventoryui.server.ServerModuleSession;
+import dev.kizuna.inventoryui.server.ServerRequest;
 
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.util.math.Vec3d;
 
 import java.io.IOException;
-import java.util.HashSet;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/** 连接内只允许一个计时转移；完成前库存完全不变。 */
+/** 每次请求在同一服务器调用内校验并提交，快照只公布终态。 */
 public final class VolumeSession implements ServerModuleSession<ServerPlayerEntity> {
-    private static final int PROGRESS_INTERVAL_TICKS = 2;
     private static final int MAX_OPEN_GROUND_BAGS = 8;
-    private static final double MAX_POSITION_DRIFT_SQUARED = 0.0025;
-    // 地面支撑探测距离，单位为方块；锁定期间 onGround 瞬态标志不作为唯一依据。
-    private static final double GROUND_PROBE_BLOCKS = 0.05;
     private final MinecraftServer server;
     private final ServerConnection<ServerPlayerEntity> connection;
     private final TransferService service;
     private final HandlingRules rules;
     private final WornEquipmentSync appearances;
-    private final Set<String> cancelled = new HashSet<>();
-    private final Set<String> ground = new java.util.LinkedHashSet<>();
+    private final Set<String> ground = new LinkedHashSet<>();
     private UUID groundOwner;
     private boolean opened;
-    private MoveRequest pending;
-    private ServerPlayerEntity actor;
-    private Vec3d anchor;
-    private net.minecraft.registry.RegistryKey<net.minecraft.world.World> dimension;
-    private float startingHealth;
-    private int elapsed;
     private Transfer transfer = Transfer.getDefaultInstance();
     private int lastSelectedSlot = -1;
     private List<ItemStack> lastInventory = List.of();
@@ -63,18 +68,14 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         return server;
     }
 
-    public boolean locks(ServerPlayerEntity player) {
-        return pending != null && actor == player;
-    }
-
     public boolean belongsTo(ServerPlayerEntity player) {
         return connection.supports(Messages.GROUND_OPENED) && connection.context() == player;
     }
 
     public void openGround(String id) {
+        // 地面访问先取得独占租约，再验证整树并公布快照。
         var player = connection.context();
-        if (pending != null
-                || !available(player)
+        if (!available(player)
                 || (ground.size() >= MAX_OPEN_GROUND_BAGS && !ground.contains(id))) {
             throw new IllegalArgumentException("请结束当前操作或关闭多余的地面背包窗口");
         }
@@ -84,6 +85,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         boolean added = ground.add(id);
         try {
             var candidate = account();
+            // 构造整树会校验嵌套和唯一身份，损坏时抛出 IllegalArgumentException。
             new ContainerTree(candidate.data(), candidate.inventory(), candidate.ground());
         } catch (IllegalArgumentException invalid) {
             if (added) {
@@ -100,9 +102,27 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         return new GroundAccount(connection.context(), ground);
     }
 
-    java.util.Map<String, net.minecraft.item.ItemStack> accessibleGround() {
+    void openNearbyGround() {
+        // 附属页面与独立场景共用授权入口，随后向客户端公布完整状态。
+        acquireNearbyGround();
+        opened = true;
+        send();
+    }
+
+    private void acquireNearbyGround() {
+        // 页面打开才取得地面访问权，登录时的空 OPEN 不占用附近容器。
+        var player = connection.context();
+        if (!actorAvailable(player)) {
+            throw new IllegalArgumentException("角色当前状态不允许转移");
+        }
+        pruneGround();
+        groundOwner = player.getUuid();
+        ground.addAll(GroundInventory.get(server).acquireNearby(player, ground, MAX_OPEN_GROUND_BAGS));
+    }
+
+    Map<String, ItemStack> accessibleGround() {
         // 按读取时的玩家、维度和距离重新验证；失效访问不提供给附属。
-        var result = new java.util.LinkedHashMap<String, net.minecraft.item.ItemStack>();
+        var result = new LinkedHashMap<String, ItemStack>();
         var storage = GroundInventory.get(server);
         for (String id : ground) {
             try {
@@ -125,16 +145,16 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
     }
 
     private boolean pruneGround() {
+        // 失去角色状态、距离或遮挡条件时释放旧访问权。
         boolean changed = false;
         var player = connection.context();
         for (String id : List.copyOf(ground)) {
             try {
-                if (!available(player)) {
+                if (!actorAvailable(player)) {
                     throw new IllegalArgumentException("角色状态已变化");
                 }
                 GroundInventory.get(server).leased(player, id);
             } catch (IllegalArgumentException invalid) {
-                cancel("地面背包已不可访问，转移已取消");
                 releaseGround(List.of(id));
                 changed = true;
             }
@@ -151,14 +171,16 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
             send();
             return true;
         } catch (IllegalArgumentException | IOException invalid) {
-            // 拒绝第二次操作不能清掉正在运行的第一个事务或解除它的位置锁。
-            if (pending == null) {
-                transfer =
-                        Transfer.newBuilder()
-                                .setPhase(Phase.REJECTED)
-                                .setDetail(invalid.getMessage())
-                                .build();
+            // 回执携带原操作号，客户端据此恢复来源占位和输入。
+            String operation = "";
+            if (request.message().equals(Messages.MOVE)) {
+                operation = request.payload(MoveRequest.getDefaultInstance()).getOperation();
             }
+            transfer = Transfer.newBuilder()
+                    .setOperation(operation)
+                    .setPhase(Phase.REJECTED)
+                    .setDetail(invalid.getMessage())
+                    .build();
             send();
             return false;
         }
@@ -168,7 +190,10 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
             throws IOException {
         // OPEN 建立业务会话，后续请求才允许携带会话 ID 修改状态。
         if (request.message().equals(Messages.OPEN)) {
-            request.payload(OpenRequest.getDefaultInstance());
+            var open = request.payload(OpenRequest.getDefaultInstance());
+            if (open.getIncludeNearbyGround()) {
+                acquireNearbyGround();
+            }
             opened = true;
             return;
         }
@@ -180,21 +205,17 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
             case Messages.CLOSE_GROUND -> {
                 var close = request.payload(CloseGroundRequest.getDefaultInstance());
                 requireSession(close.getSession());
-                cancel("地面背包窗口已关闭");
                 releaseGround(close.getContainersList());
             }
             case Messages.CANCEL -> {
                 CancelRequest cancelRequest = request.payload(CancelRequest.getDefaultInstance());
                 requireSession(cancelRequest.getSession());
-                if (pending != null
-                        && pending.getOperation().equals(cancelRequest.getOperation())) {
-                    cancel("操作已取消，物品保留原位");
-                }
+                // 即时事务没有可取消的阶段，关闭页面不会撤销已提交操作。
             }
             case Messages.EQUIP -> {
                 EquipRequest equipRequest = request.payload(EquipRequest.getDefaultInstance());
                 requireSession(equipRequest.getSession());
-                if (pending != null || !available(player)) {
+                if (!available(player)) {
                     throw new IllegalArgumentException("当前不能切换装备位置");
                 }
                 service.equip(new PlayerAccount(player), equipRequest);
@@ -215,122 +236,44 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         }
     }
 
-    private void start(ServerPlayerEntity player, MoveRequest move) {
-        // 相同运行中请求只回当前进度；不同请求不会抢占锁定物品。
-        if (pending != null) {
-            if (pending.equals(move)) {
-                return;
-            }
-            throw new IllegalArgumentException("请等待当前转移完成");
-        }
+    private void start(ServerPlayerEntity player, MoveRequest move) throws IOException {
+        // 幂等重试只回执；新请求在同一调用内准备和提交，期间不会推进服务器 tick。
         if (!available(player)) {
             throw new IllegalArgumentException("角色当前状态不允许转移");
         }
-        if (player.getWorld()
-                .isSpaceEmpty(player, player.getBoundingBox().offset(0, -GROUND_PROBE_BLOCKS, 0))) {
-            // 直接检查脚下碰撞体。静止且速度为零时，原版可能清掉 onGround，但支撑面依然存在。
-            throw new IllegalArgumentException("请站稳后操作");
-        }
-        if (cancelled.contains(move.getOperation()) || cancelled.size() >= Messages.RECEIPT_LIMIT) {
-            throw new IllegalArgumentException("操作已取消或本次会话取消次数过多，请重新连接");
-        }
-        var account = account();
-        if (service.committed(account, move)) {
-            transfer =
-                    Transfer.newBuilder()
-                            .setOperation(move.getOperation())
-                            .setPhase(Phase.COMPLETED)
-                            .setDetail("转移已完成")
-                            .build();
-            return;
-        }
-        var candidate = service.prepare(account, move);
-        var material = rules.material(candidate.moved());
-        transfer =
-                Transfer.newBuilder()
-                        .setOperation(move.getOperation())
-                        .setPhase(Phase.RUNNING)
-                        .setDurationTicks(material.ticks())
-                        .setContactSound(material.sound())
-                        .setSoundVolume(material.volume())
-                        .setSoundPitch(material.pitch())
-                        .setSource(candidate.source())
-                        .setTarget(move.getTarget())
-                        .setDetail("正在转移 · ESC 可中断")
-                        .build();
-        pending = move;
-        actor = player;
-        anchor = player.getPos();
-        dimension = player.getWorld().getRegistryKey();
-        startingHealth = player.getHealth();
-        elapsed = 0;
-        player.setVelocity(Vec3d.ZERO);
+        transfer = new ImmediateTransfer(service, rules).execute(account(), move);
     }
 
     public void tick() {
-        // 即使 UI 未打开也同步世界外观；转移候选未提交前不会出现在玩家存档中。
+        // 世界外观与原版槽位变化独立同步，不保留跨 tick 的转移事务。
         appearances.tick();
         boolean groundChanged = pruneGround();
-        // 死亡、换维度、传送、受伤与原版界面切换立即取消，不把玩家拉回旧世界。
-        if (pending == null) {
-            // 原版切换快捷栏、交换副手不会增加业务修订号，另行推送手持变化。
-            var player = connection.context();
-            if (opened
-                    && (groundChanged
-                            || lastSelectedSlot != player.getInventory().selectedSlot
-                            || inventoryChanged(player)
-                            || lastCreative != player.isCreative()
-                            || lastRevision
-                                    != ((PlayerStorage) player)
-                                            .bs3d$getInventory()
-                                            .getRevision())) {
-                send();
-            }
-            return;
-        }
         var player = connection.context();
-        boolean changedDimension = !player.getWorld().getRegistryKey().equals(dimension);
-        boolean movedFromAnchor =
-                player.getPos().squaredDistanceTo(anchor) > MAX_POSITION_DRIFT_SQUARED;
-        boolean tookDamage = player.getHealth() < startingHealth;
-        if (player != actor
-                || !available(player)
-                || changedDimension
-                || movedFromAnchor
-                || tookDamage) {
-            cancel("角色状态变化，转移已中断");
-            send();
-            return;
-        }
-        player.setVelocity(Vec3d.ZERO);
-        elapsed++;
-        transfer = transfer.toBuilder().setElapsedTicks(elapsed).build();
-        if (elapsed >= transfer.getDurationTicks()) {
-            try {
-                service.commit(account(), pending);
-                transfer = transfer.toBuilder().setPhase(Phase.COMPLETED).setDetail("转移完成").build();
-                unlock();
-            } catch (IOException | IllegalArgumentException failure) {
-                cancel("转移未提交：" + failure.getMessage());
-            }
-            send();
-        } else if (elapsed % PROGRESS_INTERVAL_TICKS == 0) {
+        long revision = ((PlayerStorage) player).bs3d$getInventory().getRevision();
+        if (opened && (groundChanged
+                || lastSelectedSlot != player.getInventory().selectedSlot
+                || inventoryChanged(player)
+                || lastCreative != player.isCreative()
+                || lastRevision != revision)) {
             send();
         }
     }
 
     private static boolean available(ServerPlayerEntity player) {
         // 连接和角色状态允许操作之后，还要确认原版没有正在处理的容器或鼠标栈。
-        if (!player.networkHandler.isConnectionOpen() || !player.isAlive()) {
-            return false;
-        }
-        if (player.isSpectator() || player.hasVehicle()) {
+        if (!actorAvailable(player)) {
             return false;
         }
         if (player.currentScreenHandler != player.playerScreenHandler) {
             return false;
         }
         return player.playerScreenHandler.getCursorStack().isEmpty();
+    }
+
+    private static boolean actorAvailable(ServerPlayerEntity player) {
+        // 菜单与光标由各自事务验证，租约只受角色生存状态、距离和遮挡约束。
+        return player.networkHandler.isConnectionOpen() && player.isAlive()
+                && !player.isSpectator() && !player.hasVehicle();
     }
 
     private boolean inventoryChanged(ServerPlayerEntity player) {
@@ -348,7 +291,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
     }
 
     private void send() {
-        // 进度与库存来自同一时刻的服务器状态，客户端不需要猜测转移后的库存。
+        // 回执与库存来自同一时刻的服务器状态，客户端不需要猜测转移后的库存。
         if (!opened) {
             return;
         }
@@ -369,14 +312,12 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
                         .setTransfer(transfer);
         try {
             var account = account();
-            var tree =
-                    new ContainerTree(
-                            saved, new java.util.ArrayList<>(lastInventory), account.ground());
+            var tree = new ContainerTree(saved, new ArrayList<>(lastInventory), account.ground());
             state.putAllGroundRevisions(account.groundRevisions());
-            state.addAllItems(tree.items()).addAllContainers(tree.containers());
+            state.addAllItems(tree.items());
+            state.addAllContainers(tree.containers());
         } catch (IllegalArgumentException invalid) {
             // 外部获得的损坏或重复身份物品只禁用本次业务视图，不让同步异常终止服务器 tick。
-            cancel("容器数据无效，转移已取消");
             transfer =
                     Transfer.newBuilder()
                             .setPhase(Phase.REJECTED)
@@ -384,6 +325,12 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
                             .build();
             state.setTransfer(transfer);
         }
+        addPlayerSlots(state, player);
+        connection.send(Messages.STATE, state.build());
+    }
+
+    private void addPlayerSlots(State.Builder state, ServerPlayerEntity player) {
+        // 双手与盔甲即使为空也提供可拖入的身体落点。
         lastSelectedSlot = player.getInventory().selectedSlot;
         lastCreative = player.isCreative();
         state.addPlayerSlots(playerSlot(lastSelectedSlot, player.getMainHandStack()));
@@ -393,7 +340,6 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
                     playerSlot(
                             PlayerSlots.armorSlot(equipment), player.getEquippedStack(equipment)));
         }
-        connection.send(Messages.STATE, state.build());
     }
 
     private PlayerSlotStack playerSlot(int slot, ItemStack stack) {
@@ -418,25 +364,9 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         return snapshot.build();
     }
 
-    private void cancel(String reason) {
-        if (pending != null) {
-            // 会话取消列表只需要覆盖这次连接；重连会换 session，旧请求不能再次生效。
-            cancelled.add(pending.getOperation());
-            transfer = transfer.toBuilder().setPhase(Phase.CANCELLED).setDetail(reason).build();
-            unlock();
-        }
-    }
-
-    private void unlock() {
-        // 只释放本会话锁，不改玩家重力与飞行属性，避免把临时状态写进玩家存档。
-        pending = null;
-        actor = null;
-    }
-
     @Override
     public void close() {
         // 断线回调已由 Framework 调度到服务器主线程，此时不能继续发包。
-        cancel("连接已关闭");
         releaseGround(List.of());
         opened = false;
         VolumeServer.forget(this);

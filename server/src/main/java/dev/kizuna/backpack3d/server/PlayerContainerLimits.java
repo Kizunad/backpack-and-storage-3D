@@ -70,10 +70,7 @@ public final class PlayerContainerLimits {
     }
 
     public static void set(ServerPlayerEntity player, int limit) throws IOException {
-        // 不抢占计时事务；降低到低于现有装备数时拒绝，避免凭空卸装或丢物。
-        if (VolumeServer.locked(player)) {
-            throw new IllegalArgumentException("请等待当前转移结束");
-        }
+        // 降低到现有装备数以下时拒绝，避免凭空卸装或丢物。
         var account = new PlayerAccount(player);
         var next =
                 account.data().toBuilder()

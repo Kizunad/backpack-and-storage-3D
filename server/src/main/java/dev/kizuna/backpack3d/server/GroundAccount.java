@@ -47,6 +47,12 @@ final class GroundAccount implements Account {
     }
 
     @Override
+    public int insertPlayer(List<ItemStack> inventory, ItemStack stack) {
+        // 地面取回和随身取回使用同一原版槽位规则。
+        return personal.insertPlayer(inventory, stack);
+    }
+
+    @Override
     public Map<String, ItemStack> ground() {
         // 始终重新读取权威栈，不能复用打开页面时的库存副本。
         var result = new LinkedHashMap<String, ItemStack>();

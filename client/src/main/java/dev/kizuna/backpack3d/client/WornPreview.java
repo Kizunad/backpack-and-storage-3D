@@ -10,6 +10,7 @@ import dev.kizuna.inventoryui.theme.ThemeTokens;
 import net.fabricmc.fabric.api.client.rendering.v1.LivingEntityFeatureRendererRegistrationCallback;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.render.VertexConsumerProvider;
@@ -18,6 +19,7 @@ import net.minecraft.client.render.entity.feature.FeatureRenderer;
 import net.minecraft.client.render.entity.feature.FeatureRendererContext;
 import net.minecraft.client.render.entity.model.PlayerEntityModel;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.math.RotationAxis;
 
 import org.joml.Matrix4f;
@@ -34,6 +36,11 @@ public final class WornPreview {
     private static final float DRAG_DEGREES_PER_PIXEL = 0.7f;
     private static final int OUTLINE_PIXELS = 1;
     private static final float OUTLINE_DEPTH = 2;
+    private static final float GROUND_MODEL_SPACING_BLOCKS = 0.8f;
+    private static final float GROUND_MODEL_Y_BLOCKS = 1.2f;
+    private static final float GROUND_MODEL_SCALE = 0.04f;
+    private static final int RGB_MASK = 0x00FFFFFF;
+    private static final int PENDING_ALPHA = 0x70000000;
     private static WornPreview drawing;
     private final VolumeModule module;
     private final Map<String, ModelAsset> assets = new LinkedHashMap<>();
@@ -46,6 +53,7 @@ public final class WornPreview {
     private int mouseY;
     private boolean interactive;
     private String hovered = "";
+    private String dropSource = "";
     private MatrixStack torso;
     // 装备拖放体积单位为方块，略超出躯干，方便落在腰侧和胸背表面。
     private static final Vector3f EQUIP_FROM = new Vector3f(-0.5f, 0, -0.4f);
@@ -53,7 +61,21 @@ public final class WornPreview {
     private static final float WAIST_MIN_Y = 0.45f;
 
     public WornPreview(VolumeModule module) {
+        // 预览只读取模块快照，物品归属始终由服务器维护。
         this.module = module;
+    }
+
+    public void dropSource(String source) {
+        // 携物悬停使用独立颜色，不能与单击开盖的轮廓混淆。
+        dropSource = source;
+    }
+
+    public void drawDropTarget(DrawContext context, TextRenderer font, int x, int y) {
+        // 名称来自服务器容器目录，模型合盖时同样提供自动放置目标提示。
+        if (!dropSource.isEmpty() && !hovered.isEmpty() && !dropSource.equals(hovered)) {
+            context.drawTextWithShadow(font, module.container(hovered).getTitle(), x, y + font.fontHeight,
+                    InventoryUiClient.runtime().color(ThemeTokens.INVENTORY_DROP_VALID));
+        }
     }
 
     public static void register(EquipmentAppearances appearances) {
@@ -150,16 +172,14 @@ public final class WornPreview {
             int my,
             boolean input,
             Map<String, BagAnimation> animation) {
+        // 渲染只借用玩家姿态，结束后恢复真实朝向与暂时隐藏的栈。
         var player = MinecraftClient.getInstance().player;
         if (player == null) {
             return;
         }
         // 暂存并恢复朝向，拖动预览不会让世界中的玩家转身或改变下一次网络输入。
-        float oldBody = player.bodyYaw;
-        float oldHead = player.headYaw;
-        float oldPreviousHead = player.prevHeadYaw;
-        float oldYaw = player.getYaw();
-        float oldPitch = player.getPitch();
+        var previousPose = new PlayerPose(player.bodyYaw, player.headYaw, player.prevHeadYaw,
+                player.getYaw(), player.getPitch());
         animations = animation;
         mouseX = mx;
         mouseY = my;
@@ -169,6 +189,7 @@ public final class WornPreview {
         drawing = this;
         // 放大的模型可能越过 GUI 的 z=0 平面；清掉此前界面深度，不能靠关闭深度测试绘制。
         GuiSceneDepth.clear(context);
+        var pendingStacks = hidePendingStacks(player);
         try {
             player.bodyYaw = yaw;
             player.headYaw = yaw;
@@ -188,12 +209,33 @@ public final class WornPreview {
             // 模型的深度也不能挡住后续窗口、按钮和帮助面板。
             GuiSceneDepth.clear(context);
             drawing = null;
-            player.bodyYaw = oldBody;
-            player.headYaw = oldHead;
-            player.prevHeadYaw = oldPreviousHead;
-            player.setYaw(oldYaw);
-            player.setPitch(oldPitch);
+            previousPose.restore(player);
+            pendingStacks.forEach((slot, stack) -> player.getInventory().setStack(slot, stack));
         }
+    }
+
+    private record PlayerPose(float bodyYaw, float headYaw, float previousHeadYaw, float yaw, float pitch) {
+        void restore(AbstractClientPlayerEntity player) {
+            // 展示期间借用的姿态恢复到原值，不影响下一次玩家输入。
+            player.bodyYaw = bodyYaw;
+            player.headYaw = headYaw;
+            player.prevHeadYaw = previousHeadYaw;
+            player.setYaw(yaw);
+            player.setPitch(pitch);
+        }
+    }
+
+    private Map<Integer, ItemStack> hidePendingStacks(AbstractClientPlayerEntity player) {
+        // 仅绘制期间隐藏待回执部位，finally 恢复同一栈引用，不预测修改客户端库存。
+        Map<Integer, ItemStack> hidden = new LinkedHashMap<>();
+        for (var snapshot : module.state().getPlayerSlotsList()) {
+            int slot = snapshot.getPlayerSlot();
+            if (module.pendingItem(VolumeModule.playerSlotPreviewId(slot))) {
+                hidden.put(slot, player.getInventory().getStack(slot));
+                player.getInventory().setStack(slot, ItemStack.EMPTY);
+            }
+        }
+        return hidden;
     }
 
     public Placement wearAt(double x, double y, ContainerItems.Definition type) {
@@ -236,8 +278,9 @@ public final class WornPreview {
         // 每帧使用当前目录，F3+T 删除注册后不能保留旧模型及其命中区。
         assets.clear();
         torso = ModelAsset.copy(body);
+        int groundIndex = 0;
         for (var container : module.state().getContainersList()) {
-            if (!container.getWorn()) {
+            if (!container.getWorn() && !container.getGrounded()) {
                 continue;
             }
             String id = container.getId();
@@ -249,10 +292,22 @@ public final class WornPreview {
             var type = ContainerItems.definition(module.stack(id));
             boolean pouch = type != null && type.waist();
             var matrices = ModelAsset.copy(body);
-            WornModelTransform.apply(
-                    matrices, asset, pouch, container.getMount(), container.getWaistAngleDegrees());
+            if (container.getGrounded()) {
+                // 已授权地面背包绘制在人物旁，独立于开盖窗口提供模型落点。
+                groundIndex++;
+                matrices.translate(groundIndex * GROUND_MODEL_SPACING_BLOCKS, GROUND_MODEL_Y_BLOCKS, 0);
+                matrices.scale(GROUND_MODEL_SCALE, -GROUND_MODEL_SCALE, -GROUND_MODEL_SCALE);
+            } else {
+                WornModelTransform.apply(
+                        matrices, asset, pouch, container.getMount(), container.getWaistAngleDegrees());
+            }
             transforms.put(id, ModelAsset.copy(matrices));
         }
+        renderAttachmentModels(buffers);
+    }
+
+    private void renderAttachmentModels(VertexConsumerProvider buffers) {
+        // 模型轮廓与半透明来源占位使用同一投影，避免视觉位置和命中位置错开。
         hovered = interactive ? pick(mouseX, mouseY) : "";
         for (var entry : transforms.entrySet()) {
             String id = entry.getKey();
@@ -262,7 +317,11 @@ public final class WornPreview {
             if (id.equals(hovered)) {
                 renderOutline(asset, matrices, buffers, lid);
             }
-            asset.render(matrices, buffers, lid, null);
+            Integer tint = null;
+            if (module.pendingItem(id)) {
+                tint = InventoryUiClient.runtime().color(ThemeTokens.ACCENT) & RGB_MASK | PENDING_ALPHA;
+            }
+            asset.render(matrices, buffers, lid, tint);
         }
     }
 
@@ -273,6 +332,9 @@ public final class WornPreview {
             BagAnimation.Sample lid) {
         // 先绘制向周围偏移一像素的着色模型，再由原模型覆盖中心，留下边缘。
         int tint = InventoryUiClient.runtime().color(ThemeTokens.ACCENT);
+        if (!dropSource.isEmpty() && !dropSource.equals(hovered)) {
+            tint = InventoryUiClient.runtime().color(ThemeTokens.INVENTORY_DROP_VALID);
+        }
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy++) {
                 if (dx == 0 && dy == 0) {
@@ -318,6 +380,7 @@ public final class WornPreview {
             // UI 专用动画和世界外观互斥，同一玩家不会被重复绘制两套背包。
             if (drawing != null && player == MinecraftClient.getInstance().player) {
                 drawing.slots.capture(matrices, getContextModel(), player);
+                drawing.slots.renderPending(drawing.module, buffers);
                 matrices.push();
                 try {
                     getContextModel().body.rotate(matrices);

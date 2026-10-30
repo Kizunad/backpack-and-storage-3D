@@ -23,13 +23,14 @@ import net.minecraft.util.math.Vec3d;
 import java.io.IOException;
 import java.nio.file.Files;
 
-/** 使用原版交互包放置、打开和收回，并验证计时存取、取消与重启后的内容。 */
+/** 使用原版交互包放置、打开和收回，并验证即时存取、模型落点与重启后的内容。 */
 final class GroundSmokeClient {
     private int step;
     private int ticks;
     private String id;
     private BlockPos pos;
     private String stone;
+    private boolean modelOpened;
 
     String tick(MinecraftClient client, VolumeModule module, boolean restart) throws IOException {
         if (id == null) {
@@ -88,15 +89,23 @@ final class GroundSmokeClient {
                 if (client.world.getBlockEntity(pos) instanceof GroundBagBlockEntity bag
                         && bag.container().equals(id)
                         && client.player.getMainHandStack().isEmpty()
-                        && module.state().getRevision() == 17) {
+                        && module.state().getRevision() == 25) {
                     sneak(client, false);
-                    use(client);
+                    module.open();
                     next();
                 }
             }
             case 2 -> {
                 if (!(client.currentScreen instanceof VolumeScreen screen)
-                        || !screen.openContainers().contains(id)) {
+                        || !module.state().containsGroundRevisions(id)) {
+                    return null;
+                }
+                if (!modelOpened) {
+                    require(!screen.openContainers().contains(id), "附近地面背包不应自动开盖");
+                    modelOpened = openGroundModel(screen);
+                    return null;
+                }
+                if (!screen.openContainers().contains(id)) {
                     return null;
                 }
                 require(module.container(id).getGrounded(), "地面容器被当作穿戴容器");
@@ -125,19 +134,18 @@ final class GroundSmokeClient {
                 next();
             }
             case 3 -> {
-                if (module.state().getRevision() == 18 && !module.busy()) {
+                if (module.state().getRevision() == 26 && !module.busy()) {
                     require(client.player.getOffHandStack().getCount() == 8, "地面取出数量错误");
-                    module.deposit(
-                            module.playerSlot(PlayerInventory.OFF_HAND_SLOT),
-                            id,
-                            Volumes.cell(0, 0, 1),
-                            false,
-                            0);
+                    var screen = (VolumeScreen) client.currentScreen;
+                    screen.closeContainer(id);
+                    if (!dropOnGroundModel(screen)) {
+                        return null;
+                    }
                     next();
                 }
             }
             case 4 -> {
-                if (module.state().getRevision() == 19 && !module.busy()) {
+                if (module.state().getRevision() == 27 && !module.busy()) {
                     stone =
                             module.state().getItemsList().stream()
                                     .filter(
@@ -148,12 +156,12 @@ final class GroundSmokeClient {
                                     .findFirst()
                                     .orElseThrow()
                                     .getId();
-                    module.withdraw(stone, PlayerInventory.OFF_HAND_SLOT);
+                    module.move(stone, id, Volumes.cell(-1, 0, 0), false /* automatic */);
                     next();
                 }
             }
             case 5 -> {
-                if (module.state().getTransfer().getPhase() == Phase.RUNNING) {
+                if (module.state().getTransfer().getPhase() == Phase.REJECTED) {
                     ((VolumeScreen) client.currentScreen).close();
                     next();
                 }
@@ -162,15 +170,52 @@ final class GroundSmokeClient {
                 if (client.currentScreen == null
                         && module.state().getGroundRevisionsCount() == 0
                         && !module.busy()) {
-                    require(module.state().getRevision() == 19, "关闭地面背包后仍提交取物");
-                    require(client.player.getOffHandStack().isEmpty(), "取消地面取物失败");
-                    return "revision=19; native-shift-place; native-open; ground-transfer;"
-                               + " close-cancel; contents-preserved";
+                    require(module.state().getRevision() == 27, "拒绝地面落点后仍提交取物");
+                    require(client.player.getOffHandStack().isEmpty(), "拒绝未保持地面原库存");
+                    return "revision=27; native-shift-place; nearby-closed-model; ground-closed-model-drop;"
+                               + " rejected-unchanged; contents-preserved";
                 }
             }
             default -> throw new IllegalStateException("未知地面验收步骤");
         }
         return null;
+    }
+
+    private boolean dropOnGroundModel(VolumeScreen screen) {
+        // 从真实副手命中拖到人物旁的地面模型，落点无需指定内景格位。
+        int[] source = null;
+        int[] target = null;
+        for (int y = 0; y < screen.height; y++) {
+            for (int x = 0; x < screen.width; x++) {
+                if (source == null && screen.playerSlotAt(x, y) == PlayerInventory.OFF_HAND_SLOT) {
+                    source = new int[] {x, y};
+                }
+                if (target == null && screen.bagHit(id, x, y)) {
+                    target = new int[] {x, y};
+                }
+            }
+        }
+        if (source == null || target == null) {
+            return false;
+        }
+        screen.mouseClicked(source[0], source[1], 0);
+        screen.mouseDragged(target[0], target[1], 0, target[0] - source[0], target[1] - source[1]);
+        screen.mouseReleased(target[0], target[1], 0);
+        return true;
+    }
+
+    private boolean openGroundModel(VolumeScreen screen) {
+        // 场景直接发现合盖地面模型，真实鼠标点击后才打开其内景。
+        for (int y = 0; y < screen.height; y++) {
+            for (int x = 0; x < screen.width; x++) {
+                if (screen.bagHit(id, x, y)) {
+                    screen.mouseClicked(x, y, 0);
+                    screen.mouseReleased(x, y, 0);
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private String restart(MinecraftClient client, VolumeModule module) throws IOException {
@@ -218,13 +263,13 @@ final class GroundSmokeClient {
                 }
             }
             case 3 -> {
-                if (module.state().getRevision() == 20
+                if (module.state().getRevision() == 28
                         && !client.world.getBlockState(pos).isOf(GroundBags.BLOCK)) {
                     sneak(client, false);
                     var held = client.player.getMainHandStack();
                     require(ContainerItems.identity(held).equals(id), "收回背包改变了身份");
                     require(ContainerItems.contents(held).getItemsCount() == 2, "收回背包丢失内容");
-                    return "revision=20; ground-restart; original-NBT; native-shift-pickup;"
+                    return "revision=28; ground-restart; original-NBT; native-shift-pickup;"
                                + " same-identity";
                 }
             }

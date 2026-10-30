@@ -29,7 +29,7 @@ class ModelConfigTest {
                 place = "sounds/place.ogg"
                 """);
         var warnings = new ArrayList<String>();
-        var entries = ModelConfig.read(directory, warnings::add);
+        var entries = ModelConfig.read(directory, warnings::add).models();
         assertEquals(1, entries.size());
         assertEquals("example:bag", entries.get(0).id().toString());
         assertNull(entries.get(0).openAnimation());
@@ -73,8 +73,44 @@ class ModelConfigTest {
         config("version = 1\nmodels = []\n");
         Files.writeString(directory.resolve("bag.bbmodel"), "{}");
         var warnings = new ArrayList<String>();
-        assertTrue(ModelConfig.read(directory, warnings::add).isEmpty());
+        assertTrue(ModelConfig.read(directory, warnings::add).models().isEmpty());
         assertEquals(1, warnings.size());
+    }
+
+    @Test
+    void legacyConfigKeepsDefaultSceneRotationKeys() throws Exception {
+        // 没有 controls 表的已有配置仍然可用，默认 R/T 不依赖全局按键表。
+        config("version = 1\nmodels = []\n");
+        var controls = ModelConfig.read(directory, ignored -> {}).controls();
+        assertEquals("key.keyboard.r", controls.yaw().getTranslationKey());
+        assertEquals("key.keyboard.t", controls.pitch().getTranslationKey());
+    }
+
+    @Test
+    void sceneRotationKeysCanBeConfiguredIndependently() throws Exception {
+        // 只覆盖一个轴时，另一个轴保留默认键。
+        config("version = 1\n[controls]\nrotate_yaw = 'key.keyboard.y'\n");
+        var controls = ModelConfig.read(directory, ignored -> {}).controls();
+        assertEquals("key.keyboard.y", controls.yaw().getTranslationKey());
+        assertEquals("key.keyboard.t", controls.pitch().getTranslationKey());
+        config("version = 1\n[controls]\nrotate_pitch = 'key.mouse.4'\n");
+        var pitchControls = ModelConfig.read(directory, ignored -> {}).controls();
+        assertEquals("key.keyboard.r", pitchControls.yaw().getTranslationKey());
+        assertEquals("key.mouse.4", pitchControls.pitch().getTranslationKey());
+    }
+
+    @Test
+    void invalidSceneRotationBindingsRejectConfig() throws Exception {
+        // 未知键名和拼错字段不能生成界面无法接收的绑定。
+        for (String controls : new String[] {
+                "rotate_yaw = 'key.keyboard.unknown'",
+                "rotate_yaw = 'not-a-key'",
+                "rotate_yaw = 82",
+                "rotate_ywa = 'key.keyboard.y'"
+        }) {
+            config("version = 1\n[controls]\n" + controls + "\n");
+            assertThrows(RuntimeException.class, () -> ModelConfig.read(directory, ignored -> {}));
+        }
     }
 
     @Test
