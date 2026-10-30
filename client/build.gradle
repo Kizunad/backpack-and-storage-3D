@@ -1,14 +1,12 @@
-if (!rootProject.frameworkJar.isFile()) {
-    throw new GradleException('请先构建 Framework，并指定 -PframeworkDir=/path/to/framework。')
-}
 dependencies {
-    modImplementation files(rootProject.frameworkJar)
-    modImplementation files(rootProject.frameworkServerJar)
+    // 组合进来的 Loom 工程直接取 named 开发 JAR：按坐标走 mod 重映射的缓存不随上游改动刷新，也不会先构建上游。
+    implementation('local.inventory-ui:client') { targetConfiguration = 'namedElements' }
+    implementation('local.inventory-ui:server') { targetConfiguration = 'namedElements' }
     modImplementation project(':server')
-    modImplementation 'io.wispforest:owo-lib:0.11.2+1.20'
-    implementation 'org.tomlj:tomlj:1.1.1'
-    include 'org.tomlj:tomlj:1.1.1'
-    include 'org.antlr:antlr4-runtime:4.11.1'
+    modImplementation libs.owo
+    implementation libs.tomlj
+    include libs.tomlj
+    include libs.antlr.runtime
 }
 sourceSets.create('smoke') {
     compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath

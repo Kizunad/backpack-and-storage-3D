@@ -106,12 +106,13 @@ Windows Native 整套 Meridian 装配在原世界副本 `load-check` 成功加�
 ## 复验
 
 ```sh
-./gradlew -Dorg.gradle.java.home="/path/to/jdk17" \
-  -PframeworkDir="/path/to/framework" test build
+./gradlew -Dorg.gradle.java.home="/path/to/jdk21" test build
 python3 scripts/wiki.py check
 python3 scripts/smoke.py --framework-dir "/path/to/framework" \
-  --java-home "/path/to/jdk17"
+  --java-home "/path/to/jdk21"
 ```
+
+`--java-home` 指定运行 Gradle 的 JDK，Loom 1.13 起须为 Java 21；`--framework-dir` 是 Inventory UI Framework 源码目录。
 
 smoke 在 `build/smoke/<run-id>` 创建隔离世界，生成测试物品并主动模拟输入，验收后退出。Linux 默认使用 Xvfb；显式 `--show-window` 才显示自动操作，Windows 自动验收也需要此参数。它不是手动体验入口，正常生产 JAR 打开容器只播放开盖动画，不自动转移。
 

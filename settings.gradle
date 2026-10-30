@@ -5,5 +5,11 @@ pluginManagement {
         mavenCentral()
     }
 }
+// 相邻仓库位置、产物路径与第三方版本都由 Framework 的工作区脚本提供（kizunaWorkspace、libs）。
+apply from: new File(rootDir.parentFile, 'Kizuna-Meridian-Mod-Framework/scripts/workspace.gradle')
+
 rootProject.name = 'backpack-storage-3d'
 include 'client', 'server'
+
+// Inventory UI Framework 尚无发布坐标；按清单目录组合其独立仓库，两端工程随本仓构建先行打包。
+kizunaWorkspace.includeSource('inventory-ui', ['': 'local.inventory-ui:client', server: 'local.inventory-ui:server'])

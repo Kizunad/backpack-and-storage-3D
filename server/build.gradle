@@ -1,9 +1,7 @@
-if (!rootProject.frameworkServerJar.isFile()) {
-    throw new GradleException('需要统一路由版 Framework 服务端 JAR，请指定 -PframeworkDir。')
-}
 dependencies {
-    modImplementation files(rootProject.frameworkServerJar)
-    testImplementation 'net.fabricmc:fabric-loader-junit:0.16.10'
+    // 与 client 相同，组合工程取 named 开发 JAR，避免 mod 重映射缓存滞后于上游源码。
+    implementation('local.inventory-ui:server') { targetConfiguration = 'namedElements' }
+    testImplementation libs.fabric.junit
 }
 test { systemProperty 'fabric.side', 'server' }
 sourceSets.create('smoke') {

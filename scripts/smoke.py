@@ -35,7 +35,7 @@ def main():
     run = ROOT / "build/smoke" / run_id
     prepare_run(run)
     command = [str(ROOT / ("gradlew.bat" if os.name == "nt" else "gradlew")), "--console=plain",
-               f"-PsmokeRun={run_id}", f"-PframeworkDir={args.framework_dir.resolve()}",
+               f"-PsmokeRun={run_id}", f"-Pkizuna.dir.inventory-ui={args.framework_dir.resolve()}",
                f"-Dorg.gradle.java.home={args.java_home.resolve()}"]
     if args.offline:
         command.append("--offline")

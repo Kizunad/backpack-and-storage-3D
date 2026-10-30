@@ -4,18 +4,17 @@
 
 适用：未发布的 `0.1.0-SNAPSHOT`。Java 17、Minecraft 1.20.1、Fabric Loader 0.16.10、Fabric API 0.92.3+1.20.1、owo 0.11.2+1.20。
 
-先构建含统一服务端路由的 Inventory UI Framework；通过显式源码路径引用其两端 JAR，没有已发布的 Maven 坐标：
+构建需要同级的 Inventory UI Framework 与 Kizuna-Meridian-Mod-Framework 源码。`settings.gradle` 应用后者的 `scripts/workspace.gradle`，上述版本与 Gradle 8.14.6、Fabric Loom 1.13.6 都取自其版本目录 `scripts/libs.versions.toml`。Inventory UI Framework 没有已发布的 Maven 坐标，以组合构建接入，其两端工程随本仓构建先行编译。Gradle 须在 Java 21 上运行（Loom 1.13 的要求），产物仍以 Java 17 为目标：
 
 ```sh
-./gradlew -Dorg.gradle.java.home="/path/to/jdk17" \
-  -PframeworkDir="/path/to/framework" test build
+./gradlew -Dorg.gradle.java.home="/path/to/jdk21" test build
 ```
 
 Windows 可改用 `gradlew.bat`，参数含路径时保留双引号。
 
-省略 `frameworkDir` 时默认读取同级 `Kizuna-Inventory-UI-Framework` 的构建产物；不会下载或改写另一个源码副本。
+Inventory UI Framework 不在同级目录时加 `-Pkizuna.dir.inventory-ui="/path/to/framework"`；不会下载或改写另一个源码副本。
 
-当前构建要求同级 Inventory UI Framework 提供 common 服务端产物与客户端强制依赖。先在配套 Framework 工作区运行 `./gradlew test build`，再构建本仓库；早期客户端复制服务端的产物不再适用于当前装配。尚无正式 Release。
+当前构建要求 Inventory UI Framework 提供 common 服务端工程与客户端强制依赖；早期客户端复制服务端的产物不再适用于当前装配。尚无正式 Release。
 
 当前源码的背包页面实现 Framework 的 `VanillaHudHidden` 标记：打开页面时隐藏原版物品栏、准星及其余原版 HUD，退出后按原游戏设置恢复。构建和运行需使用包含该接口的新 Framework 客户端 JAR；旧的同名 `0.1.0-SNAPSHOT` JAR 不包含此接口。最小化容器只留下独立卡片，提供恢复和关闭两个按钮；关闭内景合盖，退出页面释放地面访问，不撤销已提交的转移。
 
