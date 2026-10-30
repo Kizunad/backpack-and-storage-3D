@@ -1,6 +1,6 @@
 dependencies {
     // 与 client 相同，组合工程取 named 开发 JAR，避免 mod 重映射缓存滞后于上游源码。
-    implementation('local.inventory-ui:server') { targetConfiguration = 'namedElements' }
+    implementation('dev.kizuna.inventoryui:server') { targetConfiguration = 'namedElements' }
     testImplementation libs.fabric.junit
 }
 test { systemProperty 'fabric.side', 'server' }

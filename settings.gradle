@@ -12,4 +12,5 @@ rootProject.name = 'backpack-storage-3d'
 include 'client', 'server'
 
 // Inventory UI Framework 尚无发布坐标；按清单目录组合其独立仓库，两端工程随本仓构建先行打包。
-kizunaWorkspace.includeSource('inventory-ui', ['': 'local.inventory-ui:client', server: 'local.inventory-ui:server'])
+// Inventory UI 的替换键用其工程自身的 group 与工程名，与 Human 等仓的登记一致：同一仓库在嵌套组合里只按最先登记的规则替换，键不一致时另一方解析不到。
+kizunaWorkspace.includeSource('inventory-ui', ['': 'dev.kizuna.inventoryui:kizuna-inventory-ui-framework', server: 'dev.kizuna.inventoryui:server'])
