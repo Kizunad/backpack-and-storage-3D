@@ -1,14 +1,12 @@
 package dev.kizuna.backpack3d.protocol;
 
 import com.google.protobuf.ByteString;
-
-import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.nbt.NbtTagSizeTracker;
-
+import net.minecraft.nbt.Tag;
+import net.minecraft.world.item.ItemStack;
 import java.io.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -21,18 +19,18 @@ public final class StackCodec {
 
     public static ByteString encode(ItemStack stack) {
         // 只接受真实非空栈；每件物品的大小有上限，避免无法同步的物品进入仓库。
-        if (stack.isEmpty() || stack.getCount() > stack.getMaxCount()) {
+        if (stack.isEmpty() || stack.getCount() > stack.getMaxStackSize()) {
             throw new IllegalArgumentException("无效物品栈");
         }
         try {
-            var tag = stack.writeNbt(new NbtCompound());
+            var tag = stack.save(new CompoundTag());
             var bytes = new ByteArrayOutputStream();
             var output = new DataOutputStream(bytes);
-            output.writeByte(NbtElement.COMPOUND_TYPE);
+            output.writeByte(Tag.TAG_COMPOUND);
             output.writeUTF("");
             writeCanonical(tag, output, 0);
             // 深度先由有界写入器验证，再检查读取端的分配预算，避免存入后无法解码。
-            if (tag.getSizeInBytes() > Messages.MAX_NBT_MEMORY_BYTES) {
+            if (tag.sizeInBytes() > Messages.MAX_NBT_MEMORY_BYTES) {
                 throw new IllegalArgumentException("物品 NBT 内存大小超出限制");
             }
             if (bytes.size() > Messages.MAX_NBT_BYTES) {
@@ -44,22 +42,22 @@ public final class StackCodec {
         }
     }
 
-    private static void writeCanonical(NbtElement element, DataOutput output, int depth)
+    private static void writeCanonical(Tag element, DataOutput output, int depth)
             throws IOException {
         // compound 的键顺序没有语义；稳定排序使两端指纹不依赖 HashMap 插入顺序。
         if (depth > Messages.MAX_NBT_DEPTH) {
             throw new IllegalArgumentException("物品 NBT 嵌套过深");
         }
-        if (element instanceof NbtCompound compound) {
-            for (String key : compound.getKeys().stream().sorted().toList()) {
+        if (element instanceof CompoundTag compound) {
+            for (String key : compound.getAllKeys().stream().sorted().toList()) {
                 var child = compound.get(key);
-                output.writeByte(child.getType());
+                output.writeByte(child.getId());
                 output.writeUTF(key);
                 writeCanonical(child, output, depth + 1);
             }
-            output.writeByte(NbtElement.END_TYPE);
-        } else if (element instanceof NbtList list) {
-            output.writeByte(list.getHeldType());
+            output.writeByte(Tag.TAG_END);
+        } else if (element instanceof ListTag list) {
+            output.writeByte(list.getElementType());
             output.writeInt(list.size());
             for (var child : list) {
                 writeCanonical(child, output, depth + 1);
@@ -76,11 +74,11 @@ public final class StackCodec {
         }
         try {
             var input = new DataInputStream(bytes.newInput());
-            var nbt = NbtIo.read(input, new NbtTagSizeTracker(Messages.MAX_NBT_MEMORY_BYTES));
-            var stack = ItemStack.fromNbt(nbt);
+            var nbt = NbtIo.read(input, new NbtAccounter(Messages.MAX_NBT_MEMORY_BYTES));
+            var stack = ItemStack.of(nbt);
             if (input.available() != 0
                     || stack.isEmpty()
-                    || stack.getCount() > stack.getMaxCount()) {
+                    || stack.getCount() > stack.getMaxStackSize()) {
                 throw new IllegalArgumentException("无效物品 NBT");
             }
             return stack;

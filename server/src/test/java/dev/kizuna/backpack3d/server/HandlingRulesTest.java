@@ -6,21 +6,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.kizuna.backpack3d.protocol.Volumes;
-
-import net.minecraft.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.registry.tag.TagKey;
-import net.minecraft.resource.Resource;
-import net.minecraft.resource.ResourceManager;
-import net.minecraft.resource.ResourcePack;
-import net.minecraft.util.Identifier;
-
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.Bootstrap;
+import net.minecraft.server.packs.PackResources;
+import net.minecraft.server.packs.resources.Resource;
+import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,38 +39,38 @@ import java.util.stream.Stream;
 class HandlingRulesTest {
     private TagKey<Item> testTag;
     private final HandlingRules rules = new HandlingRules();
-    private Map<TagKey<Item>, List<RegistryEntry<Item>>> originalTags;
+    private Map<TagKey<Item>, List<Holder<Item>>> originalTags;
 
     @BeforeAll
     static void bootstrap() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
     }
 
     @BeforeEach
     void bindTestTag() {
         // 测试通过真实 ItemStack tag 匹配规则，结束时恢复注册表，避免污染其他测试。
-        testTag = TagKey.of(RegistryKeys.ITEM, new Identifier("test", "handling"));
+        testTag = TagKey.create(Registries.ITEM, new ResourceLocation("test", "handling"));
         originalTags = new HashMap<>();
-        Registries.ITEM
-                .streamTagsAndEntries()
+        BuiltInRegistries.ITEM
+                .getTags()
                 .forEach(
                         entry ->
                                 originalTags.put(
                                         entry.getFirst(), entry.getSecond().stream().toList()));
         var tags = new HashMap<>(originalTags);
-        tags.put(testTag, List.of(Registries.ITEM.getEntry(Items.APPLE)));
-        Registries.ITEM.populateTags(tags);
+        tags.put(testTag, List.of(BuiltInRegistries.ITEM.wrapAsHolder(Items.APPLE)));
+        BuiltInRegistries.ITEM.bindTags(tags);
     }
 
     @AfterEach
     void restoreTags() {
-        Registries.ITEM.populateTags(originalTags);
+        BuiltInRegistries.ITEM.bindTags(originalTags);
     }
 
     @Test
     void omittedSizeAndPriorityUseDefaults() {
-        rules.reload(resources(Map.of("default", rule("minecraft:block.chain.hit", ""))));
+        rules.onResourceManagerReload(resources(Map.of("default", rule("minecraft:block.chain.hit", ""))));
         var material = rules.material(new ItemStack(Items.APPLE));
         assertEquals("minecraft:block.chain.hit", material.sound());
         assertEquals(Volumes.UNIT, material.size());
@@ -85,17 +83,17 @@ class HandlingRulesTest {
         files.put("z_high", rule("minecraft:block.chain.hit", ",\"priority\":10"));
         files.put("b_high", rule("minecraft:entity.item.pickup", ",\"priority\":10"));
         files.put("a_default", rule("minecraft:block.chain.hit", ""));
-        rules.reload(resources(files));
+        rules.onResourceManagerReload(resources(files));
         assertEquals("minecraft:entity.item.pickup", rules.material(new ItemStack(Items.APPLE)).sound());
     }
 
     @Test
     void sizeAxesAreAccepted() {
-        rules.reload(
+        rules.onResourceManagerReload(
                 resources(
                         Map.of("min", rule("minecraft:block.chain.hit", ",\"size\":[1,2,3]"))));
         assertEquals(Volumes.size(1, 2, 3), rules.material(new ItemStack(Items.APPLE)).size());
-        rules.reload(resources(Map.of("max", rule("minecraft:block.chain.hit", ""))));
+        rules.onResourceManagerReload(resources(Map.of("max", rule("minecraft:block.chain.hit", ""))));
     }
 
     @Test
@@ -121,13 +119,13 @@ class HandlingRulesTest {
 
     @Test
     void failedReloadKeepsEntirePreviousCatalog() {
-        rules.reload(resources(Map.of("old", rule("minecraft:block.chain.hit", ""))));
+        rules.onResourceManagerReload(resources(Map.of("old", rule("minecraft:block.chain.hit", ""))));
         var replacement =
                 resources(
                         Map.of(
                                 "a_valid", rule("minecraft:entity.item.pickup", ""),
                                 "z_invalid", rule("test:missing", "")));
-        assertThrows(IllegalArgumentException.class, () -> rules.reload(replacement));
+        assertThrows(IllegalArgumentException.class, () -> rules.onResourceManagerReload(replacement));
         assertEquals(
                 "minecraft:block.chain.hit", rules.material(new ItemStack(Items.APPLE)).sound());
     }
@@ -135,11 +133,11 @@ class HandlingRulesTest {
     @Test
     void retiredDurationRejectsEntireReload() {
         // 旧字段即使为零也必须明确报废弃，且不能发布部分重载的新目录。
-        rules.reload(resources(Map.of("old", rule("minecraft:block.chain.hit", ""))));
+        rules.onResourceManagerReload(resources(Map.of("old", rule("minecraft:block.chain.hit", ""))));
         var replacement = resources(Map.of(
                 "a_valid", rule("minecraft:entity.item.pickup", ""),
                 "z_retired", rule("minecraft:entity.item.pickup", ",\"duration_ticks\":0")));
-        var failure = assertThrows(IllegalArgumentException.class, () -> rules.reload(replacement));
+        var failure = assertThrows(IllegalArgumentException.class, () -> rules.onResourceManagerReload(replacement));
         assertTrue(failure.getMessage().contains("duration_ticks 已废弃"));
         assertEquals("minecraft:block.chain.hit", rules.material(new ItemStack(Items.APPLE)).sound());
     }
@@ -155,21 +153,21 @@ class HandlingRulesTest {
                             throw readFailure;
                         });
         var manager = new TestResources(Map.of(resourceId("broken"), resource));
-        var failure = assertThrows(IllegalArgumentException.class, () -> rules.reload(manager));
+        var failure = assertThrows(IllegalArgumentException.class, () -> rules.onResourceManagerReload(manager));
         assertTrue(failure.getMessage().contains(resourceId("broken").toString()));
         assertSame(readFailure, failure.getCause());
     }
 
     @Test
     void untaggedItemsKeepVanillaFallbacks() {
-        rules.reload(resources(Map.of("tagged", rule("minecraft:block.chain.hit", ""))));
+        rules.onResourceManagerReload(resources(Map.of("tagged", rule("minecraft:block.chain.hit", ""))));
         var block = rules.material(new ItemStack(Items.STONE));
         var vanillaSound =
-                net.minecraft.block.Blocks.STONE
-                        .getDefaultState()
-                        .getSoundGroup()
+                net.minecraft.world.level.block.Blocks.STONE
+                        .defaultBlockState()
+                        .getSoundType()
                         .getPlaceSound()
-                        .getId()
+                        .getLocation()
                         .toString();
         assertEquals(vanillaSound, block.sound());
         assertEquals(
@@ -181,7 +179,7 @@ class HandlingRulesTest {
         var failure =
                 assertThrows(
                         IllegalArgumentException.class,
-                        () -> rules.reload(resources(Map.of("invalid", json))));
+                        () -> rules.onResourceManagerReload(resources(Map.of("invalid", json))));
         assertTrue(
                 failure.getMessage().contains(resourceId("invalid").toString()),
                 failure.getMessage());
@@ -196,13 +194,13 @@ class HandlingRulesTest {
                 + "}";
     }
 
-    private static Identifier resourceId(String name) {
-        return new Identifier("test", "bs3d/handling/" + name + ".json");
+    private static ResourceLocation resourceId(String name) {
+        return new ResourceLocation("test", "bs3d/handling/" + name + ".json");
     }
 
     private static ResourceManager resources(Map<String, String> files) {
         // 使用内存资源走公开 reload 入口，测试不依赖私有解析方法。
-        var resources = new LinkedHashMap<Identifier, Resource>();
+        var resources = new LinkedHashMap<ResourceLocation, Resource>();
         files.forEach(
                 (name, json) ->
                         resources.put(
@@ -215,11 +213,11 @@ class HandlingRulesTest {
         return new TestResources(resources);
     }
 
-    private record TestResources(Map<Identifier, Resource> files) implements ResourceManager {
+    private record TestResources(Map<ResourceLocation, Resource> files) implements ResourceManager {
         @Override
-        public Map<Identifier, Resource> findResources(
-                String prefix, Predicate<Identifier> filter) {
-            var found = new LinkedHashMap<Identifier, Resource>();
+        public Map<ResourceLocation, Resource> listResources(
+                String prefix, Predicate<ResourceLocation> filter) {
+            var found = new LinkedHashMap<ResourceLocation, Resource>();
             files.forEach(
                     (id, resource) -> {
                         if (id.getPath().startsWith(prefix + "/") && filter.test(id)) {
@@ -230,28 +228,28 @@ class HandlingRulesTest {
         }
 
         @Override
-        public Optional<Resource> getResource(Identifier id) {
+        public Optional<Resource> getResource(ResourceLocation id) {
             return Optional.ofNullable(files.get(id));
         }
 
         @Override
-        public Set<String> getAllNamespaces() {
+        public Set<String> getNamespaces() {
             return Set.of("test");
         }
 
         @Override
-        public List<Resource> getAllResources(Identifier id) {
+        public List<Resource> getResourceStack(ResourceLocation id) {
             return getResource(id).stream().toList();
         }
 
         @Override
-        public Stream<ResourcePack> streamResourcePacks() {
+        public Stream<PackResources> listPacks() {
             return Stream.empty();
         }
 
         @Override
-        public Map<Identifier, List<Resource>> findAllResources(
-                String prefix, Predicate<Identifier> filter) {
+        public Map<ResourceLocation, List<Resource>> listResourceStacks(
+                String prefix, Predicate<ResourceLocation> filter) {
             throw new UnsupportedOperationException("规则加载不使用资源包堆叠");
         }
     }

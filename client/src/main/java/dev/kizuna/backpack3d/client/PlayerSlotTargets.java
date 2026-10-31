@@ -1,25 +1,23 @@
 package dev.kizuna.backpack3d.client;
 
+import com.mojang.blaze3d.vertex.PoseStack;
 import dev.kizuna.backpack3d.protocol.PlayerSlots;
 import dev.kizuna.inventoryui.client.InventoryUiClient;
 import dev.kizuna.inventoryui.theme.ThemeTokens;
-
-import net.minecraft.client.model.ModelPart;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.render.WorldRenderer;
-import net.minecraft.client.render.entity.model.PlayerEntityModel;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.util.Arm;
-import net.minecraft.util.math.ColorHelper;
-
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.model.PlayerModel;
+import net.minecraft.client.model.geom.ModelPart;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.renderer.LevelRenderer;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.util.FastColor;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.HumanoidArm;
+import net.minecraft.world.entity.player.Inventory;
 
 /** 从真实玩家骨架捕获双手与盔甲部位，绘制轮廓和鼠标命中共用同一体积。 */
 final class PlayerSlotTargets {
@@ -36,9 +34,9 @@ final class PlayerSlotTargets {
     private final List<Target> targets = new ArrayList<>();
 
     void capture(
-            MatrixStack matrices,
-            PlayerEntityModel<AbstractClientPlayerEntity> model,
-            AbstractClientPlayerEntity player) {
+            PoseStack matrices,
+            PlayerModel<AbstractClientPlayer> model,
+            AbstractClientPlayer player) {
         // 每帧从模型姿态重建，不保存随人物旋转失效的屏幕矩形。
         targets.clear();
         addPart(matrices, model.head, EquipmentSlot.HEAD, HEAD);
@@ -47,22 +45,22 @@ final class PlayerSlotTargets {
             addPart(matrices, leg, EquipmentSlot.LEGS, LEGGINGS);
             addPart(matrices, leg, EquipmentSlot.FEET, BOOTS);
         }
-        for (Arm arm : Arm.values()) {
-            MatrixStack transform = ModelAsset.copy(matrices);
-            model.setArmAngle(arm, transform);
+        for (HumanoidArm arm : HumanoidArm.values()) {
+            PoseStack transform = ModelAsset.copy(matrices);
+            model.translateToHand(arm, transform);
             targets.add(new Target(PlayerSlots.armorSlot(EquipmentSlot.CHEST), transform, SLEEVE));
             int slot =
                     arm == player.getMainArm()
-                            ? player.getInventory().selectedSlot
-                            : PlayerInventory.OFF_HAND_SLOT;
+                            ? player.getInventory().selected
+                            : Inventory.SLOT_OFFHAND;
             targets.add(new Target(slot, transform, HAND));
         }
     }
 
-    private void addPart(MatrixStack matrices, ModelPart part, EquipmentSlot slot, Bounds bounds) {
+    private void addPart(PoseStack matrices, ModelPart part, EquipmentSlot slot, Bounds bounds) {
         // 各部位分别乘上局部骨架变换，腿、头和手臂的姿态不能套用躯干矩阵。
-        MatrixStack transform = ModelAsset.copy(matrices);
-        part.rotate(transform);
+        PoseStack transform = ModelAsset.copy(matrices);
+        part.translateAndRotate(transform);
         targets.add(new Target(PlayerSlots.armorSlot(slot), transform, bounds));
     }
 
@@ -104,7 +102,7 @@ final class PlayerSlotTargets {
             found = true;
             for (Vector3f point :
                     ModelAsset.vertices(target.bounds().from(), target.bounds().to())) {
-                target.transform().peek().getPositionMatrix().transformPosition(point);
+                target.transform().last().pose().transformPosition(point);
                 result[0] = Math.min(result[0], point.x);
                 result[1] = Math.min(result[1], point.y);
                 result[2] = Math.max(result[2], point.x);
@@ -114,7 +112,7 @@ final class PlayerSlotTargets {
         return found ? result : null;
     }
 
-    void renderHover(int slot, VertexConsumerProvider buffers) {
+    void renderHover(int slot, MultiBufferSource buffers) {
         // 一个装备槽可能覆盖多块骨架，同时显示轮廓，页面无需增加二维装备栏。
         int color = InventoryUiClient.runtime().color(ThemeTokens.ACCENT);
         for (Target target : targets) {
@@ -123,23 +121,23 @@ final class PlayerSlotTargets {
             }
             Vector3f from = target.bounds().from();
             Vector3f to = target.bounds().to();
-            WorldRenderer.drawBox(
+            LevelRenderer.renderLineBox(
                     target.transform(),
-                    buffers.getBuffer(RenderLayer.getLines()),
+                    buffers.getBuffer(RenderType.lines()),
                     from.x,
                     from.y,
                     from.z,
                     to.x,
                     to.y,
                     to.z,
-                    ColorHelper.Argb.getRed(color) / COLOR_CHANNEL_MAX,
-                    ColorHelper.Argb.getGreen(color) / COLOR_CHANNEL_MAX,
-                    ColorHelper.Argb.getBlue(color) / COLOR_CHANNEL_MAX,
+                    FastColor.ARGB32.red(color) / COLOR_CHANNEL_MAX,
+                    FastColor.ARGB32.green(color) / COLOR_CHANNEL_MAX,
+                    FastColor.ARGB32.blue(color) / COLOR_CHANNEL_MAX,
                     1);
         }
     }
 
-    void renderPending(VolumeModule module, VertexConsumerProvider buffers) {
+    void renderPending(VolumeModule module, MultiBufferSource buffers) {
         // 手持和装备的来源保留半透明占位，拒绝回执后恢复真实模型。
         int color = InventoryUiClient.runtime().color(ThemeTokens.ACCENT);
         for (Target target : targets) {
@@ -148,11 +146,11 @@ final class PlayerSlotTargets {
             }
             Vector3f from = target.bounds().from();
             Vector3f to = target.bounds().to();
-            WorldRenderer.renderFilledBox(target.transform(), buffers.getBuffer(RenderLayer.getDebugFilledBox()),
+            LevelRenderer.addChainedFilledBoxVertices(target.transform(), buffers.getBuffer(RenderType.debugFilledBox()),
                     from.x, from.y, from.z, to.x, to.y, to.z,
-                    ColorHelper.Argb.getRed(color) / COLOR_CHANNEL_MAX,
-                    ColorHelper.Argb.getGreen(color) / COLOR_CHANNEL_MAX,
-                    ColorHelper.Argb.getBlue(color) / COLOR_CHANNEL_MAX, PENDING_OPACITY);
+                    FastColor.ARGB32.red(color) / COLOR_CHANNEL_MAX,
+                    FastColor.ARGB32.green(color) / COLOR_CHANNEL_MAX,
+                    FastColor.ARGB32.blue(color) / COLOR_CHANNEL_MAX, PENDING_OPACITY);
         }
     }
 
@@ -164,7 +162,7 @@ final class PlayerSlotTargets {
 
     private record Bounds(Vector3f from, Vector3f to) {}
 
-    private record Target(int slot, MatrixStack transform, Bounds bounds) {
+    private record Target(int slot, PoseStack transform, Bounds bounds) {
         double depth(double x, double y) {
             return ModelAsset.boxDepth(transform, bounds.from(), bounds.to(), x, y);
         }

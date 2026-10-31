@@ -2,8 +2,7 @@ package dev.kizuna.backpack3d.client;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import net.minecraft.client.render.VertexConsumer;
-
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
@@ -56,7 +55,7 @@ class SliceVertexConsumerTest {
                         new Vector3f(1, 3, 0),
                         new Vector3f(3, 1, 0),
                         new Vector3f(1, -1, 0))) {
-            clipper.vertex(point.x, point.y, point.z).texture(0, 0).next();
+            clipper.vertex(point.x, point.y, point.z).uv(0, 0).endVertex();
         }
         assertEquals(16, output.vertices.size());
         assertTrue(
@@ -75,11 +74,11 @@ class SliceVertexConsumerTest {
             var transformed = scene.transformPosition(new Vector3f(point));
             consumer.vertex(transformed.x, transformed.y, transformed.z)
                     .color(255, 255, 255, 128)
-                    .texture(point.x, point.y / 3)
-                    .overlay(0, 0)
-                    .light(240, 240)
+                    .uv(point.x, point.y / 3)
+                    .overlayCoords(0, 0)
+                    .uv2(240, 240)
                     .normal(0, 0, 1)
-                    .next();
+                    .endVertex();
         }
     }
 
@@ -105,18 +104,18 @@ class SliceVertexConsumerTest {
         }
 
         @Override
-        public VertexConsumer texture(float u, float v) {
+        public VertexConsumer uv(float u, float v) {
             textureV = v;
             return this;
         }
 
         @Override
-        public VertexConsumer overlay(int u, int v) {
+        public VertexConsumer overlayCoords(int u, int v) {
             return this;
         }
 
         @Override
-        public VertexConsumer light(int u, int v) {
+        public VertexConsumer uv2(int u, int v) {
             light = u;
             return this;
         }
@@ -127,14 +126,14 @@ class SliceVertexConsumerTest {
         }
 
         @Override
-        public void next() {
+        public void endVertex() {
             vertices.add(new Vertex(position, textureV, light, alpha));
         }
 
         @Override
-        public void fixedColor(int r, int g, int b, int a) {}
+        public void defaultColor(int r, int g, int b, int a) {}
 
         @Override
-        public void unfixColor() {}
+        public void unsetDefaultColor() {}
     }
 }

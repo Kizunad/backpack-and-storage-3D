@@ -4,16 +4,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.Identifier;
-
+import com.mojang.blaze3d.vertex.PoseStack;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import net.minecraft.resources.ResourceLocation;
 
 class BbModelTest {
     @TempDir Path directory;
@@ -32,8 +30,8 @@ class BbModelTest {
             ModelAsset asset = new ModelAsset(model);
             assertTrue(asset.groundOffset() > 0);
             assertArrayEquals(
-                    asset.bounds(new MatrixStack(), new BagAnimation.Sample(false, 0)),
-                    asset.bounds(new MatrixStack(), new BagAnimation.Sample(true, 1)),
+                    asset.bounds(new PoseStack(), new BagAnimation.Sample(false, 0)),
+                    asset.bounds(new PoseStack(), new BagAnimation.Sample(true, 1)),
                     0.001f);
         }
     }
@@ -60,8 +58,8 @@ class BbModelTest {
         ModelAsset asset = new ModelAsset(read(json, null, null));
         assertEquals(asset.openSeconds(), asset.closeSeconds());
         assertArrayEquals(
-                asset.bounds(new MatrixStack(), new BagAnimation.Sample(false, 0.25f)),
-                asset.bounds(new MatrixStack(), new BagAnimation.Sample(true, 0.75f)),
+                asset.bounds(new PoseStack(), new BagAnimation.Sample(false, 0.25f)),
+                asset.bounds(new PoseStack(), new BagAnimation.Sample(true, 0.75f)),
                 0.001f);
     }
 
@@ -139,7 +137,7 @@ class BbModelTest {
         return BbModel.read(
                 directory,
                 new ModelConfig.Entry(
-                        new Identifier("example", "bag"), file, open, close, Map.of()));
+                        new ResourceLocation("example", "bag"), file, open, close, Map.of()));
     }
 
     private static JsonObject bundled(String name) throws Exception {

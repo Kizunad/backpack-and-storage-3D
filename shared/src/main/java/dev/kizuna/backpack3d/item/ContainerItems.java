@@ -8,19 +8,18 @@ import dev.kizuna.backpack3d.world.GroundBags;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
-import net.minecraft.entity.Entity;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemGroups;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.ItemUsageContext;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.Registry;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.Identifier;
-import net.minecraft.world.World;
-
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.item.CreativeModeTabs;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.world.level.Level;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,9 +27,9 @@ import java.util.UUID;
 
 /** 容器是不可堆叠的真实物品，内部容量、外部占格与可装备部位分别注册。 */
 public final class ContainerItems implements ModInitializer {
-    public static final Identifier POUCH = new Identifier("bs3d", "grass_pouch");
-    public static final Identifier BASKET = new Identifier("bs3d", "back_basket");
-    public static final Identifier BOX = new Identifier("bs3d", "storage_box");
+    public static final ResourceLocation POUCH = new ResourceLocation("bs3d", "grass_pouch");
+    public static final ResourceLocation BASKET = new ResourceLocation("bs3d", "back_basket");
+    public static final ResourceLocation BOX = new ResourceLocation("bs3d", "storage_box");
     public static final int DEFAULT_WAIST_LIMIT = 2;
     public static final int MAX_NESTING_DEPTH = 4;
     public static final int MAX_CONTAINERS = 32;
@@ -45,8 +44,8 @@ public final class ContainerItems implements ModInitializer {
     @Override
     public void onInitialize() {
         initialize();
-        ItemGroupEvents.modifyEntriesEvent(ItemGroups.TOOLS)
-                .register(entries -> TYPES.keySet().forEach(item -> entries.add(item)));
+        ItemGroupEvents.modifyEntriesEvent(CreativeModeTabs.TOOLS_AND_UTILITIES)
+                .register(entries -> TYPES.keySet().forEach(item -> entries.accept(item)));
     }
 
     public static void initialize() {
@@ -90,24 +89,24 @@ public final class ContainerItems implements ModInitializer {
     }
 
     public static Item register(
-            Identifier id,
+            ResourceLocation id,
             String title,
             String descriptionTranslationKey,
             String model,
             Size inside,
             Size outside,
             List<Mount> mounts,
-            Map<Identifier, JsonObject> optional) {
+            Map<ResourceLocation, JsonObject> optional) {
         // 尺寸由两端共同注册的类型决定，物品 NBT 和客户端请求不能扩大容量。
         requireSize(inside);
         requireSize(outside);
         var metadata = new ItemMetadata(descriptionTranslationKey, optional);
         var definition = new Definition(id, title, model, inside, outside, List.copyOf(mounts));
-        if (Registries.ITEM.containsId(id)) {
+        if (BuiltInRegistries.ITEM.containsKey(id)) {
             throw new IllegalArgumentException("容器物品重复注册：" + id);
         }
         ContainerSounds.register(model);
-        Item item = Registry.register(Registries.ITEM, id, new ContainerItem());
+        Item item = Registry.register(BuiltInRegistries.ITEM, id, new ContainerItem());
         TYPES.put(item, definition);
         ItemMetadata.register(item, metadata);
         return item;
@@ -127,9 +126,9 @@ public final class ContainerItems implements ModInitializer {
         return TYPES.get(stack.getItem());
     }
 
-    public static ItemStack create(Identifier type) {
+    public static ItemStack create(ResourceLocation type) {
         // 创建实例时即分配身份；复制 NBT 保留身份，移动物品不会创建第二个库存。
-        ItemStack stack = new ItemStack(Registries.ITEM.get(type));
+        ItemStack stack = new ItemStack(BuiltInRegistries.ITEM.get(type));
         if (definition(stack) == null) {
             throw new IllegalArgumentException("未注册的容器物品：" + type);
         }
@@ -139,27 +138,27 @@ public final class ContainerItems implements ModInitializer {
 
     public static void initializeStack(ItemStack stack) {
         // 只初始化全新的空容器，已有但损坏的标识不能被静默替换。
-        if (definition(stack) == null || stack.getSubNbt(DATA_KEY) != null) {
+        if (definition(stack) == null || stack.getTagElement(DATA_KEY) != null) {
             return;
         }
-        NbtCompound data = stack.getOrCreateSubNbt(DATA_KEY);
-        data.putUuid(ID_KEY, UUID.randomUUID());
+        CompoundTag data = stack.getOrCreateTagElement(DATA_KEY);
+        data.putUUID(ID_KEY, UUID.randomUUID());
         data.putByteArray(CONTENTS_KEY, ContainerContents.getDefaultInstance().toByteArray());
     }
 
     public static String identity(ItemStack stack) {
-        NbtCompound data = stack.getSubNbt(DATA_KEY);
-        if (data == null || !data.containsUuid(ID_KEY)) {
+        CompoundTag data = stack.getTagElement(DATA_KEY);
+        if (data == null || !data.hasUUID(ID_KEY)) {
             throw new IllegalArgumentException("容器物品缺少有效身份");
         }
-        return data.getUuid(ID_KEY).toString();
+        return data.getUUID(ID_KEY).toString();
     }
 
     public static ContainerContents contents(ItemStack stack) {
         // 子容器以有界 protobuf 存在物品 NBT，读取失败保留原栈并拒绝操作。
         identity(stack);
-        NbtCompound data = stack.getSubNbt(DATA_KEY);
-        if (!data.contains(CONTENTS_KEY, NbtElement.BYTE_ARRAY_TYPE)) {
+        CompoundTag data = stack.getTagElement(DATA_KEY);
+        if (!data.contains(CONTENTS_KEY, Tag.TAG_BYTE_ARRAY)) {
             throw new IllegalArgumentException("容器内容字段缺失或类型错误");
         }
         byte[] bytes = data.getByteArray(CONTENTS_KEY);
@@ -181,12 +180,12 @@ public final class ContainerItems implements ModInitializer {
         if (bytes.length > Messages.MAX_SAVE_BYTES) {
             throw new IllegalArgumentException("容器内容超过大小限制");
         }
-        stack.getSubNbt(DATA_KEY).putByteArray(CONTENTS_KEY, bytes);
+        stack.getTagElement(DATA_KEY).putByteArray(CONTENTS_KEY, bytes);
     }
 
     public record Definition(
             // 注册物品类型 ID，与每件容器的实例 UUID 不同。
-            Identifier id,
+            ResourceLocation id,
             String title,
             // config/bs3d/config.toml 中的模型 ID；旧的短名称等价于 bs3d:<名称>。
             String model,
@@ -203,23 +202,23 @@ public final class ContainerItems implements ModInitializer {
 
     private static final class ContainerItem extends Item {
         ContainerItem() {
-            super(new Item.Settings().maxCount(1));
+            super(new Item.Properties().stacksTo(1));
         }
 
         @Override
-        public ActionResult useOnBlock(ItemUsageContext context) {
+        public InteractionResult useOn(UseOnContext context) {
             // 普通右键保持原有行为；明确潜行时才把手中的真实容器放到地面。
-            if (context.getPlayer() == null || !context.getPlayer().isSneaking()) {
-                return ActionResult.PASS;
+            if (context.getPlayer() == null || !context.getPlayer().isShiftKeyDown()) {
+                return InteractionResult.PASS;
             }
             return GroundBags.place(context);
         }
 
         @Override
         public void inventoryTick(
-                ItemStack stack, World world, Entity owner, int slot, boolean selected) {
+                ItemStack stack, Level world, Entity owner, int slot, boolean selected) {
             // /give、合成或创造物品首次进入服务器库存时生成持久身份，客户端不生成 UUID。
-            if (!world.isClient) {
+            if (!world.isClientSide) {
                 initializeStack(stack);
             }
         }

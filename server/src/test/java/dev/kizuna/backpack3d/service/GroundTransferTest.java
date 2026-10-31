@@ -6,13 +6,11 @@ import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.StackCodec;
 import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
-
-import net.minecraft.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-
+import net.minecraft.server.Bootstrap;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -25,8 +23,8 @@ class GroundTransferTest {
 
     @BeforeAll
     static void bootstrap() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
         ContainerItems.initialize();
     }
 
@@ -47,9 +45,9 @@ class GroundTransferTest {
                 account,
                 base().setItem(item.getId())
                         .setTarget(Volumes.PLAYER)
-                        .setTargetPlayerSlot(PlayerInventory.OFF_HAND_SLOT)
+                        .setTargetPlayerSlot(Inventory.SLOT_OFFHAND)
                         .build());
-        assertEquals(3, account.inventory.get(PlayerInventory.OFF_HAND_SLOT).getCount());
+        assertEquals(3, account.inventory.get(Inventory.SLOT_OFFHAND).getCount());
         assertEquals(0, contents(id).getItemsCount());
         assertEquals(2, account.data.getRevision());
     }
@@ -141,7 +139,7 @@ class GroundTransferTest {
         SavedInventory data = TransferService.empty();
         List<ItemStack> inventory =
                 new ArrayList<>(
-                        Collections.nCopies(PlayerInventory.OFF_HAND_SLOT + 1, ItemStack.EMPTY));
+                        Collections.nCopies(Inventory.SLOT_OFFHAND + 1, ItemStack.EMPTY));
         Map<String, ItemStack> ground = new LinkedHashMap<>();
         Map<String, Long> versions = new LinkedHashMap<>();
         boolean fail;

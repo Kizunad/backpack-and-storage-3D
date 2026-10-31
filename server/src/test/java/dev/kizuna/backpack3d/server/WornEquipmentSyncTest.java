@@ -6,13 +6,11 @@ import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.StackCodec;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
 import dev.kizuna.backpack3d.service.TransferService;
-
-import net.minecraft.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.text.Text;
-
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.Bootstrap;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -22,8 +20,8 @@ import java.util.UUID;
 class WornEquipmentSyncTest {
     @BeforeAll
     static void bootstrap() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
         ContainerItems.initialize();
     }
 
@@ -32,7 +30,7 @@ class WornEquipmentSyncTest {
         var basket = ContainerItems.create(ContainerItems.BASKET);
         var pouch = ContainerItems.create(ContainerItems.POUCH);
         var privateItem = new ItemStack(Items.DIAMOND);
-        privateItem.setCustomName(Text.literal("private-name-must-not-be-broadcast"));
+        privateItem.setHoverName(Component.literal("private-name-must-not-be-broadcast"));
         ContainerItems.setContents(
                 basket,
                 List.of(

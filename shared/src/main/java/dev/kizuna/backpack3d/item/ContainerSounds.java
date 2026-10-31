@@ -1,9 +1,9 @@
 package dev.kizuna.backpack3d.item;
 
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.Registry;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.util.Identifier;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvent;
 
 /** 两端按容器模型身份注册事件；客户端配置只替换声音资源，不改变事件身份。 */
 public final class ContainerSounds {
@@ -37,14 +37,14 @@ public final class ContainerSounds {
 
     private ContainerSounds() {}
 
-    public static Identifier modelId(String model) {
+    public static ResourceLocation modelId(String model) {
         // 保留早期无命名空间模型名的兼容性，新接入方应使用完整 ID。
-        return model.contains(":") ? new Identifier(model) : new Identifier("bs3d", model);
+        return model.contains(":") ? new ResourceLocation(model) : new ResourceLocation("bs3d", model);
     }
 
-    public static Identifier id(String model, Action action) {
-        Identifier asset = modelId(model);
-        return new Identifier(
+    public static ResourceLocation id(String model, Action action) {
+        ResourceLocation asset = modelId(model);
+        return new ResourceLocation(
                 "bs3d",
                 "container/" + asset.getNamespace() + "/" + asset.getPath() + "/" + action.key());
     }
@@ -52,14 +52,14 @@ public final class ContainerSounds {
     public static void register(String model) {
         // 多个物品允许共用一套外观和音效，因此同一个事件只注册一次。
         for (Action action : Action.values()) {
-            Identifier id = id(model, action);
-            if (!Registries.SOUND_EVENT.containsId(id)) {
-                Registry.register(Registries.SOUND_EVENT, id, SoundEvent.of(id));
+            ResourceLocation id = id(model, action);
+            if (!BuiltInRegistries.SOUND_EVENT.containsKey(id)) {
+                Registry.register(BuiltInRegistries.SOUND_EVENT, id, SoundEvent.createVariableRangeEvent(id));
             }
         }
     }
 
     public static SoundEvent event(String model, Action action) {
-        return Registries.SOUND_EVENT.get(id(model, action));
+        return BuiltInRegistries.SOUND_EVENT.get(id(model, action));
     }
 }

@@ -10,17 +10,15 @@ import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
 import dev.kizuna.inventoryui.client.InventoryUiClient;
 import dev.kizuna.inventoryui.theme.ThemeTokens;
-
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.util.ScreenshotRecorder;
-import net.minecraft.text.Text;
-
 import org.lwjgl.opengl.GL11;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Screenshot;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 
 /** 在真实 GL 环境对照干净与被遮挡的深度缓存，验证预览不会被界面残留深度吞掉。 */
 final class PreviewDepthProbe extends Screen {
@@ -32,7 +30,7 @@ final class PreviewDepthProbe extends Screen {
     private boolean done;
 
     PreviewDepthProbe(VolumeModule module) {
-        super(Text.literal("Preview depth regression"));
+        super(Component.literal("Preview depth regression"));
         this.module = module;
         reference = new WornPreview(module);
         obstructed = new WornPreview(module);
@@ -46,34 +44,34 @@ final class PreviewDepthProbe extends Screen {
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
         if (done) {
             return;
         }
         int background = InventoryUiClient.runtime().color(ThemeTokens.BACKGROUND);
         drawProbe(context, reference, background, false);
-        try (var clean = ScreenshotRecorder.takeScreenshot(client.getFramebuffer())) {
+        try (var clean = Screenshot.takeScreenshot(minecraft.getMainRenderTarget())) {
             drawProbe(context, obstructed, background, true);
-            try (var covered = ScreenshotRecorder.takeScreenshot(client.getFramebuffer())) {
-                int backgroundPixel = clean.getColor(0, 0);
+            try (var covered = Screenshot.takeScreenshot(minecraft.getMainRenderTarget())) {
+                int backgroundPixel = clean.getPixelRGBA(0, 0);
                 int modelPixels = 0;
                 int differences = 0;
                 for (int y = 0; y < clean.getHeight(); y++) {
                     for (int x = 0; x < clean.getWidth(); x++) {
-                        int pixel = clean.getColor(x, y);
+                        int pixel = clean.getPixelRGBA(x, y);
                         if (pixel != backgroundPixel) {
                             modelPixels++;
                         }
-                        if (pixel != covered.getColor(x, y)) {
+                        if (pixel != covered.getPixelRGBA(x, y)) {
                             differences++;
                         }
                     }
                 }
                 if (modelPixels < 1000 || differences > 20) {
-                    ScreenshotRecorder.saveScreenshot(
-                            client.runDirectory,
+                    Screenshot.grab(
+                            minecraft.gameDirectory,
                             "depth-probe-failed.png",
-                            client.getFramebuffer(),
+                            minecraft.getMainRenderTarget(),
                             message -> {});
                     throw new IllegalStateException(
                             "模型深度隔离失败：pose="
@@ -98,19 +96,19 @@ final class PreviewDepthProbe extends Screen {
     }
 
     private void drawProbe(
-            DrawContext context, WornPreview preview, int background, boolean obstructDepth) {
+            GuiGraphics context, WornPreview preview, int background, boolean obstructDepth) {
         // 两次使用完全相同的屏幕坐标，避免盔甲纹理在不同投影平移下的浮点采样差异。
         context.fill(0, 0, width, height, background);
-        context.draw();
+        context.flush();
         RenderSystem.depthMask(true);
         RenderSystem.clearDepth(obstructDepth ? 0 : 1);
-        RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT, MinecraftClient.IS_SYSTEM_MAC);
+        RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
         RenderSystem.clearDepth(1);
         preview.draw(context, width / 2, height * 4 / 5, height / 3, -1, -1, false, animations);
-        context.draw();
+        context.flush();
     }
 
-    private void verifyInteriorPlacement(DrawContext context) {
+    private void verifyInteriorPlacement(GuiGraphics context) {
         // 仅中央格为空时，必须能够从完整三维场景命中它，不能依赖已移除的层按钮。
         var interior = new InteriorRenderer();
         var bounds = new InteriorRenderer.Rect(0, 0, 180, 180);
@@ -155,11 +153,11 @@ final class PreviewDepthProbe extends Screen {
     }
 
     @Override
-    public boolean shouldPause() {
+    public boolean isPauseScreen() {
         return false;
     }
 
-    private void verifySlicedPicking(DrawContext context) {
+    private void verifySlicedPicking(GuiGraphics context) {
         // 旋转前后只允许命中中间层，同时验证截面仍保留足够的可操作投影。
         var interior = new InteriorRenderer();
         interior.layers().resize(3);

@@ -9,8 +9,7 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornModel;
 import dev.kizuna.inventoryui.server.ServerConnection;
 
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
-import net.minecraft.server.network.ServerPlayerEntity;
-
+import net.minecraft.server.level.ServerPlayer;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -18,10 +17,10 @@ import java.util.UUID;
 
 /** 每条观察者连接只缓存其能看见的玩家外观；库存内容始终留在本人会话内。 */
 final class WornEquipmentSync {
-    private final ServerConnection<ServerPlayerEntity> connection;
+    private final ServerConnection<ServerPlayer> connection;
     private final Map<UUID, Observed> known = new HashMap<>();
 
-    WornEquipmentSync(ServerConnection<ServerPlayerEntity> connection) {
+    WornEquipmentSync(ServerConnection<ServerPlayer> connection) {
         this.connection = connection;
     }
 
@@ -30,13 +29,13 @@ final class WornEquipmentSync {
         if (!connection.supports(Messages.APPEARANCE)) {
             return;
         }
-        ServerPlayerEntity viewer = connection.context();
+        ServerPlayer viewer = connection.context();
         var visible = new HashSet<UUID>();
-        for (ServerPlayerEntity player : PlayerLookup.world(viewer.getServerWorld())) {
+        for (ServerPlayer player : PlayerLookup.world(viewer.serverLevel())) {
             if (player != viewer && !PlayerLookup.tracking(player).contains(viewer)) {
                 continue;
             }
-            visible.add(player.getUuid());
+            visible.add(player.getUUID());
             update(player);
         }
 
@@ -56,10 +55,10 @@ final class WornEquipmentSync {
         }
     }
 
-    private void update(ServerPlayerEntity player) {
+    private void update(ServerPlayer player) {
         SavedInventory saved = ((PlayerStorage) player).bs3d$getInventory();
-        Observed previous = known.get(player.getUuid());
-        String dimension = player.getWorld().getRegistryKey().getValue().toString();
+        Observed previous = known.get(player.getUUID());
+        String dimension = player.level().dimension().location().toString();
         // protobuf 存档不可变；未变更时不反复解码 NBT，重生实体仍会触发完整同步。
         if (previous != null
                 && previous.saved() == saved
@@ -67,11 +66,11 @@ final class WornEquipmentSync {
                 && previous.appearance().getDimension().equals(dimension)) {
             return;
         }
-        EquipmentAppearance next = appearance(player.getUuid(), player.getId(), dimension, saved);
+        EquipmentAppearance next = appearance(player.getUUID(), player.getId(), dimension, saved);
         if (previous == null || !previous.appearance().equals(next)) {
             connection.send(Messages.APPEARANCE, next);
         }
-        known.put(player.getUuid(), new Observed(saved, next));
+        known.put(player.getUUID(), new Observed(saved, next));
     }
 
     static EquipmentAppearance appearance(

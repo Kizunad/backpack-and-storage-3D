@@ -6,15 +6,13 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Cell;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.MoveRequest;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
-
-import net.minecraft.item.ItemStack;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
+import net.minecraft.world.item.ItemStack;
 
 /** 原版光标栈与已授权容器之间的候选变更；不读写世界方块或触发配方。 */
 public final class CursorTransfer {

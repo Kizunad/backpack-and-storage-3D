@@ -1,24 +1,22 @@
 package dev.kizuna.backpack3d.client;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
 import dev.kizuna.backpack3d.client.BbModel.Cube;
 import dev.kizuna.backpack3d.client.BbModel.Face;
-
-import net.minecraft.client.render.LightmapTextureManager;
-import net.minecraft.client.render.OverlayTexture;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.ColorHelper;
-import net.minecraft.util.math.RotationAxis;
-
 import org.joml.Vector3f;
 
 import java.util.List;
+import net.minecraft.client.renderer.LightTexture;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.FastColor;
 
 /** 逐面 UV 的原始立方体渲染器，保留 Blockbench 的旋转与分组。 */
 public final class ModelAsset {
-    public static final Identifier WHITE = new Identifier("bs3d", "textures/white.png");
+    public static final ResourceLocation WHITE = new ResourceLocation("bs3d", "textures/white.png");
     private static final float OPAQUE = 1;
     private static final int COLOR_CHANNEL_MASK = 255;
     private static final float MODEL_CENTER_XZ = 8;
@@ -48,13 +46,13 @@ public final class ModelAsset {
         centerY = top / 2;
         float lowest = Float.POSITIVE_INFINITY;
         for (Cube cube : cubes) {
-            var matrices = new MatrixStack();
+            var matrices = new PoseStack();
             transform(matrices, cube, BagAnimation.Sample.CLOSED);
             for (var vertex : vertices(cube.from(), cube.to())) {
                 lowest =
                         Math.min(
                                 lowest,
-                                matrices.peek().getPositionMatrix().transformPosition(vertex).y);
+                                matrices.last().pose().transformPosition(vertex).y);
             }
         }
         // 落地高度使用关闭姿态的真实最低点，保留低于编辑原点的绑带几何。
@@ -81,20 +79,20 @@ public final class ModelAsset {
     }
 
     public void render(
-            MatrixStack matrices, VertexConsumerProvider buffers, float lid, Integer tint) {
+            PoseStack matrices, MultiBufferSource buffers, float lid, Integer tint) {
         // GUI 使用固定光照；世界和原版物品通过重载传入环境光。
         render(
                 matrices,
                 buffers,
                 lid,
                 tint,
-                LightmapTextureManager.MAX_LIGHT_COORDINATE,
-                OverlayTexture.DEFAULT_UV);
+                LightTexture.FULL_BRIGHT,
+                OverlayTexture.NO_OVERLAY);
     }
 
     public void render(
-            MatrixStack matrices,
-            VertexConsumerProvider buffers,
+            PoseStack matrices,
+            MultiBufferSource buffers,
             float lid,
             Integer tint,
             int light,
@@ -105,8 +103,8 @@ public final class ModelAsset {
     }
 
     public void render(
-            MatrixStack matrices,
-            VertexConsumerProvider buffers,
+            PoseStack matrices,
+            MultiBufferSource buffers,
             BagAnimation.Sample pose,
             Integer tint) {
         // GUI 固定光照与世界渲染共用同一几何路径。
@@ -115,19 +113,19 @@ public final class ModelAsset {
                 buffers,
                 pose,
                 tint,
-                new Lighting(LightmapTextureManager.MAX_LIGHT_COORDINATE, OverlayTexture.DEFAULT_UV));
+                new Lighting(LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY));
     }
 
     private void render(
-            MatrixStack matrices,
-            VertexConsumerProvider buffers,
+            PoseStack matrices,
+            MultiBufferSource buffers,
             BagAnimation.Sample pose,
             Integer tint,
             Lighting lighting) {
         // 高亮轮廓使用同一几何，普通绘制保留模型原有贴图和逐面光照。
         var context = new RenderContext(matrices, buffers, Paint.from(tint), lighting);
         for (var cube : cubes) {
-            matrices.push();
+            matrices.pushPose();
             try {
                 transform(matrices, cube, pose);
                 var vertices = vertices(cube.from(), cube.to());
@@ -139,7 +137,7 @@ public final class ModelAsset {
                     renderFace(context, vertices, face, uv);
                 }
             } finally {
-                matrices.pop();
+                matrices.popPose();
             }
         }
     }
@@ -147,36 +145,36 @@ public final class ModelAsset {
     private static void renderFace(RenderContext context, Vector3f[] vertices, int face, Face uv) {
         // 半透明占位保留原模型几何，UV 旋转仅改变贴图四角的对应关系。
         var paint = context.paint();
-        Identifier texture = WHITE;
+        ResourceLocation texture = WHITE;
         if (paint.tint() == null) {
             texture = uv.texture();
         }
-        RenderLayer layer = RenderLayer.getEntityCutoutNoCull(texture);
+        RenderType layer = RenderType.entityCutoutNoCull(texture);
         if (paint.alpha() < OPAQUE) {
-            layer = RenderLayer.getEntityTranslucent(texture);
+            layer = RenderType.entityTranslucent(texture);
         }
         var consumer = context.buffers().getBuffer(layer);
         float[][] coords = {
             {uv.u0(), uv.v1()}, {uv.u1(), uv.v1()}, {uv.u1(), uv.v0()}, {uv.u0(), uv.v0()}
         };
         var normal = NORMALS[face];
-        var entry = context.matrices().peek();
+        var entry = context.matrices().last();
         for (int vertex = 0; vertex < VERTICES_PER_FACE; vertex++) {
             var point = vertices[FACE_VERTICES[face][vertex]];
             int uvCorner = Math.floorMod(vertex - uv.rotation(), VERTICES_PER_FACE);
-            consumer.vertex(entry.getPositionMatrix(), point.x, point.y, point.z)
+            consumer.vertex(entry.pose(), point.x, point.y, point.z)
                     .color(paint.red(), paint.green(), paint.blue(), paint.alpha())
-                    .texture(coords[uvCorner][0], coords[uvCorner][1])
-                    .overlay(context.lighting().overlay())
-                    .light(context.lighting().light())
-                    .normal(entry.getNormalMatrix(), normal.x, normal.y, normal.z)
-                    .next();
+                    .uv(coords[uvCorner][0], coords[uvCorner][1])
+                    .overlayCoords(context.lighting().overlay())
+                    .uv2(context.lighting().light())
+                    .normal(entry.normal(), normal.x, normal.y, normal.z)
+                    .endVertex();
         }
     }
 
     private record Lighting(int light, int overlay) {}
 
-    private record RenderContext(MatrixStack matrices, VertexConsumerProvider buffers,
+    private record RenderContext(PoseStack matrices, MultiBufferSource buffers,
                                  Paint paint, Lighting lighting) {}
 
     private record Paint(Integer tint, float red, float green, float blue, float alpha) {
@@ -186,15 +184,15 @@ public final class ModelAsset {
                 return new Paint(null, OPAQUE, OPAQUE, OPAQUE, OPAQUE);
             }
             return new Paint(tint,
-                    ColorHelper.Argb.getRed(tint) / (float) COLOR_CHANNEL_MASK,
-                    ColorHelper.Argb.getGreen(tint) / (float) COLOR_CHANNEL_MASK,
-                    ColorHelper.Argb.getBlue(tint) / (float) COLOR_CHANNEL_MASK,
-                    ColorHelper.Argb.getAlpha(tint) / (float) COLOR_CHANNEL_MASK);
+                    FastColor.ARGB32.red(tint) / (float) COLOR_CHANNEL_MASK,
+                    FastColor.ARGB32.green(tint) / (float) COLOR_CHANNEL_MASK,
+                    FastColor.ARGB32.blue(tint) / (float) COLOR_CHANNEL_MASK,
+                    FastColor.ARGB32.alpha(tint) / (float) COLOR_CHANNEL_MASK);
         }
     }
 
     public double hitDepth(
-            MatrixStack view, BagAnimation.Sample pose, double mouseX, double mouseY) {
+            PoseStack view, BagAnimation.Sample pose, double mouseX, double mouseY) {
         // 按射线在真实三角面片上的深度排序，叠在一起的容器只命中可见的前一个。
         double closest = Double.NEGATIVE_INFINITY;
         for (var cube : cubes) {
@@ -202,7 +200,7 @@ public final class ModelAsset {
             transform(matrices, cube, pose);
             var points = vertices(cube.from(), cube.to());
             for (var point : points) {
-                matrices.peek().getPositionMatrix().transformPosition(point);
+                matrices.last().pose().transformPosition(point);
             }
             // 被模型禁用的面没有几何，不能遮挡其后本来可点击的装备。
             for (int face = 0; face < FACE_VERTICES.length; face++) {
@@ -216,10 +214,10 @@ public final class ModelAsset {
     }
 
     public static double boxDepth(
-            MatrixStack matrices, Vector3f from, Vector3f to, double x, double y) {
+            PoseStack matrices, Vector3f from, Vector3f to, double x, double y) {
         var points = vertices(from, to);
         for (var point : points) {
-            matrices.peek().getPositionMatrix().transformPosition(point);
+            matrices.last().pose().transformPosition(point);
         }
         double closest = Double.NEGATIVE_INFINITY;
         for (var face : FACE_VERTICES) {
@@ -244,7 +242,7 @@ public final class ModelAsset {
         return (edge(b, c, x, y) * a.z + edge(c, a, x, y) * b.z + edge(a, b, x, y) * c.z) / area;
     }
 
-    public float[] bounds(MatrixStack view, BagAnimation.Sample pose) {
+    public float[] bounds(PoseStack view, BagAnimation.Sample pose) {
         // 动画后的实际几何决定取景边界，盖子掀起时也必须留在可见区域。
         float[] bounds = {
             Float.POSITIVE_INFINITY,
@@ -256,7 +254,7 @@ public final class ModelAsset {
             var matrices = copy(view);
             transform(matrices, cube, pose);
             for (var point : vertices(cube.from(), cube.to())) {
-                matrices.peek().getPositionMatrix().transformPosition(point);
+                matrices.last().pose().transformPosition(point);
                 bounds[0] = Math.min(bounds[0], point.x);
                 bounds[1] = Math.min(bounds[1], point.y);
                 bounds[2] = Math.max(bounds[2], point.x);
@@ -266,10 +264,10 @@ public final class ModelAsset {
         return bounds;
     }
 
-    public static MatrixStack copy(MatrixStack source) {
-        var copy = new MatrixStack();
-        copy.peek().getPositionMatrix().set(source.peek().getPositionMatrix());
-        copy.peek().getNormalMatrix().set(source.peek().getNormalMatrix());
+    public static PoseStack copy(PoseStack source) {
+        var copy = new PoseStack();
+        copy.last().pose().set(source.last().pose());
+        copy.last().normal().set(source.last().normal());
         return copy;
     }
 
@@ -283,7 +281,7 @@ public final class ModelAsset {
         return groundOffset;
     }
 
-    private void transform(MatrixStack matrices, Cube cube, BagAnimation.Sample pose) {
+    private void transform(PoseStack matrices, Cube cube, BagAnimation.Sample pose) {
         matrices.translate(-MODEL_CENTER_XZ, -centerY, -MODEL_CENTER_XZ);
         ModelClip clip = pose.closing() ? model.close() : model.open();
         float progress = pose.progress();
@@ -308,11 +306,11 @@ public final class ModelAsset {
     }
 
     private static void rotateAt(
-            MatrixStack matrices, Vector3f origin, Vector3f rotation, Vector3f scale) {
+            PoseStack matrices, Vector3f origin, Vector3f rotation, Vector3f scale) {
         matrices.translate(origin.x, origin.y, origin.z);
-        matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(rotation.z));
-        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(rotation.y));
-        matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(rotation.x));
+        matrices.mulPose(Axis.ZP.rotationDegrees(rotation.z));
+        matrices.mulPose(Axis.YP.rotationDegrees(rotation.y));
+        matrices.mulPose(Axis.XP.rotationDegrees(rotation.x));
         matrices.scale(scale.x, scale.y, scale.z);
         matrices.translate(-origin.x, -origin.y, -origin.z);
     }

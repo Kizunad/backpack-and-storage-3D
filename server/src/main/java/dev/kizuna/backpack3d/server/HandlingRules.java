@@ -9,17 +9,16 @@ import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
 
 import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
-import net.minecraft.item.BlockItem;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.tag.TagKey;
-import net.minecraft.resource.Resource;
-import net.minecraft.resource.ResourceManager;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.JsonHelper;
-
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.packs.resources.Resource;
+import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.tags.TagKey;
+import net.minecraft.util.GsonHelper;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -37,14 +36,14 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
     private List<Rule> rules = List.of();
 
     @Override
-    public Identifier getFabricId() {
-        return new Identifier("bs3d", "handling_rules");
+    public ResourceLocation getFabricId() {
+        return new ResourceLocation("bs3d", "handling_rules");
     }
 
     @Override
-    public void reload(ResourceManager resources) {
+    public void onResourceManagerReload(ResourceManager resources) {
         // 先按资源 ID 读取。后面的稳定排序让同优先级规则保持这个顺序。
-        var files = resources.findResources("bs3d/handling", id -> id.getPath().endsWith(".json"));
+        var files = resources.listResources("bs3d/handling", id -> id.getPath().endsWith(".json"));
         var entries = new ArrayList<>(files.entrySet());
         entries.sort(Map.Entry.comparingByKey());
 
@@ -59,24 +58,24 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
         rules = List.copyOf(loadedRules);
     }
 
-    private static Rule readRule(Identifier resourceId, Resource resource) {
+    private static Rule readRule(ResourceLocation resourceId, Resource resource) {
         // 文件边界负责关闭 reader 和补充文件名；字段错误由下面的解析步骤说明。
-        try (var reader = resource.getReader()) {
-            JsonObject json = JsonHelper.asObject(JsonParser.parseReader(reader), "规则根节点");
+        try (var reader = resource.openAsReader()) {
+            JsonObject json = GsonHelper.convertToJsonObject(JsonParser.parseReader(reader), "规则根节点");
             if (json.has("duration_ticks")) {
                 throw new IllegalArgumentException("duration_ticks 已废弃");
             }
 
-            Identifier tagId = readIdentifier(json, "tag");
-            TagKey<Item> tag = TagKey.of(RegistryKeys.ITEM, tagId);
+            ResourceLocation tagId = readIdentifier(json, "tag");
+            TagKey<Item> tag = TagKey.create(Registries.ITEM, tagId);
 
-            Identifier soundId = readIdentifier(json, "sound");
-            if (!Registries.SOUND_EVENT.containsId(soundId)) {
+            ResourceLocation soundId = readIdentifier(json, "sound");
+            if (!BuiltInRegistries.SOUND_EVENT.containsKey(soundId)) {
                 throw new IllegalArgumentException("sound 未注册：" + soundId);
             }
 
             Size size = readSize(json);
-            int priority = JsonHelper.getInt(json, "priority", DEFAULT_PRIORITY);
+            int priority = GsonHelper.getAsInt(json, "priority", DEFAULT_PRIORITY);
             return new Rule(tag, soundId.toString(), size, priority);
         } catch (IOException | JsonParseException | IllegalArgumentException failure) {
             throw new IllegalArgumentException(
@@ -84,10 +83,10 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
         }
     }
 
-    private static Identifier readIdentifier(JsonObject json, String field) {
+    private static ResourceLocation readIdentifier(JsonObject json, String field) {
         // 保留字段名，让无效命名空间与无效路径都能直接定位到配置项。
-        String value = JsonHelper.getString(json, field);
-        Identifier identifier = Identifier.tryParse(value);
+        String value = GsonHelper.getAsString(json, field);
+        ResourceLocation identifier = ResourceLocation.tryParse(value);
         if (identifier == null) {
             throw new IllegalArgumentException(field + " 不是有效的资源 ID：" + value);
         }
@@ -99,7 +98,7 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
         if (!json.has("size")) {
             return Volumes.UNIT;
         }
-        JsonArray dimensions = JsonHelper.getArray(json, "size");
+        JsonArray dimensions = GsonHelper.getAsJsonArray(json, "size");
         if (dimensions.size() != DIMENSION_COUNT) {
             throw new IllegalArgumentException("size 必须包含宽、高、深三个尺寸");
         }
@@ -111,7 +110,7 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
 
     private static int readDimension(JsonArray dimensions, int index, String axis) {
         // 单独检查每个轴，错误应指出宽、高或深，而不是笼统报告尺寸无效。
-        int cells = JsonHelper.asInt(dimensions.get(index), "size." + axis);
+        int cells = GsonHelper.convertToInt(dimensions.get(index), "size." + axis);
         if (cells < MIN_SIZE_CELLS || cells > MAX_SIZE_CELLS) {
             throw new IllegalArgumentException(
                     "size." + axis + " 必须在 " + MIN_SIZE_CELLS + ".." + MAX_SIZE_CELLS + " 格之间");
@@ -122,7 +121,7 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
     public Material material(ItemStack stack) {
         // 显式 tag 规则优先；目录已经排序，第一个匹配项就是最终规则。
         for (Rule rule : rules) {
-            if (stack.isIn(rule.tag())) {
+            if (stack.is(rule.tag())) {
                 return new Material(
                         rule.sound(), DEFAULT_VOLUME, DEFAULT_PITCH, rule.size());
             }
@@ -131,8 +130,8 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
         // 没有规则时，方块沿用自己的放置声，其他物品使用通用轻触声。
         String sound = "minecraft:entity.item.pickup";
         if (stack.getItem() instanceof BlockItem blockItem) {
-            var soundGroup = blockItem.getBlock().getDefaultState().getSoundGroup();
-            sound = soundGroup.getPlaceSound().getId().toString();
+            var soundGroup = blockItem.getBlock().defaultBlockState().getSoundType();
+            sound = soundGroup.getPlaceSound().getLocation().toString();
         }
         return new Material(
                 sound, DEFAULT_VOLUME, DEFAULT_PITCH, Volumes.UNIT);

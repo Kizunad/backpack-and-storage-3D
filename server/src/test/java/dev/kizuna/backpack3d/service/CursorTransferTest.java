@@ -11,13 +11,11 @@ import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornContainer;
-
-import net.minecraft.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.text.Text;
-
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.Bootstrap;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -45,15 +43,15 @@ class CursorTransferTest {
         var take = CursorTransfer.Request.take(stored.data().getRevision(), item);
         var taken = CursorTransfer.prepare(account, ItemStack.EMPTY, take,
                 stack -> Volumes.UNIT, stored.ground());
-        assertTrue(ItemStack.areEqual(source, taken.cursor()));
+        assertTrue(ItemStack.matches(source, taken.cursor()));
         assertEquals(0, ContainerItems.contents(taken.ground().get(id)).getItemsCount());
         assertEquals(1, ContainerItems.contents(stored.ground().get(id)).getItemsCount());
     }
 
     @BeforeAll
     static void bootstrap() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
         ContainerItems.initialize();
     }
 
@@ -67,17 +65,17 @@ class CursorTransferTest {
     void previewLeavesSourceUntouchedAndPreservesCompleteNbt() {
         var account = new MemoryAccount();
         var sword = new ItemStack(Items.IRON_SWORD);
-        sword.setCustomName(Text.literal("工作站旁的剑"));
-        sword.setDamage(12);
+        sword.setHoverName(Component.literal("工作站旁的剑"));
+        sword.setDamageValue(12);
         var before = account.data;
         var candidate =
                 CursorTransfer.prepare(account, sword, store(account), stack -> Volumes.UNIT);
         assertSame(before, account.data);
-        assertTrue(ItemStack.areEqual(sword, candidate.moved()));
+        assertTrue(ItemStack.matches(sword, candidate.moved()));
         assertTrue(candidate.cursor().isEmpty());
         var tree = new ContainerTree(candidate.data(), new ArrayList<>(candidate.inventory()));
         assertTrue(
-                ItemStack.areEqual(
+                ItemStack.matches(
                         sword,
                         StackCodec.decode(
                                 tree.items().stream()
@@ -105,7 +103,7 @@ class CursorTransferTest {
                         ItemStack.EMPTY,
                         CursorTransfer.Request.take(account.data.getRevision(), item.getId()),
                         stack -> Volumes.UNIT);
-        assertTrue(ItemStack.areEqual(source, taken.cursor()));
+        assertTrue(ItemStack.matches(source, taken.cursor()));
         assertEquals(2, taken.data().getRevision());
         assertTrue(
                 new ContainerTree(taken.data(), new ArrayList<>(taken.inventory()))
@@ -203,7 +201,7 @@ class CursorTransferTest {
 
         MemoryAccount() {
             for (int slot = 0;
-                    slot <= net.minecraft.entity.player.PlayerInventory.OFF_HAND_SLOT;
+                    slot <= net.minecraft.world.entity.player.Inventory.SLOT_OFFHAND;
                     slot++) {
                 slots.add(ItemStack.EMPTY);
             }

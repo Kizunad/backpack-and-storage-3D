@@ -1,12 +1,10 @@
 package dev.kizuna.backpack3d.client;
 
-import net.minecraft.client.render.VertexConsumer;
-
 import org.joml.Matrix4f;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
-
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -53,20 +51,20 @@ final class SliceVertexConsumer implements VertexConsumer {
     }
 
     @Override
-    public VertexConsumer texture(float u, float v) {
+    public VertexConsumer uv(float u, float v) {
         texture.set(u, v);
         return this;
     }
 
     @Override
-    public VertexConsumer overlay(int u, int v) {
+    public VertexConsumer overlayCoords(int u, int v) {
         overlayU = u;
         overlayV = v;
         return this;
     }
 
     @Override
-    public VertexConsumer light(int u, int v) {
+    public VertexConsumer uv2(int u, int v) {
         lightU = u;
         lightV = v;
         return this;
@@ -79,18 +77,18 @@ final class SliceVertexConsumer implements VertexConsumer {
     }
 
     @Override
-    public void fixedColor(int red, int green, int blue, int alpha) {
+    public void defaultColor(int red, int green, int blue, int alpha) {
         color.set(red, green, blue, alpha).div(COLOR_CHANNEL_MAX);
         fixedColor = true;
     }
 
     @Override
-    public void unfixColor() {
+    public void unsetDefaultColor() {
         fixedColor = false;
     }
 
     @Override
-    public void next() {
+    public void endVertex() {
         // 物品渲染器已把顶点变换到 GUI 坐标；逆变换只用于求它所在的容器高度。
         float layerY = sceneInverse.transformPosition(new Vector3f(position)).y;
         quad.add(
@@ -185,11 +183,11 @@ final class SliceVertexConsumer implements VertexConsumer {
         void write(VertexConsumer consumer) {
             consumer.vertex(position.x, position.y, position.z)
                     .color(color.x, color.y, color.z, color.w)
-                    .texture(texture.x, texture.y)
-                    .overlay(overlayU, overlayV)
-                    .light(lightU, lightV)
+                    .uv(texture.x, texture.y)
+                    .overlayCoords(overlayU, overlayV)
+                    .uv2(lightU, lightV)
                     .normal(normal.x, normal.y, normal.z)
-                    .next();
+                    .endVertex();
         }
 
         private static int mix(int from, int to, float fraction) {

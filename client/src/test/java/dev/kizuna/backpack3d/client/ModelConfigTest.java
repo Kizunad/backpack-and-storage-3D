@@ -82,8 +82,8 @@ class ModelConfigTest {
         // 没有 controls 表的已有配置仍然可用，默认 R/T 不依赖全局按键表。
         config("version = 1\nmodels = []\n");
         var controls = ModelConfig.read(directory, ignored -> {}).controls();
-        assertEquals("key.keyboard.r", controls.yaw().getTranslationKey());
-        assertEquals("key.keyboard.t", controls.pitch().getTranslationKey());
+        assertEquals("key.keyboard.r", controls.yaw().getName());
+        assertEquals("key.keyboard.t", controls.pitch().getName());
     }
 
     @Test
@@ -91,12 +91,12 @@ class ModelConfigTest {
         // 只覆盖一个轴时，另一个轴保留默认键。
         config("version = 1\n[controls]\nrotate_yaw = 'key.keyboard.y'\n");
         var controls = ModelConfig.read(directory, ignored -> {}).controls();
-        assertEquals("key.keyboard.y", controls.yaw().getTranslationKey());
-        assertEquals("key.keyboard.t", controls.pitch().getTranslationKey());
+        assertEquals("key.keyboard.y", controls.yaw().getName());
+        assertEquals("key.keyboard.t", controls.pitch().getName());
         config("version = 1\n[controls]\nrotate_pitch = 'key.mouse.4'\n");
         var pitchControls = ModelConfig.read(directory, ignored -> {}).controls();
-        assertEquals("key.keyboard.r", pitchControls.yaw().getTranslationKey());
-        assertEquals("key.mouse.4", pitchControls.pitch().getTranslationKey());
+        assertEquals("key.keyboard.r", pitchControls.yaw().getName());
+        assertEquals("key.mouse.4", pitchControls.pitch().getName());
     }
 
     @Test

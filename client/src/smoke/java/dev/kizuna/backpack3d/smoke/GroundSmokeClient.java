@@ -7,21 +7,19 @@ import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Phase;
 import dev.kizuna.backpack3d.world.GroundBagBlockEntity;
 import dev.kizuna.backpack3d.world.GroundBags;
-
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.util.ScreenshotRecorder;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.Items;
-import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
-import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
-
 import java.io.IOException;
 import java.nio.file.Files;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Screenshot;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
+import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 
 /** 使用原版交互包放置、打开和收回，并验证即时存取、模型落点与重启后的内容。 */
 final class GroundSmokeClient {
@@ -32,17 +30,17 @@ final class GroundSmokeClient {
     private String stone;
     private boolean modelOpened;
 
-    String tick(MinecraftClient client, VolumeModule module, boolean restart) throws IOException {
+    String tick(Minecraft client, VolumeModule module, boolean restart) throws IOException {
         if (id == null) {
             id =
-                    Files.readString(client.runDirectory.toPath().resolve("../ground-test-id.txt"))
+                    Files.readString(client.gameDirectory.toPath().resolve("../ground-test-id.txt"))
                             .strip();
             if (restart) {
                 pos =
-                        BlockPos.fromLong(
+                        BlockPos.of(
                                 Long.parseLong(
                                         Files.readString(
-                                                        client.runDirectory
+                                                        client.gameDirectory
                                                                 .toPath()
                                                                 .resolve("../ground-test-pos.txt"))
                                                 .strip()));
@@ -58,37 +56,37 @@ final class GroundSmokeClient {
         }
         switch (step) {
             case 0 -> {
-                if (!client.player.isOnGround()
+                if (!client.player.onGround()
                         || !client.player
                                 .getInventory()
-                                .getStack(0)
-                                .isOf(
-                                        net.minecraft.registry.Registries.ITEM.get(
+                                .getItem(0)
+                                .is(
+                                        net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
                                                 ContainerItems.POUCH))) {
                     return null;
                 }
-                client.player.getInventory().selectedSlot = 0;
-                client.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(0));
-                pos = client.player.getBlockPos().east(2);
+                client.player.getInventory().selected = 0;
+                client.getConnection().send(new ServerboundSetCarriedItemPacket(0));
+                pos = client.player.blockPosition().east(2);
                 Files.writeString(
-                        client.runDirectory.toPath().resolve("../ground-test-pos.txt"),
+                        client.gameDirectory.toPath().resolve("../ground-test-pos.txt"),
                         Long.toString(pos.asLong()));
                 sneak(client, true);
-                var support = pos.down();
-                client.interactionManager.interactBlock(
+                var support = pos.below();
+                client.gameMode.useItemOn(
                         client.player,
-                        Hand.MAIN_HAND,
+                        InteractionHand.MAIN_HAND,
                         new BlockHitResult(
-                                new Vec3d(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5),
+                                new Vec3(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5),
                                 Direction.UP,
                                 support,
                                 false));
                 next();
             }
             case 1 -> {
-                if (client.world.getBlockEntity(pos) instanceof GroundBagBlockEntity bag
+                if (client.level.getBlockEntity(pos) instanceof GroundBagBlockEntity bag
                         && bag.container().equals(id)
-                        && client.player.getMainHandStack().isEmpty()
+                        && client.player.getMainHandItem().isEmpty()
                         && module.state().getRevision() == 25) {
                     sneak(client, false);
                     module.open();
@@ -96,7 +94,7 @@ final class GroundSmokeClient {
                 }
             }
             case 2 -> {
-                if (!(client.currentScreen instanceof VolumeScreen screen)
+                if (!(client.screen instanceof VolumeScreen screen)
                         || !module.state().containsGroundRevisions(id)) {
                     return null;
                 }
@@ -121,22 +119,22 @@ final class GroundSmokeClient {
                                         item ->
                                                 item.getContainer().equals(id)
                                                         && module.stack(item.getId())
-                                                                .isOf(Items.STONE))
+                                                                .is(Items.STONE))
                                 .findFirst()
                                 .orElseThrow()
                                 .getId();
-                ScreenshotRecorder.saveScreenshot(
-                        client.runDirectory,
+                Screenshot.grab(
+                        client.gameDirectory,
                         "ground-open.png",
-                        client.getFramebuffer(),
+                        client.getMainRenderTarget(),
                         text -> {});
-                module.withdraw(stone, PlayerInventory.OFF_HAND_SLOT);
+                module.withdraw(stone, Inventory.SLOT_OFFHAND);
                 next();
             }
             case 3 -> {
                 if (module.state().getRevision() == 26 && !module.busy()) {
-                    require(client.player.getOffHandStack().getCount() == 8, "地面取出数量错误");
-                    var screen = (VolumeScreen) client.currentScreen;
+                    require(client.player.getOffhandItem().getCount() == 8, "地面取出数量错误");
+                    var screen = (VolumeScreen) client.screen;
                     screen.closeContainer(id);
                     if (!dropOnGroundModel(screen)) {
                         return null;
@@ -152,7 +150,7 @@ final class GroundSmokeClient {
                                             item ->
                                                     item.getContainer().equals(id)
                                                             && module.stack(item.getId())
-                                                                    .isOf(Items.STONE))
+                                                                    .is(Items.STONE))
                                     .findFirst()
                                     .orElseThrow()
                                     .getId();
@@ -162,16 +160,16 @@ final class GroundSmokeClient {
             }
             case 5 -> {
                 if (module.state().getTransfer().getPhase() == Phase.REJECTED) {
-                    ((VolumeScreen) client.currentScreen).close();
+                    ((VolumeScreen) client.screen).onClose();
                     next();
                 }
             }
             case 6 -> {
-                if (client.currentScreen == null
+                if (client.screen == null
                         && module.state().getGroundRevisionsCount() == 0
                         && !module.busy()) {
                     require(module.state().getRevision() == 27, "拒绝地面落点后仍提交取物");
-                    require(client.player.getOffHandStack().isEmpty(), "拒绝未保持地面原库存");
+                    require(client.player.getOffhandItem().isEmpty(), "拒绝未保持地面原库存");
                     return "revision=27; native-shift-place; nearby-closed-model; ground-closed-model-drop;"
                                + " rejected-unchanged; contents-preserved";
                 }
@@ -187,7 +185,7 @@ final class GroundSmokeClient {
         int[] target = null;
         for (int y = 0; y < screen.height; y++) {
             for (int x = 0; x < screen.width; x++) {
-                if (source == null && screen.playerSlotAt(x, y) == PlayerInventory.OFF_HAND_SLOT) {
+                if (source == null && screen.playerSlotAt(x, y) == Inventory.SLOT_OFFHAND) {
                     source = new int[] {x, y};
                 }
                 if (target == null && screen.bagHit(id, x, y)) {
@@ -218,12 +216,12 @@ final class GroundSmokeClient {
         return false;
     }
 
-    private String restart(MinecraftClient client, VolumeModule module) throws IOException {
+    private String restart(Minecraft client, VolumeModule module) throws IOException {
         switch (step) {
             case 0 -> {
-                if (!(client.world.getBlockEntity(pos) instanceof GroundBagBlockEntity bag)
+                if (!(client.level.getBlockEntity(pos) instanceof GroundBagBlockEntity bag)
                         || !bag.container().equals(id)
-                        || !client.player.isOnGround()) {
+                        || !client.player.onGround()) {
                     return null;
                 }
                 sneak(client, false);
@@ -231,7 +229,7 @@ final class GroundSmokeClient {
                 next();
             }
             case 1 -> {
-                if (!(client.currentScreen instanceof VolumeScreen screen)
+                if (!(client.screen instanceof VolumeScreen screen)
                         || !screen.openContainers().contains(id)) {
                     return null;
                 }
@@ -242,21 +240,21 @@ final class GroundSmokeClient {
                 require(contents.size() == 2, "重启地面容器内容不一致");
                 var sword =
                         contents.stream()
-                                .filter(item -> module.stack(item.getId()).isOf(Items.IRON_SWORD))
+                                .filter(item -> module.stack(item.getId()).is(Items.IRON_SWORD))
                                 .findFirst()
                                 .orElseThrow();
-                require(module.stack(sword.getId()).getDamage() == 17, "重启丢失物品 NBT");
+                require(module.stack(sword.getId()).getDamageValue() == 17, "重启丢失物品 NBT");
                 Files.writeString(
-                        client.runDirectory.toPath().resolve("../ground-access-check.txt"), id);
+                        client.gameDirectory.toPath().resolve("../ground-access-check.txt"), id);
                 if (!Files.exists(
-                        client.runDirectory.toPath().resolve("../ground-access-ok.txt"))) {
+                        client.gameDirectory.toPath().resolve("../ground-access-ok.txt"))) {
                     return null;
                 }
-                screen.close();
+                screen.onClose();
                 next();
             }
             case 2 -> {
-                if (client.currentScreen == null && module.state().getGroundRevisionsCount() == 0) {
+                if (client.screen == null && module.state().getGroundRevisionsCount() == 0) {
                     sneak(client, true);
                     use(client);
                     next();
@@ -264,9 +262,9 @@ final class GroundSmokeClient {
             }
             case 3 -> {
                 if (module.state().getRevision() == 28
-                        && !client.world.getBlockState(pos).isOf(GroundBags.BLOCK)) {
+                        && !client.level.getBlockState(pos).is(GroundBags.BLOCK)) {
                     sneak(client, false);
-                    var held = client.player.getMainHandStack();
+                    var held = client.player.getMainHandItem();
                     require(ContainerItems.identity(held).equals(id), "收回背包改变了身份");
                     require(ContainerItems.contents(held).getItemsCount() == 2, "收回背包丢失内容");
                     return "revision=28; ground-restart; original-NBT; native-shift-pickup;"
@@ -278,23 +276,23 @@ final class GroundSmokeClient {
         return null;
     }
 
-    private void use(MinecraftClient client) {
-        client.interactionManager.interactBlock(
+    private void use(Minecraft client) {
+        client.gameMode.useItemOn(
                 client.player,
-                Hand.MAIN_HAND,
-                new BlockHitResult(Vec3d.ofCenter(pos), Direction.UP, pos, false));
+                InteractionHand.MAIN_HAND,
+                new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false));
     }
 
-    private static void sneak(MinecraftClient client, boolean pressed) {
-        client.options.sneakKey.setPressed(pressed);
-        client.player.setSneaking(pressed);
-        client.getNetworkHandler()
-                .sendPacket(
-                        new ClientCommandC2SPacket(
+    private static void sneak(Minecraft client, boolean pressed) {
+        client.options.keyShift.setDown(pressed);
+        client.player.setShiftKeyDown(pressed);
+        client.getConnection()
+                .send(
+                        new ServerboundPlayerCommandPacket(
                                 client.player,
                                 pressed
-                                        ? ClientCommandC2SPacket.Mode.PRESS_SHIFT_KEY
-                                        : ClientCommandC2SPacket.Mode.RELEASE_SHIFT_KEY));
+                                        ? ServerboundPlayerCommandPacket.Action.PRESS_SHIFT_KEY
+                                        : ServerboundPlayerCommandPacket.Action.RELEASE_SHIFT_KEY));
     }
 
     private void next() {

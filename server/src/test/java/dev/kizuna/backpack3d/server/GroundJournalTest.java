@@ -2,7 +2,7 @@ package dev.kizuna.backpack3d.server;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 
 import org.junit.jupiter.api.Test;
@@ -67,8 +67,8 @@ class GroundJournalTest {
         assertEquals("original", NbtIo.readCompressed(playerFile.toFile()).getString("hand"));
     }
 
-    private static NbtCompound value(String key, String value) {
-        var nbt = new NbtCompound();
+    private static CompoundTag value(String key, String value) {
+        var nbt = new CompoundTag();
         nbt.putString(key, value);
         return nbt;
     }

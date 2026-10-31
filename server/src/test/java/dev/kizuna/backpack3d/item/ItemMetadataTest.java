@@ -2,12 +2,12 @@ package dev.kizuna.backpack3d.item;
 
 import com.google.gson.JsonObject;
 import dev.kizuna.backpack3d.protocol.Volumes;
-import net.minecraft.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.Bootstrap;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -18,13 +18,13 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ItemMetadataTest {
-    private static final Identifier FIELD = new Identifier("example", "details");
+    private static final ResourceLocation FIELD = new ResourceLocation("example", "details");
 
     @BeforeAll
     static void bootstrap() {
         // 使用真实物品注册表，确保补充元数据不会替换原版物品或生成实例 NBT。
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
         ContainerItems.initialize();
     }
 
@@ -35,7 +35,7 @@ class ItemMetadataTest {
         var nested = new JsonObject();
         nested.addProperty("label", "original");
         field.add("nested", nested);
-        var optional = new HashMap<Identifier, JsonObject>();
+        var optional = new HashMap<ResourceLocation, JsonObject>();
         optional.put(FIELD, field);
         var metadata = new ItemMetadata("item.example.description", optional);
 
@@ -60,8 +60,8 @@ class ItemMetadataTest {
         var stack = new ItemStack(Items.FLINT, 3);
         var original = stack.copy();
         ItemMetadata.register(Items.FLINT, "item.example.flint.description", Map.of());
-        assertSame(Items.FLINT, Registries.ITEM.get(new Identifier("minecraft", "flint")));
-        assertTrue(ItemStack.areEqual(original, stack));
+        assertSame(Items.FLINT, BuiltInRegistries.ITEM.get(new ResourceLocation("minecraft", "flint")));
+        assertTrue(ItemStack.matches(original, stack));
         assertEquals("item.example.flint.description", ItemMetadata.of(stack).descriptionTranslationKey());
         assertThrows(IllegalArgumentException.class,
                 () -> ItemMetadata.register(Items.FLINT, "replacement", Map.of()));
@@ -70,7 +70,7 @@ class ItemMetadataTest {
 
     @Test
     void containerRegistrationIncludesDescriptionAndAddonFields() {
-        var id = new Identifier("test", "metadata_container");
+        var id = new ResourceLocation("test", "metadata_container");
         var payload = new JsonObject();
         payload.addProperty("value", 42);
         ContainerItems.register(id, "测试容器", "item.test.container.description", "bs3d:grass_pouch",
@@ -84,10 +84,10 @@ class ItemMetadataTest {
 
     @Test
     void invalidMetadataDoesNotPartiallyRegisterContainer() {
-        var id = new Identifier("test", "invalid_metadata_container");
+        var id = new ResourceLocation("test", "invalid_metadata_container");
         assertThrows(NullPointerException.class, () -> ContainerItems.register(
                 id, "测试容器", "", "bs3d:grass_pouch", Volumes.UNIT, Volumes.UNIT, List.of(), null));
-        assertFalse(Registries.ITEM.containsId(id));
+        assertFalse(BuiltInRegistries.ITEM.containsKey(id));
     }
 
     @Test

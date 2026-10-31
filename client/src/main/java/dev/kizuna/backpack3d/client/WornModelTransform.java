@@ -1,9 +1,8 @@
 package dev.kizuna.backpack3d.client;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
-
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.math.RotationAxis;
 
 /** UI 命中、预览和世界外观共用身体挂点，所有坐标均在 body 骨架局部系内。 */
 final class WornModelTransform {
@@ -21,7 +20,7 @@ final class WornModelTransform {
     private WornModelTransform() {}
 
     static void apply(
-            MatrixStack matrices,
+            PoseStack matrices,
             ModelAsset asset,
             boolean waist,
             Mount mount,
@@ -32,12 +31,12 @@ final class WornModelTransform {
             double angle = Math.toRadians(angleDegrees);
             float centerY = WAIST_Y + asset.topOffset() * scale;
             matrices.translate(Math.sin(angle) * WAIST_X, centerY, -Math.cos(angle) * WAIST_Z);
-            matrices.multiply(
-                    RotationAxis.POSITIVE_Y.rotationDegrees(FRONT_DEGREES - angleDegrees));
+            matrices.mulPose(
+                    Axis.YP.rotationDegrees(FRONT_DEGREES - angleDegrees));
         } else {
             boolean front = mount == Mount.TORSO_FRONT;
             matrices.translate(0, TORSO_Y, front ? -TORSO_Z : TORSO_Z);
-            matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(front ? FRONT_DEGREES : 0));
+            matrices.mulPose(Axis.YP.rotationDegrees(front ? FRONT_DEGREES : 0));
         }
         // 导入资产 y 向上，玩家骨架 y 向下；同时翻转 z 保持右手坐标系。
         matrices.scale(scale, -scale, -scale);

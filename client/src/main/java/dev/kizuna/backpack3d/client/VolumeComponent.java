@@ -4,7 +4,7 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import io.wispforest.owo.ui.base.BaseComponent;
 import io.wispforest.owo.ui.core.OwoUIDrawContext;
 import io.wispforest.owo.ui.core.Sizing;
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 
 /** 工作台中的完整背包场景，复用独立页面的相机、命中和权威操作。 */
 final class VolumeComponent extends BaseComponent implements AutoCloseable {
@@ -15,7 +15,7 @@ final class VolumeComponent extends BaseComponent implements AutoCloseable {
         // 工厂只创建组件，不切换 Minecraft 屏幕；窗口 scope 负责最终释放。
         scene = new VolumeScreen(module, closeWindow);
         sizing(Sizing.fill(100), Sizing.fill(100));
-        scene.init(MinecraftClient.getInstance(), 1, 1);
+        scene.init(Minecraft.getInstance(), 1, 1);
     }
 
     VolumeScreen scene() {
@@ -30,21 +30,21 @@ final class VolumeComponent extends BaseComponent implements AutoCloseable {
             return;
         }
         if (scene.width != width || scene.height != height) {
-            scene.resize(MinecraftClient.getInstance(), Math.max(1, width), Math.max(1, height));
+            scene.resize(Minecraft.getInstance(), Math.max(1, width), Math.max(1, height));
         }
-        context.draw();
+        context.flush();
         context.enableScissor(x, y, x + width, y + height);
         var modelView = RenderSystem.getModelViewStack();
-        modelView.push();
+        modelView.pushPose();
         modelView.translate(x, y, 0);
         RenderSystem.applyModelViewMatrix();
         scene.scissorOrigin(x, y);
         try {
             scene.render(context, mouseX - x, mouseY - y, partialTicks);
-            context.draw();
+            context.flush();
         } finally {
             // 渲染失败也恢复全局变换，避免其他业务窗口沿用背包的坐标或裁剪。
-            modelView.pop();
+            modelView.popPose();
             RenderSystem.applyModelViewMatrix();
             context.disableScissor();
         }

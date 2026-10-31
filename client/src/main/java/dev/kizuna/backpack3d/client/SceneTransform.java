@@ -1,8 +1,7 @@
 package dev.kizuna.backpack3d.client;
 
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.math.RotationAxis;
-
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
 import org.joml.Vector3f;
 
 /** 绘制和命中使用相同投影，避免鼠标热区与旋转后的模型分离。 */
@@ -18,17 +17,17 @@ public record SceneTransform(
     public static final float DEPTH = 100;
     private static final float DEPTH_SCALE = 0.1f;
 
-    public MatrixStack matrices() {
+    public PoseStack matrices() {
         // GUI 的 y 轴朝下；压缩深度以保留前后遮挡，并让绘制和命中使用同一矩阵。
-        var matrices = new MatrixStack();
+        var matrices = new PoseStack();
         matrices.translate(x, y, DEPTH);
         matrices.scale(scale, -scale, scale * DEPTH_SCALE);
-        matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(pitch));
-        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(yaw));
+        matrices.mulPose(Axis.XP.rotationDegrees(pitch));
+        matrices.mulPose(Axis.YP.rotationDegrees(yaw));
         return matrices;
     }
 
     public Vector3f project(float px, float py, float pz) {
-        return matrices().peek().getPositionMatrix().transformPosition(new Vector3f(px, py, pz));
+        return matrices().last().pose().transformPosition(new Vector3f(px, py, pz));
     }
 }

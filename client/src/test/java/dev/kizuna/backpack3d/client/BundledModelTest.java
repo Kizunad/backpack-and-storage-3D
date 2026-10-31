@@ -3,9 +3,6 @@ package dev.kizuna.backpack3d.client;
 import static org.junit.jupiter.api.Assertions.*;
 
 import dev.kizuna.backpack3d.item.ItemRegistrations.BundledModel;
-
-import net.minecraft.util.Identifier;
-
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -13,6 +10,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import net.minecraft.resources.ResourceLocation;
 
 class BundledModelTest {
     @TempDir Path directory;
@@ -31,7 +29,7 @@ class BundledModelTest {
             Files.copy(source, file);
             var bundled =
                     new BundledModel(
-                            new Identifier("example", "pouch"),
+                            new ResourceLocation("example", "pouch"),
                             "test",
                             root,
                             file,
@@ -43,7 +41,7 @@ class BundledModelTest {
             assertEquals(1, model.textures().size());
             assertTrue(
                     model.textures()
-                            .containsKey(new Identifier("bs3d", "imports/example/pouch/0.png")));
+                            .containsKey(new ResourceLocation("bs3d", "imports/example/pouch/0.png")));
             assertNotNull(model.open());
             assertNotNull(model.close());
         }

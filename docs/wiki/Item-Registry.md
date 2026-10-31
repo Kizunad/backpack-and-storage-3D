@@ -78,7 +78,7 @@ ItemRegistrations.register("end_botany", ItemRegistry.newBuilder()
 
 | 入口 | 说明 |
 |---|---|
-| `register(String source, ItemRegistry registry)` | 校验并注册消息，返回 `Map<Identifier, Item>`；`source` 仅用于错误定位 |
+| `register(String source, ItemRegistry registry)` | 校验并注册消息，返回 `Map<ResourceLocation, Item>`；`source` 仅用于错误定位 |
 | `registerBinary(String source, byte[] bytes)` | 二进制清单，携带未知字段时拒绝 |
 | `registerText(String source, String text)` | 文本格式清单 |
 | `registerResource(ModContainer mod, String path)` | 读取模组内 `.txtpb` / `.binpb`，方式一即调用此入口 |

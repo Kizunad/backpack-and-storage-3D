@@ -2,11 +2,11 @@ package dev.kizuna.backpack3d.client;
 
 import dev.kizuna.inventoryui.client.InventoryUiClient;
 import dev.kizuna.inventoryui.client.WorkspaceScreen;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Screenshot;
+import net.minecraft.client.gui.components.Button;
 import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Phase;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.util.ScreenshotRecorder;
 import org.lwjgl.glfw.GLFW;
 
 /** 从实际菜单进入工作台场景，并验证窗口平移后的三维鼠标命中。 */
@@ -17,7 +17,7 @@ public final class WorkspaceBackpackProbe {
     private long revisionBeforeTransfer;
     private com.google.protobuf.ByteString handBeforeTransfer;
 
-    public boolean tick(MinecraftClient client, VolumeModule module, String pouch) {
+    public boolean tick(Minecraft client, VolumeModule module, String pouch) {
         // 每次交互后等待一帧生成投影，避免直接调用场景方法绕过工作台输入路由。
         if (++ticks < 3) {
             return false;
@@ -29,7 +29,7 @@ public final class WorkspaceBackpackProbe {
             case 1 -> clickButton(client, "功能");
             case 2 -> {
                 clickButton(client, "库存 / 3D 背包");
-                if (!(client.currentScreen instanceof WorkspaceScreen)) {
+                if (!(client.screen instanceof WorkspaceScreen)) {
                     throw new IllegalStateException("菜单打开背包必须留在 I 工作台");
                 }
                 try {
@@ -62,8 +62,8 @@ public final class WorkspaceBackpackProbe {
                 if (!component.scene().openContainers().contains(pouch)) {
                     return false;
                 }
-                ScreenshotRecorder.saveScreenshot(client.runDirectory, "workspace-backpack.png",
-                        client.getFramebuffer(), message -> {});
+                Screenshot.grab(client.gameDirectory, "workspace-backpack.png",
+                        client.getMainRenderTarget(), message -> {});
             }
             case 6 -> {
                 if (!dragHandIntoContainer(client, module, pouch)) {
@@ -77,8 +77,8 @@ public final class WorkspaceBackpackProbe {
                 if (module.state().getRevision() != revisionBeforeTransfer + 1) {
                     throw new IllegalStateException("工作台拖放未即时提交");
                 }
-                ScreenshotRecorder.saveScreenshot(client.runDirectory, "workspace-transfer.png",
-                        client.getFramebuffer(), message -> {});
+                Screenshot.grab(client.gameDirectory, "workspace-transfer.png",
+                        client.getMainRenderTarget(), message -> {});
                 client.setScreen(null);
             }
             case 8 -> {
@@ -86,13 +86,13 @@ public final class WorkspaceBackpackProbe {
                         .filter(value -> value.getContainer().equals(pouch))
                         .findFirst()
                         .orElseThrow();
-                module.withdraw(item.getId(), client.player.getInventory().selectedSlot);
+                module.withdraw(item.getId(), client.player.getInventory().selected);
             }
             case 9 -> {
                 if (module.busy() || module.state().getRevision() != revisionBeforeTransfer + 2) {
                     return false;
                 }
-                if (!module.playerSlot(client.player.getInventory().selectedSlot)
+                if (!module.playerSlot(client.player.getInventory().selected)
                         .getStackNbt().equals(handBeforeTransfer)) {
                     throw new IllegalStateException("即时取回未保留原手持 NBT");
                 }
@@ -115,10 +115,10 @@ public final class WorkspaceBackpackProbe {
         return false;
     }
 
-    private boolean dragHandIntoContainer(MinecraftClient client, VolumeModule module, String container) {
+    private boolean dragHandIntoContainer(Minecraft client, VolumeModule module, String container) {
         // 来源和落点都从本帧投影取样，输入通过外层工作台，覆盖偏移、焦点与拖动捕获。
         var scene = component.scene();
-        int slot = client.player.getInventory().selectedSlot;
+        int slot = client.player.getInventory().selected;
         float[] bounds = scene.handBounds(slot);
         var view = scene.viewport(container);
         if (bounds != null && view != null) {
@@ -127,7 +127,7 @@ public final class WorkspaceBackpackProbe {
                     if (scene.handAt(x, y) != slot || scene.window(container).bounds().contains(x, y)) {
                         continue;
                     }
-                    client.currentScreen.mouseClicked(component.x() + x, component.y() + y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    client.screen.mouseClicked(component.x() + x, component.y() + y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
                     if (!scene.selectedItem().equals(VolumeModule.playerSlotPreviewId(slot))) {
                         throw new IllegalStateException("工作台没有捕获手持物品");
                     }
@@ -141,9 +141,9 @@ public final class WorkspaceBackpackProbe {
                             }
                             revisionBeforeTransfer = module.state().getRevision();
                             handBeforeTransfer = hand.getStackNbt();
-                            client.currentScreen.mouseDragged(component.x() + targetX, component.y() + targetY,
+                            client.screen.mouseDragged(component.x() + targetX, component.y() + targetY,
                                     GLFW.GLFW_MOUSE_BUTTON_LEFT, targetX - x, targetY - y);
-                            client.currentScreen.mouseReleased(component.x() + targetX, component.y() + targetY,
+                            client.screen.mouseReleased(component.x() + targetX, component.y() + targetY,
                                     GLFW.GLFW_MOUSE_BUTTON_LEFT);
                             if (!module.busy()) {
                                 throw new IllegalStateException("工作台从手掌拖入内景没有发起转移");
@@ -158,20 +158,20 @@ public final class WorkspaceBackpackProbe {
         // 容器或身体可能遮住手掌；通过人物空白区域右拖，让下一帧重新投影。
         int x = component.x() + 20;
         int y = component.y() + 40;
-        client.currentScreen.mouseClicked(x, y, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
-        client.currentScreen.mouseDragged(x + 30, y, GLFW.GLFW_MOUSE_BUTTON_RIGHT, 30, 0);
-        client.currentScreen.mouseReleased(x + 30, y, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+        client.screen.mouseClicked(x, y, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+        client.screen.mouseDragged(x + 30, y, GLFW.GLFW_MOUSE_BUTTON_RIGHT, 30, 0);
+        client.screen.mouseReleased(x + 30, y, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
         return false;
     }
 
-    private boolean clickBag(MinecraftClient client, String id) {
+    private boolean clickBag(Minecraft client, String id) {
         // 只从绘制出的模型表面取点，再通过真正工作台发送按下与释放。
         float[] bounds = component.scene().bagBounds(id);
         for (int y = (int) bounds[1]; y <= bounds[3]; y += 2) {
             for (int x = (int) bounds[0]; x <= bounds[2]; x += 2) {
                 if (component.scene().bagHit(id, x, y)) {
-                    client.currentScreen.mouseClicked(component.x() + x, component.y() + y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
-                    client.currentScreen.mouseReleased(component.x() + x, component.y() + y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    client.screen.mouseClicked(component.x() + x, component.y() + y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    client.screen.mouseReleased(component.x() + x, component.y() + y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
                     return true;
                 }
             }
@@ -179,20 +179,20 @@ public final class WorkspaceBackpackProbe {
         return false;
     }
 
-    private static void clickButton(MinecraftClient client, String title) {
+    private static void clickButton(Minecraft client, String title) {
         // 菜单点击覆盖实际入口工厂，不能由测试直接创建 VolumeScreen 替代。
-        var button = client.currentScreen.children().stream().filter(ButtonWidget.class::isInstance)
-                .map(ButtonWidget.class::cast).filter(value -> value.getMessage().getString().equals(title))
+        var button = client.screen.children().stream().filter(Button.class::isInstance)
+                .map(Button.class::cast).filter(value -> value.getMessage().getString().equals(title))
                 .findFirst().orElseThrow(() -> new IllegalStateException("缺少按钮: " + title));
-        client.currentScreen.mouseClicked(button.getX() + button.getWidth() / 2.0,
+        client.screen.mouseClicked(button.getX() + button.getWidth() / 2.0,
                 button.getY() + button.getHeight() / 2.0, GLFW.GLFW_MOUSE_BUTTON_LEFT);
-        client.currentScreen.mouseReleased(button.getX(), button.getY(), GLFW.GLFW_MOUSE_BUTTON_LEFT);
+        client.screen.mouseReleased(button.getX(), button.getY(), GLFW.GLFW_MOUSE_BUTTON_LEFT);
     }
 
-    private static void drag(MinecraftClient client, double x, double y, double targetX, double targetY) {
+    private static void drag(Minecraft client, double x, double y, double targetX, double targetY) {
         // 捕获、拖动与释放全部交给顶层工作台处理。
-        client.currentScreen.mouseClicked(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
-        client.currentScreen.mouseDragged(targetX, targetY, GLFW.GLFW_MOUSE_BUTTON_LEFT, targetX - x, targetY - y);
-        client.currentScreen.mouseReleased(targetX, targetY, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+        client.screen.mouseClicked(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+        client.screen.mouseDragged(targetX, targetY, GLFW.GLFW_MOUSE_BUTTON_LEFT, targetX - x, targetY - y);
+        client.screen.mouseReleased(targetX, targetY, GLFW.GLFW_MOUSE_BUTTON_LEFT);
     }
 }

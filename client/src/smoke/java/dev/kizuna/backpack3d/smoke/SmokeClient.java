@@ -2,8 +2,6 @@ package dev.kizuna.backpack3d.smoke;
 
 import java.util.UUID;
 import dev.kizuna.backpack3d.client.WorkspaceBackpackProbe;
-import net.minecraft.client.gui.screen.Screen;
-
 import dev.kizuna.backpack3d.client.ModelResources;
 import dev.kizuna.backpack3d.client.VolumeModule;
 import dev.kizuna.backpack3d.client.VolumeScreen;
@@ -21,20 +19,19 @@ import dev.kizuna.inventoryui.client.InventoryUiClient;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.AccessibilityOnboardingScreen;
-import net.minecraft.client.gui.screen.ConnectScreen;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.TitleScreen;
-import net.minecraft.client.network.ServerAddress;
-import net.minecraft.client.network.ServerInfo;
-import net.minecraft.client.util.ScreenshotRecorder;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.Items;
-import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
-import net.minecraft.util.Arm;
-
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Screenshot;
+import net.minecraft.client.gui.screens.AccessibilityOnboardingScreen;
+import net.minecraft.client.gui.screens.ConnectScreen;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.multiplayer.ServerData;
+import net.minecraft.client.multiplayer.resolver.ServerAddress;
+import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.HumanoidArm;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.Items;
 import org.lwjgl.glfw.GLFW;
 
 import java.nio.file.Files;
@@ -130,18 +127,18 @@ public final class SmokeClient implements ClientModInitializer {
                                         + ", protocol="
                                         + InventoryUiClient.runtime().protocolError());
                     }
-                    if (client.currentScreen instanceof AccessibilityOnboardingScreen) {
+                    if (client.screen instanceof AccessibilityOnboardingScreen) {
                         client.setScreen(new TitleScreen());
                     }
                     if (!connecting
-                            && client.currentScreen instanceof TitleScreen
+                            && client.screen instanceof TitleScreen
                             && client.getOverlay() == null) {
                         connecting = true;
-                        ConnectScreen.connect(
+                        ConnectScreen.startConnecting(
                                 new TitleScreen(),
                                 client,
-                                ServerAddress.parse(ADDRESS),
-                                new ServerInfo("3D smoke", ADDRESS, false),
+                                ServerAddress.parseString(ADDRESS),
+                                new ServerData("3D smoke", ADDRESS, false),
                                 false);
                     }
                     var module =
@@ -191,12 +188,12 @@ public final class SmokeClient implements ClientModInitializer {
                                         + module.status());
                     }
                     // 隐藏验收物品触发的成就浮层，让截图只记录实际背包界面。
-                    client.getToastManager().clear();
+                    client.getToasts().clear();
                     try {
                         if (phase == null) {
                             phase =
                                     Files.readString(
-                                                    client.runDirectory
+                                                    client.gameDirectory
                                                             .toPath()
                                                             .resolve("phase.txt"))
                                             .strip();
@@ -219,27 +216,27 @@ public final class SmokeClient implements ClientModInitializer {
                 });
     }
 
-    private void first(MinecraftClient client, VolumeModule module) throws java.io.IOException {
+    private void first(Minecraft client, VolumeModule module) throws java.io.IOException {
         var state = module.state();
         var transfer = state.getTransfer();
         switch (step) {
             case WAIT_GROUND -> {
-                if (!client.player.isOnGround()
-                        || !client.player.getMainHandStack().isOf(Items.IRON_SWORD)) {
+                if (!client.player.onGround()
+                        || !client.player.getMainHandItem().is(Items.IRON_SWORD)) {
                     return;
                 }
                 client.setScreen(new WorldEquipmentProbe(module));
                 next(Step.VERIFY_WORLD_EQUIPMENT);
             }
             case VERIFY_WORLD_EQUIPMENT -> {
-                if (!((WorldEquipmentProbe) client.currentScreen).done()) {
+                if (!((WorldEquipmentProbe) client.screen).done()) {
                     return;
                 }
                 client.setScreen(new PreviewDepthProbe(module));
                 next(Step.VERIFY_PREVIEW_DEPTH);
             }
             case VERIFY_PREVIEW_DEPTH -> {
-                if (((PreviewDepthProbe) client.currentScreen).done()) {
+                if (((PreviewDepthProbe) client.screen).done()) {
                     // 工作台入口先通过真实菜单和三维命中，随后继续原有完整库存流程。
                     next(Step.VERIFY_WORKSPACE);
                 }
@@ -251,7 +248,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case ROTATE_PLAYER -> {
-                var screen = (VolumeScreen) client.currentScreen;
+                var screen = (VolumeScreen) client.screen;
                 if (screen.bagBounds(pouch) == null) {
                     return;
                 }
@@ -287,12 +284,12 @@ public final class SmokeClient implements ClientModInitializer {
                 if (ticks % 3 == 0 && ticks <= 36) {
                     shot(client, String.format("open-%02d", ticks));
                 }
-                if (((VolumeScreen) client.currentScreen).openContainers().contains(pouch)
+                if (((VolumeScreen) client.screen).openContainers().contains(pouch)
                         && ticks > 25) {
                     require(
                             java.util.Arrays.equals(
                                     basketBeforeOpening,
-                                    ((VolumeScreen) client.currentScreen).bagBounds(basket)),
+                                    ((VolumeScreen) client.screen).bagBounds(basket)),
                             "打开草包改变了人物取景或缩放");
                     shot(client, "02-open-pouch");
                     module.move(UUID.randomUUID().toString(), pouch, Cell.getDefaultInstance(),
@@ -303,24 +300,24 @@ public final class SmokeClient implements ClientModInitializer {
             case START_CANCEL_TEST -> {
                 if (transfer.getPhase() == Phase.REJECTED && !module.busy()) {
                     require(state.getRevision() == 2 && storedItems(state).isEmpty(), "拒绝改变了库存");
-                    require(client.player.getMainHandStack().isOf(Items.IRON_SWORD), "拒绝未恢复来源");
-                    client.currentScreen.keyPressed(GLFW.GLFW_KEY_ESCAPE, 0, 0);
+                    require(client.player.getMainHandItem().is(Items.IRON_SWORD), "拒绝未恢复来源");
+                    client.screen.keyPressed(GLFW.GLFW_KEY_ESCAPE, 0, 0);
                     next(Step.VERIFY_ESCAPE_CANCEL);
                 }
             }
             case VERIFY_ESCAPE_CANCEL -> {
-                if (ticks > 25 && client.currentScreen == null) {
+                if (ticks > 25 && client.screen == null) {
                     require(state.getRevision() == 2, "关闭页面改变了被拒绝的操作");
                     module.open();
-                    ((VolumeScreen) client.currentScreen).openContainer(pouch);
+                    ((VolumeScreen) client.screen).openContainer(pouch);
                     next(Step.DEPOSIT_SWORD);
                 }
             }
             case DEPOSIT_SWORD -> {
-                if (((VolumeScreen) client.currentScreen).openContainers().contains(pouch)
+                if (((VolumeScreen) client.screen).openContainers().contains(pouch)
                         && ticks > 30) {
                     if (dragHandIntoContainer(
-                            client, module, client.player.getInventory().selectedSlot, pouch)) {
+                            client, module, client.player.getInventory().selected, pouch)) {
                         next(Step.VERIFY_SWORD);
                     }
                 }
@@ -329,7 +326,7 @@ public final class SmokeClient implements ClientModInitializer {
                 if (state.getRevision() == 3 && !module.busy()) {
                     sword = storedItems(state).get(0).getId();
                     require(storedItems(state).get(0).getSize().getHeight() == 2, "工具三维尺寸失效");
-                    require(module.stack(sword).getDamage() == 17, "存入丢失 NBT");
+                    require(module.stack(sword).getDamageValue() == 17, "存入丢失 NBT");
                     slot(client, 1);
                     next(Step.DEPOSIT_STONE);
                 }
@@ -354,12 +351,12 @@ public final class SmokeClient implements ClientModInitializer {
             }
             case OPEN_BASKET -> {
                 if (state.getRevision() == 5 && !module.busy()) {
-                    ((VolumeScreen) client.currentScreen).openContainer(basket);
+                    ((VolumeScreen) client.screen).openContainer(basket);
                     next(Step.DRAG_WINDOW);
                 }
             }
             case DRAG_WINDOW -> {
-                var screen = (VolumeScreen) client.currentScreen;
+                var screen = (VolumeScreen) client.screen;
                 if (screen.openContainers().size() == 2 && ticks > 30) {
                     var bounds = screen.window(pouch).bounds();
                     screen.mouseClicked(
@@ -376,7 +373,7 @@ public final class SmokeClient implements ClientModInitializer {
             }
             case VERIFY_LAYER_RANGE -> {
                 if (ticks > 3) {
-                    var screen = (VolumeScreen) client.currentScreen;
+                    var screen = (VolumeScreen) client.screen;
                     require(
                             java.util.Arrays.equals(screen.visibleLayers(basket), new int[] {1, 2}),
                             "范围条没有选中中间层");
@@ -399,7 +396,7 @@ public final class SmokeClient implements ClientModInitializer {
             }
             case RESTORE_LAYER_RANGE -> {
                 if (ticks > 3) {
-                    var screen = (VolumeScreen) client.currentScreen;
+                    var screen = (VolumeScreen) client.screen;
                     require(
                             java.util.Arrays.equals(screen.visibleLayers(basket), new int[] {0, 3}),
                             "范围条无法恢复全部格层");
@@ -414,7 +411,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case DRAG_ROTATED_ITEM -> {
-                var screen = (VolumeScreen) client.currentScreen;
+                var screen = (VolumeScreen) client.screen;
                 if (ticks == 5) {
                     var b = screen.window(pouch).bounds();
                     screen.mouseClicked(
@@ -438,7 +435,7 @@ public final class SmokeClient implements ClientModInitializer {
             }
             case VERIFY_EMPTY_DRAG -> {
                 if (ticks > 3) {
-                    var screen = (VolumeScreen) client.currentScreen;
+                    var screen = (VolumeScreen) client.screen;
                     require(!cellsBeforeDrag.equals(sampleCells(screen, basket)), "左拖空白处没有旋转内景");
                     require(
                             screen.selectedItem().equals(sword) && !module.busy(),
@@ -449,7 +446,7 @@ public final class SmokeClient implements ClientModInitializer {
             }
             case VERIFY_HELP -> {
                 if (ticks > 3) {
-                    var screen = (VolumeScreen) client.currentScreen;
+                    var screen = (VolumeScreen) client.screen;
                     int previousOrientation = screen.selectedOrientation();
                     screen.keyPressed(GLFW.GLFW_KEY_T, 0, 0);
                     require(screen.selectedOrientation() == previousOrientation, "帮助面板没有拦截旋转输入");
@@ -457,7 +454,7 @@ public final class SmokeClient implements ClientModInitializer {
                     require(!module.busy(), "帮助面板点击穿透到了物品");
                     shot(client, "08-controls-help");
                     screen.keyPressed(GLFW.GLFW_KEY_ESCAPE, 0, 0);
-                    require(client.currentScreen == screen, "ESC 关闭帮助时意外关闭背包");
+                    require(client.screen == screen, "ESC 关闭帮助时意外关闭背包");
                     selectSword(screen);
                     int orientation = rotateWithReboundKey(screen, module);
                     dropSwordIntoBasket(client, screen, module, orientation);
@@ -508,7 +505,7 @@ public final class SmokeClient implements ClientModInitializer {
                 if (state.getRevision() == 8 && ticks > 10) {
                     require(module.mount(basket) == Mount.TORSO_FRONT, "背篓前后挂点未同步");
                     shot(client, "07-equipment-front");
-                    ((VolumeScreen) client.currentScreen).close();
+                    ((VolumeScreen) client.screen).onClose();
                     next(Step.FINISH_FIRST);
                 }
             }
@@ -529,21 +526,21 @@ public final class SmokeClient implements ClientModInitializer {
         }
     }
 
-    private void second(MinecraftClient client, VolumeModule module) throws java.io.IOException {
+    private void second(Minecraft client, VolumeModule module) throws java.io.IOException {
         var state = module.state();
         switch (step) {
             case WAIT_GROUND -> {
-                if (!client.player.isOnGround()) {
+                if (!client.player.onGround()) {
                     return;
                 }
                 require(state.getRevision() == 8 && storedItems(state).size() == 3, "重启恢复失败");
                 sword =
                         state.getItemsList().stream()
-                                .filter(item -> module.stack(item.getId()).isOf(Items.IRON_SWORD))
+                                .filter(item -> module.stack(item.getId()).is(Items.IRON_SWORD))
                                 .findFirst()
                                 .orElseThrow()
                                 .getId();
-                require(module.stack(sword).getDamage() == 17, "重启 NBT 丢失");
+                require(module.stack(sword).getDamageValue() == 17, "重启 NBT 丢失");
                 require(
                         module.mount(pouch) == Mount.WAIST_LEFT_FRONT
                                 && module.mount(basket) == Mount.TORSO_FRONT,
@@ -557,12 +554,12 @@ public final class SmokeClient implements ClientModInitializer {
                                 .equals(Volumes.size(2, 1, 1)),
                         "朝向重启丢失");
                 module.open();
-                ((VolumeScreen) client.currentScreen).openContainer(basket);
+                ((VolumeScreen) client.screen).openContainer(basket);
                 next(Step.WITHDRAW_SWORD);
             }
             case WITHDRAW_SWORD -> {
                 if (ticks > 35) {
-                    if (dragItemToHand(client, sword, basket, PlayerInventory.OFF_HAND_SLOT)) {
+                    if (dragItemToHand(client, sword, basket, Inventory.SLOT_OFFHAND)) {
                         next(Step.DEPOSIT_OFFHAND_SWORD);
                     }
                 }
@@ -570,38 +567,38 @@ public final class SmokeClient implements ClientModInitializer {
             case DEPOSIT_OFFHAND_SWORD -> {
                 if (state.getRevision() == 9 && !module.busy()) {
                     require(
-                            client.player.getOffHandStack().isOf(Items.IRON_SWORD)
-                                    && client.player.getOffHandStack().getDamage() == 17,
+                            client.player.getOffhandItem().is(Items.IRON_SWORD)
+                                    && client.player.getOffhandItem().getDamageValue() == 17,
                             "拖到副手后真实栈或 NBT 丢失");
-                    require(client.player.getMainHandStack().isEmpty(), "指定副手却放进主手");
+                    require(client.player.getMainHandItem().isEmpty(), "指定副手却放进主手");
                     shot(client, "09-offhand-withdraw");
                     // 切换惯用手后仍按真实骨架拖物品，验证左右手没有硬编码为主副手。
-                    client.options.getMainArm().setValue(Arm.LEFT);
-                    client.player.setMainArm(Arm.LEFT);
+                    client.options.mainHand().set(HumanoidArm.LEFT);
+                    client.player.setMainArm(HumanoidArm.LEFT);
                     next(Step.DRAG_OFFHAND_SWORD);
                 }
             }
             case DRAG_OFFHAND_SWORD -> {
                 if (ticks > 4
                         && dragHandIntoContainer(
-                                client, module, PlayerInventory.OFF_HAND_SLOT, basket)) {
+                                client, module, Inventory.SLOT_OFFHAND, basket)) {
                     next(Step.WITHDRAW_MAINHAND_SWORD);
                 }
             }
             case WITHDRAW_MAINHAND_SWORD -> {
                 if (state.getRevision() == 10 && !module.busy()) {
-                    require(client.player.getOffHandStack().isEmpty(), "从副手存入后仍持有同一栈");
+                    require(client.player.getOffhandItem().isEmpty(), "从副手存入后仍持有同一栈");
                     sword =
                             state.getItemsList().stream()
                                     .filter(
                                             item ->
                                                     module.stack(item.getId())
-                                                            .isOf(Items.IRON_SWORD))
+                                                            .is(Items.IRON_SWORD))
                                     .findFirst()
                                     .orElseThrow()
                                     .getId();
                     if (dragItemToHand(
-                            client, sword, basket, client.player.getInventory().selectedSlot)) {
+                            client, sword, basket, client.player.getInventory().selected)) {
                         next(Step.HAND_TO_OFFHAND);
                     }
                 }
@@ -611,21 +608,21 @@ public final class SmokeClient implements ClientModInitializer {
                         && !module.busy()
                         && dragPlayerSlot(
                                 client,
-                                client.player.getInventory().selectedSlot,
-                                PlayerInventory.OFF_HAND_SLOT)) {
+                                client.player.getInventory().selected,
+                                Inventory.SLOT_OFFHAND)) {
                     next(Step.HAND_TO_MAINHAND);
                 }
             }
             case HAND_TO_MAINHAND -> {
                 if (state.getRevision() == 12 && !module.busy()) {
                     require(
-                            client.player.getMainHandStack().isEmpty()
-                                    && client.player.getOffHandStack().isOf(Items.IRON_SWORD),
+                            client.player.getMainHandItem().isEmpty()
+                                    && client.player.getOffhandItem().is(Items.IRON_SWORD),
                             "左手到右手转移未完成");
                     if (dragPlayerSlot(
                             client,
-                            PlayerInventory.OFF_HAND_SLOT,
-                            client.player.getInventory().selectedSlot)) {
+                            Inventory.SLOT_OFFHAND,
+                            client.player.getInventory().selected)) {
                         next(Step.ARMOR_TO_OFFHAND);
                     }
                 }
@@ -633,13 +630,13 @@ public final class SmokeClient implements ClientModInitializer {
             case ARMOR_TO_OFFHAND -> {
                 if (state.getRevision() == 13 && !module.busy()) {
                     require(
-                            client.player.getMainHandStack().getDamage() == 17
-                                    && client.player.getOffHandStack().isEmpty(),
+                            client.player.getMainHandItem().getDamageValue() == 17
+                                    && client.player.getOffhandItem().isEmpty(),
                             "换手往返丢失 NBT");
                     if (dragPlayerSlot(
                             client,
                             PlayerSlots.armorSlot(EquipmentSlot.HEAD),
-                            PlayerInventory.OFF_HAND_SLOT)) {
+                            Inventory.SLOT_OFFHAND)) {
                         next(Step.ARMOR_TO_HEAD);
                     }
                 }
@@ -647,12 +644,12 @@ public final class SmokeClient implements ClientModInitializer {
             case ARMOR_TO_HEAD -> {
                 if (state.getRevision() == 14 && !module.busy()) {
                     require(
-                            client.player.getEquippedStack(EquipmentSlot.HEAD).isEmpty()
-                                    && client.player.getOffHandStack().isOf(Items.IRON_HELMET),
+                            client.player.getItemBySlot(EquipmentSlot.HEAD).isEmpty()
+                                    && client.player.getOffhandItem().is(Items.IRON_HELMET),
                             "头盔拖到手中失败");
                     if (dragPlayerSlot(
                             client,
-                            PlayerInventory.OFF_HAND_SLOT,
+                            Inventory.SLOT_OFFHAND,
                             PlayerSlots.armorSlot(EquipmentSlot.HEAD))) {
                         next(Step.BAG_TO_BASKET);
                     }
@@ -662,8 +659,8 @@ public final class SmokeClient implements ClientModInitializer {
                 if (state.getRevision() == 15 && !module.busy()) {
                     require(
                             client.player
-                                    .getEquippedStack(EquipmentSlot.HEAD)
-                                    .isOf(Items.IRON_HELMET),
+                                    .getItemBySlot(EquipmentSlot.HEAD)
+                                    .is(Items.IRON_HELMET),
                             "头盔重新穿戴失败");
                     if (dragWornToContainer(client, module, pouch, basket)) {
                         next(Step.BAG_TO_WAIST);
@@ -693,20 +690,20 @@ public final class SmokeClient implements ClientModInitializer {
             case CANCEL_BEFORE_ACK -> {
                 if (state.getRevision() == 18 && !module.busy()) {
                     require(
-                            client.player.getInventory().main.stream()
+                            client.player.getInventory().items.stream()
                                     .anyMatch(
                                             stack ->
-                                                    stack.isOf(Items.IRON_SWORD)
-                                                            && stack.getDamage() == 17),
+                                                    stack.is(Items.IRON_SWORD)
+                                                            && stack.getDamageValue() == 17),
                             "取回丢失真实栈");
                     var block =
                             state.getItemsList().stream()
-                                    .filter(item -> module.stack(item.getId()).isOf(Items.STONE))
+                                    .filter(item -> module.stack(item.getId()).is(Items.STONE))
                                     .findFirst()
                                     .orElseThrow();
                     module.move(block.getId(), pouch, Cell.getDefaultInstance(), true);
                     // 发送后立即关窗，验证已发送请求仍即时完成。
-                    client.currentScreen.close();
+                    client.screen.onClose();
                     next(Step.VERIFY_EARLY_CANCEL);
                 }
             }
@@ -716,7 +713,7 @@ public final class SmokeClient implements ClientModInitializer {
                             "关窗撤销了已经提交的即时转移");
                     module.open();
                     var block = state.getItemsList().stream()
-                            .filter(item -> module.stack(item.getId()).isOf(Items.STONE))
+                            .filter(item -> module.stack(item.getId()).is(Items.STONE))
                             .findFirst()
                             .orElseThrow();
                     module.move(block.getId(), basket, Cell.getDefaultInstance(), true /* automatic */);
@@ -735,12 +732,12 @@ public final class SmokeClient implements ClientModInitializer {
         }
     }
 
-    private boolean verifyInstantInputs(MinecraftClient client, VolumeModule module) {
+    private boolean verifyInstantInputs(Minecraft client, VolumeModule module) {
         // 使用 Xvfb 的真实 Shift 键状态，鼠标仍通过实际 Screen 分派。
         if (module.busy()) {
             return false;
         }
-        var screen = (VolumeScreen) client.currentScreen;
+        var screen = (VolumeScreen) client.screen;
         instantTicks++;
         try {
             boolean progressed;
@@ -769,7 +766,7 @@ public final class SmokeClient implements ClientModInitializer {
     }
 
 
-    private boolean verifyShiftInputs(MinecraftClient client, VolumeModule module, VolumeScreen screen) {
+    private boolean verifyShiftInputs(Minecraft client, VolumeModule module, VolumeScreen screen) {
         // 通过真实 Shift 键状态验证腰挂优先存入及原版快捷取回。
         switch (instantStep) {
             case 0 -> {
@@ -782,7 +779,7 @@ public final class SmokeClient implements ClientModInitializer {
                 if (!Screen.hasShiftDown()) {
                     return false;
                 }
-                int[] source = visibleSlot(screen, client.player.getInventory().selectedSlot);
+                int[] source = visibleSlot(screen, client.player.getInventory().selected);
                 if (source == null) {
                     rotatePreview(screen);
                     return false;
@@ -796,7 +793,7 @@ public final class SmokeClient implements ClientModInitializer {
                     return false;
                 }
                 var stored = storedItems(module.state()).stream()
-                        .filter(item -> module.stack(item.getId()).isOf(Items.IRON_SWORD))
+                        .filter(item -> module.stack(item.getId()).is(Items.IRON_SWORD))
                         .findFirst().orElseThrow();
                 require(stored.getContainer().equals(pouch), "Shift 未优先选择腰挂容器");
                 sword = stored.getId();
@@ -821,7 +818,7 @@ public final class SmokeClient implements ClientModInitializer {
     }
 
 
-    private boolean verifyModelDrag(MinecraftClient client, VolumeModule module, VolumeScreen screen) {
+    private boolean verifyModelDrag(Minecraft client, VolumeModule module, VolumeScreen screen) {
         // 等待模型合盖后，以真实命中坐标提交自动放入。
         switch (instantStep) {
             case 5 -> {
@@ -829,8 +826,8 @@ public final class SmokeClient implements ClientModInitializer {
                     return false;
                 }
                 int swordSlot = -1;
-                for (int index = 0; index < PlayerInventory.MAIN_SIZE; index++) {
-                    if (client.player.getInventory().getStack(index).isOf(Items.IRON_SWORD)) {
+                for (int index = 0; index < Inventory.INVENTORY_SIZE; index++) {
+                    if (client.player.getInventory().getItem(index).is(Items.IRON_SWORD)) {
                         swordSlot = index;
                         break;
                     }
@@ -843,7 +840,7 @@ public final class SmokeClient implements ClientModInitializer {
                 if (instantTicks < 30) {
                     return false;
                 }
-                int[] source = visibleSlot(screen, client.player.getInventory().selectedSlot);
+                int[] source = visibleSlot(screen, client.player.getInventory().selected);
                 int[] target = visibleBag(screen, basket);
                 if (source == null || target == null) {
                     rotatePreview(screen);
@@ -861,7 +858,7 @@ public final class SmokeClient implements ClientModInitializer {
     }
 
 
-    private boolean verifyModelResult(MinecraftClient client, VolumeModule module, VolumeScreen screen) {
+    private boolean verifyModelResult(Minecraft client, VolumeModule module, VolumeScreen screen) {
         // 权威回执必须保留目标容器并允许立即进行下一次操作。
         switch (instantStep) {
             case 7 -> {
@@ -869,7 +866,7 @@ public final class SmokeClient implements ClientModInitializer {
                     return false;
                 }
                 var stored = storedItems(module.state()).stream()
-                        .filter(item -> module.stack(item.getId()).isOf(Items.IRON_SWORD))
+                        .filter(item -> module.stack(item.getId()).is(Items.IRON_SWORD))
                         .findFirst().orElseThrow();
                 require(stored.getContainer().equals(basket), "拖到合盖模型未自动放入");
                 shot(client, "instant-closed-model-drop");
@@ -889,8 +886,8 @@ public final class SmokeClient implements ClientModInitializer {
                 .toList();
     }
 
-    private static boolean dragPlayerSlot(MinecraftClient client, int sourceSlot, int targetSlot) {
-        var screen = (VolumeScreen) client.currentScreen;
+    private static boolean dragPlayerSlot(Minecraft client, int sourceSlot, int targetSlot) {
+        var screen = (VolumeScreen) client.screen;
         int[] source = visibleSlot(screen, sourceSlot);
         int[] target = visibleSlot(screen, targetSlot);
         if (source == null || target == null) {
@@ -957,8 +954,8 @@ public final class SmokeClient implements ClientModInitializer {
     }
 
     private static boolean dragWornToContainer(
-            MinecraftClient client, VolumeModule module, String item, String target) {
-        var screen = (VolumeScreen) client.currentScreen;
+            Minecraft client, VolumeModule module, String item, String target) {
+        var screen = (VolumeScreen) client.screen;
         int[] source = visibleBag(screen, item);
         if (source == null) {
             rotatePreview(screen);
@@ -991,8 +988,8 @@ public final class SmokeClient implements ClientModInitializer {
     }
 
     private static boolean dragContainerToBody(
-            MinecraftClient client, String item, String sourceContainer, Mount mount) {
-        var screen = (VolumeScreen) client.currentScreen;
+            Minecraft client, String item, String sourceContainer, Mount mount) {
+        var screen = (VolumeScreen) client.screen;
         int[] source = null;
         if (sourceContainer == null) {
             source = visibleBag(screen, item);
@@ -1048,8 +1045,8 @@ public final class SmokeClient implements ClientModInitializer {
     }
 
     private boolean dragItemToHand(
-            MinecraftClient client, String item, String container, int slot) {
-        var screen = (VolumeScreen) client.currentScreen;
+            Minecraft client, String item, String container, int slot) {
+        var screen = (VolumeScreen) client.screen;
         var target = visibleHand(screen, slot);
         if (target == null) {
             return false;
@@ -1088,8 +1085,8 @@ public final class SmokeClient implements ClientModInitializer {
     }
 
     private static boolean dragHandIntoContainer(
-            MinecraftClient client, VolumeModule module, int slot, String container) {
-        var screen = (VolumeScreen) client.currentScreen;
+            Minecraft client, VolumeModule module, int slot, String container) {
+        var screen = (VolumeScreen) client.screen;
         var source = visibleHand(screen, slot);
         if (source == null) {
             return false;
@@ -1184,13 +1181,13 @@ public final class SmokeClient implements ClientModInitializer {
 
     private int rotateWithReboundKey(VolumeScreen screen, VolumeModule module) throws java.io.IOException {
         // 旋转键不进入原版全局表；打开背包键仍可在控制设置里改键。
-        var client = MinecraftClient.getInstance();
-        for (var binding : client.options.allKeys) {
-            String id = binding.getTranslationKey();
+        var client = Minecraft.getInstance();
+        for (var binding : client.options.keyMappings) {
+            String id = binding.getName();
             require(!id.equals("key.bs3d.rotate_yaw"), "左右旋转仍注册为全局按键");
             require(!id.equals("key.bs3d.rotate_pitch"), "上下旋转仍注册为全局按键");
         }
-        require(java.util.Arrays.asList(client.options.allKeys).contains(module.openKey()), "全局背包键丢失");
+        require(java.util.Arrays.asList(client.options.keyMappings).contains(module.openKey()), "全局背包键丢失");
         screen.keyPressed(GLFW.GLFW_KEY_T, 0, 0);
         verifyConfiguredRotation(screen);
         int orientation =
@@ -1220,7 +1217,7 @@ public final class SmokeClient implements ClientModInitializer {
     }
 
     private void dropSwordIntoBasket(
-            MinecraftClient client, VolumeScreen screen, VolumeModule module, int orientation) {
+            Minecraft client, VolumeScreen screen, VolumeModule module, int orientation) {
         // 在目标内景寻找能容纳旋转物品的真实格位，再拖动并释放。
         var state = module.state();
         var item =
@@ -1254,7 +1251,7 @@ public final class SmokeClient implements ClientModInitializer {
         require(dropped && module.busy(), "旋转后跨窗口拖放未启动");
     }
 
-    private static void clickBag(MinecraftClient client, VolumeScreen screen, String id) {
+    private static void clickBag(Minecraft client, VolumeScreen screen, String id) {
         // 使用实际几何命中，窗口布局和玩家旋转变化时不依赖旧版固定坐标。
         var bounds = screen.bagBounds(id);
         require(bounds != null, "没有装备模型变换");
@@ -1285,26 +1282,26 @@ public final class SmokeClient implements ClientModInitializer {
         }
     }
 
-    private static void slot(MinecraftClient client, int index) {
-        client.player.getInventory().selectedSlot = index;
-        client.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(index));
+    private static void slot(Minecraft client, int index) {
+        client.player.getInventory().selected = index;
+        client.getConnection().send(new ServerboundSetCarriedItemPacket(index));
     }
 
-    private static void cursor(MinecraftClient client, double x, double y) {
-        double scale = client.getWindow().getScaleFactor();
-        GLFW.glfwSetCursorPos(client.getWindow().getHandle(), x * scale, y * scale);
+    private static void cursor(Minecraft client, double x, double y) {
+        double scale = client.getWindow().getGuiScale();
+        GLFW.glfwSetCursorPos(client.getWindow().getWindow(), x * scale, y * scale);
     }
 
-    private static void shot(MinecraftClient client, String name) {
-        ScreenshotRecorder.saveScreenshot(
-                client.runDirectory, name + ".png", client.getFramebuffer(), message -> {});
+    private static void shot(Minecraft client, String name) {
+        Screenshot.grab(
+                client.gameDirectory, name + ".png", client.getMainRenderTarget(), message -> {});
     }
 
-    private void finish(MinecraftClient client, String text) throws java.io.IOException {
-        Files.writeString(client.runDirectory.toPath().resolve(phase + "-ok.txt"), text);
+    private void finish(Minecraft client, String text) throws java.io.IOException {
+        Files.writeString(client.gameDirectory.toPath().resolve(phase + "-ok.txt"), text);
         step = Step.FINISHED;
-        client.world.disconnect();
-        client.disconnect();
-        client.scheduleStop();
+        client.level.disconnect();
+        client.clearLevel();
+        client.stop();
     }
 }

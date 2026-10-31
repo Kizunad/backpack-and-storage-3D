@@ -1,6 +1,6 @@
 package dev.kizuna.backpack3d.server;
 
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 
 import java.io.IOException;
@@ -14,7 +14,7 @@ import java.nio.file.StandardOpenOption;
 final class AtomicNbtFiles {
     private AtomicNbtFiles() {}
 
-    static void write(Path target, NbtCompound nbt) throws IOException {
+    static void write(Path target, CompoundTag nbt) throws IOException {
         Files.createDirectories(target.getParent());
         Path temporary = Files.createTempFile(target.getParent(), "bs3d-", ".tmp");
         try {

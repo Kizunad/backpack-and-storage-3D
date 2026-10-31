@@ -20,12 +20,10 @@ import dev.kizuna.backpack3d.service.TransferService;
 import dev.kizuna.inventoryui.server.ServerConnection;
 import dev.kizuna.inventoryui.server.ServerModuleSession;
 import dev.kizuna.inventoryui.server.ServerRequest;
-
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
 import java.io.IOException;
 import java.util.List;
 import java.util.ArrayList;
@@ -36,10 +34,10 @@ import java.util.Set;
 import java.util.UUID;
 
 /** 每次请求在同一服务器调用内校验并提交，快照只公布终态。 */
-public final class VolumeSession implements ServerModuleSession<ServerPlayerEntity> {
+public final class VolumeSession implements ServerModuleSession<ServerPlayer> {
     private static final int MAX_OPEN_GROUND_BAGS = 8;
     private final MinecraftServer server;
-    private final ServerConnection<ServerPlayerEntity> connection;
+    private final ServerConnection<ServerPlayer> connection;
     private final TransferService service;
     private final HandlingRules rules;
     private final WornEquipmentSync appearances;
@@ -54,7 +52,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
 
     public VolumeSession(
             MinecraftServer server,
-            ServerConnection<ServerPlayerEntity> connection,
+            ServerConnection<ServerPlayer> connection,
             TransferService service,
             HandlingRules rules) {
         this.server = server;
@@ -68,7 +66,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         return server;
     }
 
-    public boolean belongsTo(ServerPlayerEntity player) {
+    public boolean belongsTo(ServerPlayer player) {
         return connection.supports(Messages.GROUND_OPENED) && connection.context() == player;
     }
 
@@ -81,7 +79,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         }
         // 先拿到独占访问权，再把地面树加入本人快照；失败时不会向客户端发出打开事件。
         GroundInventory.get(server).acquire(player, id);
-        groundOwner = player.getUuid();
+        groundOwner = player.getUUID();
         boolean added = ground.add(id);
         try {
             var candidate = account();
@@ -116,7 +114,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
             throw new IllegalArgumentException("角色当前状态不允许转移");
         }
         pruneGround();
-        groundOwner = player.getUuid();
+        groundOwner = player.getUUID();
         ground.addAll(GroundInventory.get(server).acquireNearby(player, ground, MAX_OPEN_GROUND_BAGS));
     }
 
@@ -163,7 +161,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
     }
 
     @Override
-    public boolean handle(ServerRequest<ServerPlayerEntity> request) {
+    public boolean handle(ServerRequest<ServerPlayer> request) {
         // 身份由 Framework 认证连接提供，任何请求都不能选择别人的容器。
         var player = connection.context();
         try {
@@ -186,7 +184,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         }
     }
 
-    private void applyRequest(ServerPlayerEntity player, ServerRequest<ServerPlayerEntity> request)
+    private void applyRequest(ServerPlayer player, ServerRequest<ServerPlayer> request)
             throws IOException {
         // OPEN 建立业务会话，后续请求才允许携带会话 ID 修改状态。
         if (request.message().equals(Messages.OPEN)) {
@@ -236,7 +234,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         }
     }
 
-    private void start(ServerPlayerEntity player, MoveRequest move) throws IOException {
+    private void start(ServerPlayer player, MoveRequest move) throws IOException {
         // 幂等重试只回执；新请求在同一调用内准备和提交，期间不会推进服务器 tick。
         if (!available(player)) {
             throw new IllegalArgumentException("角色当前状态不允许转移");
@@ -251,7 +249,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         var player = connection.context();
         long revision = ((PlayerStorage) player).bs3d$getInventory().getRevision();
         if (opened && (groundChanged
-                || lastSelectedSlot != player.getInventory().selectedSlot
+                || lastSelectedSlot != player.getInventory().selected
                 || inventoryChanged(player)
                 || lastCreative != player.isCreative()
                 || lastRevision != revision)) {
@@ -259,31 +257,31 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         }
     }
 
-    private static boolean available(ServerPlayerEntity player) {
+    private static boolean available(ServerPlayer player) {
         // 连接和角色状态允许操作之后，还要确认原版没有正在处理的容器或鼠标栈。
         if (!actorAvailable(player)) {
             return false;
         }
-        if (player.currentScreenHandler != player.playerScreenHandler) {
+        if (player.containerMenu != player.inventoryMenu) {
             return false;
         }
-        return player.playerScreenHandler.getCursorStack().isEmpty();
+        return player.inventoryMenu.getCarried().isEmpty();
     }
 
-    private static boolean actorAvailable(ServerPlayerEntity player) {
+    private static boolean actorAvailable(ServerPlayer player) {
         // 菜单与光标由各自事务验证，租约只受角色生存状态、距离和遮挡约束。
-        return player.networkHandler.isConnectionOpen() && player.isAlive()
-                && !player.isSpectator() && !player.hasVehicle();
+        return player.connection.isAcceptingMessages() && player.isAlive()
+                && !player.isSpectator() && !player.isPassenger();
     }
 
-    private boolean inventoryChanged(ServerPlayerEntity player) {
+    private boolean inventoryChanged(ServerPlayer player) {
         // 手持、穿戴和便携容器内容均由真实原版栈决定，其他模组修改后也重新同步。
         var inventory = player.getInventory();
-        if (lastInventory.size() != inventory.size()) {
+        if (lastInventory.size() != inventory.getContainerSize()) {
             return true;
         }
-        for (int index = 0; index < inventory.size(); index++) {
-            if (!ItemStack.areEqual(lastInventory.get(index), inventory.getStack(index))) {
+        for (int index = 0; index < inventory.getContainerSize(); index++) {
+            if (!ItemStack.matches(lastInventory.get(index), inventory.getItem(index))) {
                 return true;
             }
         }
@@ -300,8 +298,8 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         lastRevision = saved.getRevision();
         var player = connection.context();
         // 新获得的容器在第一次快照前生成真实身份，后续同步不重复分配。
-        for (int slot = 0; slot < player.getInventory().size(); slot++) {
-            ContainerItems.initializeStack(player.getInventory().getStack(slot));
+        for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
+            ContainerItems.initializeStack(player.getInventory().getItem(slot));
         }
         lastInventory = new PlayerAccount(player).inventory();
         var state =
@@ -329,16 +327,16 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayerEnti
         connection.send(Messages.STATE, state.build());
     }
 
-    private void addPlayerSlots(State.Builder state, ServerPlayerEntity player) {
+    private void addPlayerSlots(State.Builder state, ServerPlayer player) {
         // 双手与盔甲即使为空也提供可拖入的身体落点。
-        lastSelectedSlot = player.getInventory().selectedSlot;
+        lastSelectedSlot = player.getInventory().selected;
         lastCreative = player.isCreative();
-        state.addPlayerSlots(playerSlot(lastSelectedSlot, player.getMainHandStack()));
-        state.addPlayerSlots(playerSlot(PlayerInventory.OFF_HAND_SLOT, player.getOffHandStack()));
+        state.addPlayerSlots(playerSlot(lastSelectedSlot, player.getMainHandItem()));
+        state.addPlayerSlots(playerSlot(Inventory.SLOT_OFFHAND, player.getOffhandItem()));
         for (var equipment : PlayerSlots.ARMOR) {
             state.addPlayerSlots(
                     playerSlot(
-                            PlayerSlots.armorSlot(equipment), player.getEquippedStack(equipment)));
+                            PlayerSlots.armorSlot(equipment), player.getItemBySlot(equipment)));
         }
     }
 

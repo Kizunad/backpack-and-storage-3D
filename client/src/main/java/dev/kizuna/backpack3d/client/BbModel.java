@@ -7,10 +7,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-
-import net.minecraft.util.Identifier;
-import net.minecraft.util.JsonHelper;
-
 import org.joml.Vector3f;
 
 import java.io.IOException;
@@ -23,13 +19,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.GsonHelper;
 
 /** 解析已登记的 Blockbench 4.x 立方体模型，几何解析不依赖 OpenGL。 */
 record BbModel(
         // 可见立方体保留完整骨骼链，绘制与命中使用同一份几何。
         List<Cube> cubes,
         // 资源包内的纹理路径及 PNG 内容，不包含编辑器本机路径。
-        Map<Identifier, byte[]> textures,
+        Map<ResourceLocation, byte[]> textures,
         // null 表示该方向没有动画片段，播放层决定静态展示或反放另一方向。
         ModelClip open,
         ModelClip close) {
@@ -42,7 +40,7 @@ record BbModel(
     record Bone(String id, Vector3f origin, Vector3f rotation) {}
 
     /** 面纹理及 UV 已归一化；rotation 表示顺时针四分之一圈的数量。 */
-    record Face(Identifier texture, float u0, float v0, float u1, float v1, int rotation) {}
+    record Face(ResourceLocation texture, float u0, float v0, float u1, float v1, int rotation) {}
 
     /** 几何、枢轴用模型像素计量，旋转用度；bones 从外层到内层排列。 */
     record Cube(
@@ -56,9 +54,9 @@ record BbModel(
     static BbModel read(Path directory, ModelConfig.Entry entry) throws IOException {
         // 依次读取文档、纹理、几何层级，最后绑定配置选择的动画。
         JsonObject json = readDocument(entry.file());
-        Map<Identifier, byte[]> images = ModelTextures.read(directory, entry, json);
-        List<Identifier> textureIds = List.copyOf(images.keySet());
-        JsonObject resolution = JsonHelper.getObject(json, "resolution");
+        Map<ResourceLocation, byte[]> images = ModelTextures.read(directory, entry, json);
+        List<ResourceLocation> textureIds = List.copyOf(images.keySet());
+        JsonObject resolution = GsonHelper.getAsJsonObject(json, "resolution");
         float width = number(resolution.get("width"), "resolution.width");
         float height = number(resolution.get("height"), "resolution.height");
         if (width <= 0 || height <= 0) {
@@ -67,7 +65,7 @@ record BbModel(
         Map<String, JsonObject> elements = readElements(json);
         // 几何阶段只处理层级与可见性，动画随后按同一套骨骼身份绑定。
         var geometry = new GeometryReader(elements, textureIds, width, height);
-        geometry.read(JsonHelper.getArray(json, "outliner"));
+        geometry.read(GsonHelper.getAsJsonArray(json, "outliner"));
         Map<String, JsonObject> animations = readAnimations(json);
         ModelClip open = selectClip(animations, geometry.bones, entry.openAnimation(), "open");
         ModelClip close = selectClip(animations, geometry.bones, entry.closeAnimation(), "close");
@@ -83,7 +81,7 @@ record BbModel(
         try (var reader = Files.newBufferedReader(file)) {
             json = JsonParser.parseReader(reader).getAsJsonObject();
         }
-        String version = JsonHelper.getString(JsonHelper.getObject(json, "meta"), "format_version");
+        String version = GsonHelper.getAsString(GsonHelper.getAsJsonObject(json, "meta"), "format_version");
         if (!version.startsWith("4.")) {
             throw new IllegalArgumentException("仅支持 Blockbench 4.x bbmodel，当前为 " + version);
         }
@@ -93,9 +91,9 @@ record BbModel(
     private static Map<String, JsonObject> readElements(JsonObject json) {
         // 按元素 UUID 建立索引，outliner 只负责指定父子关系。
         Map<String, JsonObject> elements = new LinkedHashMap<>();
-        for (JsonElement element : JsonHelper.getArray(json, "elements")) {
+        for (JsonElement element : GsonHelper.getAsJsonArray(json, "elements")) {
             JsonObject cube = element.getAsJsonObject();
-            String id = JsonHelper.getString(cube, "uuid");
+            String id = GsonHelper.getAsString(cube, "uuid");
             if (elements.putIfAbsent(id, cube) != null) {
                 throw new IllegalArgumentException("重复立方体 UUID：" + id);
             }
@@ -109,9 +107,9 @@ record BbModel(
     private static Map<String, JsonObject> readAnimations(JsonObject json) {
         // 名称是配置的引用身份，重复名称不能悄悄覆盖前一个片段。
         Map<String, JsonObject> animations = new LinkedHashMap<>();
-        for (JsonElement element : JsonHelper.getArray(json, "animations", new JsonArray())) {
+        for (JsonElement element : GsonHelper.getAsJsonArray(json, "animations", new JsonArray())) {
             JsonObject animation = element.getAsJsonObject();
-            String name = JsonHelper.getString(animation, "name");
+            String name = GsonHelper.getAsString(animation, "name");
             if (animations.putIfAbsent(name, animation) != null) {
                 throw new IllegalArgumentException("重复动画名：" + name);
             }
@@ -139,7 +137,7 @@ record BbModel(
     /** 单次解析的状态集中保存，递归时只传递当前骨骼链和继承可见性。 */
     private static final class GeometryReader {
         private final Map<String, JsonObject> elements;
-        private final List<Identifier> textures;
+        private final List<ResourceLocation> textures;
         private final float width;
         private final float height;
         private final Set<String> bones = new HashSet<>();
@@ -148,7 +146,7 @@ record BbModel(
 
         GeometryReader(
                 Map<String, JsonObject> elements,
-                List<Identifier> textures,
+                List<ResourceLocation> textures,
                 float width,
                 float height) {
             this.elements = elements;
@@ -191,7 +189,7 @@ record BbModel(
         }
 
         private void readGroup(JsonObject group, List<Bone> parents, boolean visible) {
-            String id = JsonHelper.getString(group, "uuid");
+            String id = GsonHelper.getAsString(group, "uuid");
             if (!bones.add(id)) {
                 throw new IllegalArgumentException("重复骨骼 UUID：" + id);
             }
@@ -199,28 +197,28 @@ record BbModel(
             var chain = new ArrayList<>(parents);
             chain.add(new Bone(id, vector(group, "origin"), vector(group, "rotation")));
             readTree(
-                    JsonHelper.getArray(group, "children"),
+                    GsonHelper.getAsJsonArray(group, "children"),
                     List.copyOf(chain),
                     visible && shown(group));
         }
     }
 
     private static boolean shown(JsonObject element) {
-        return JsonHelper.getBoolean(element, "visibility", true)
-                && JsonHelper.getBoolean(element, "export", true);
+        return GsonHelper.getAsBoolean(element, "visibility", true)
+                && GsonHelper.getAsBoolean(element, "export", true);
     }
 
     private static Cube readCube(
             JsonObject element,
             List<Bone> bones,
-            List<Identifier> textures,
+            List<ResourceLocation> textures,
             float width,
             float height) {
         // 网格、box UV 及 rescale 需要其他渲染语义，拒绝比错画更容易定位资源问题。
-        if (!JsonHelper.getString(element, "type", "cube").equals("cube")
-                || JsonHelper.getBoolean(element, "box_uv", false)
-                || JsonHelper.getBoolean(element, "rescale", false)
-                || JsonHelper.getFloat(element, "inflate", 0) != 0) {
+        if (!GsonHelper.getAsString(element, "type", "cube").equals("cube")
+                || GsonHelper.getAsBoolean(element, "box_uv", false)
+                || GsonHelper.getAsBoolean(element, "rescale", false)
+                || GsonHelper.getAsFloat(element, "inflate", 0) != 0) {
             throw new IllegalArgumentException("仅支持逐面 UV 的 cube，不支持 mesh/box_uv/rescale/inflate");
         }
         Vector3f from = vector(element, "from");
@@ -228,10 +226,10 @@ record BbModel(
         if (from.x > to.x || from.y > to.y || from.z > to.z) {
             throw new IllegalArgumentException("cube.from 不能大于 cube.to");
         }
-        JsonObject faces = JsonHelper.getObject(element, "faces");
+        JsonObject faces = GsonHelper.getAsJsonObject(element, "faces");
         List<Face> result = new ArrayList<>();
         for (String name : FACE_NAMES) {
-            JsonObject face = JsonHelper.getObject(faces, name, new JsonObject());
+            JsonObject face = GsonHelper.getAsJsonObject(faces, name, new JsonObject());
             JsonElement texture = face.get("texture");
             if (texture == null || texture.isJsonNull()) {
                 result.add(null);
@@ -241,11 +239,11 @@ record BbModel(
             if (index != (int) index || index < 0 || index >= textures.size()) {
                 throw new IllegalArgumentException("面引用未知纹理：" + name);
             }
-            var uv = JsonHelper.getArray(face, "uv");
+            var uv = GsonHelper.getAsJsonArray(face, "uv");
             if (uv.size() != 4) {
                 throw new IllegalArgumentException(name + ".uv 必须包含四个数值");
             }
-            int rotation = JsonHelper.getInt(face, "rotation", 0);
+            int rotation = GsonHelper.getAsInt(face, "rotation", 0);
             if (rotation % QUARTER_TURN_DEGREES != 0) {
                 throw new IllegalArgumentException("UV 旋转必须为 90 度的整数倍");
             }

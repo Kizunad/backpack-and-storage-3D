@@ -3,9 +3,7 @@ package dev.kizuna.backpack3d.client;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-
-import net.minecraft.util.JsonHelper;
-
+import net.minecraft.util.GsonHelper;
 import org.joml.Vector3f;
 
 /** 几何和动画共用的 Blockbench 数值读取规则，不执行表达式。 */
@@ -35,7 +33,7 @@ final class ModelJson {
         if (!json.has(field) && (field.equals("origin") || field.equals("rotation"))) {
             return new Vector3f();
         }
-        JsonArray values = JsonHelper.getArray(json, field);
+        JsonArray values = GsonHelper.getAsJsonArray(json, field);
         if (values.size() != 3) {
             throw new IllegalArgumentException(field + " 必须包含三个数值");
         }

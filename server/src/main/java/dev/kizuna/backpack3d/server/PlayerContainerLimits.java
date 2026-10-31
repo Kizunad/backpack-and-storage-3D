@@ -8,12 +8,11 @@ import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.service.TransferService;
 
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.minecraft.command.argument.EntityArgumentType;
-import net.minecraft.server.command.CommandManager;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
-
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import java.io.IOException;
 
 /** 服务端管理玩家腰部上限；普通客户端协议没有改写入口。 */
@@ -27,49 +26,49 @@ public final class PlayerContainerLimits {
         CommandRegistrationCallback.EVENT.register(
                 (dispatcher, registries, environment) -> {
                     var limitArgument =
-                            CommandManager.argument(
+                            Commands.argument(
                                     "limit",
                                     IntegerArgumentType.integer(0, ContainerItems.MAX_WAIST_LIMIT));
                     limitArgument.executes(PlayerContainerLimits::execute);
                     var playersArgument =
-                            CommandManager.argument("players", EntityArgumentType.players());
+                            Commands.argument("players", EntityArgument.players());
                     playersArgument.then(limitArgument);
                     var command =
-                            CommandManager.literal("bs3d")
+                            Commands.literal("bs3d")
                                     .requires(
                                             source ->
-                                                    source.hasPermissionLevel(
+                                                    source.hasPermission(
                                                             ADMIN_PERMISSION_LEVEL));
-                    command.then(CommandManager.literal("waist-limit").then(playersArgument));
+                    command.then(Commands.literal("waist-limit").then(playersArgument));
                     dispatcher.register(command);
                 });
     }
 
-    private static int execute(CommandContext<ServerCommandSource> context)
+    private static int execute(CommandContext<CommandSourceStack> context)
             throws CommandSyntaxException {
         // 每位玩家独立原子保存，某位失败时明确报告，不修改其已有装备。
         int limit = IntegerArgumentType.getInteger(context, "limit");
         int changed = 0;
-        for (ServerPlayerEntity player : EntityArgumentType.getPlayers(context, "players")) {
+        for (ServerPlayer player : EntityArgument.getPlayers(context, "players")) {
             try {
                 set(player, limit);
                 changed++;
             } catch (IOException | IllegalArgumentException failure) {
                 context.getSource()
-                        .sendError(
-                                Text.literal(
+                        .sendFailure(
+                                Component.literal(
                                         player.getName().getString() + "：" + failure.getMessage()));
             }
         }
         int updatedPlayers = changed;
         context.getSource()
-                .sendFeedback(
-                        () -> Text.literal("已将 " + updatedPlayers + " 位玩家的腰部上限设为 " + limit + " 件"),
+                .sendSuccess(
+                        () -> Component.literal("已将 " + updatedPlayers + " 位玩家的腰部上限设为 " + limit + " 件"),
                         false);
         return changed;
     }
 
-    public static void set(ServerPlayerEntity player, int limit) throws IOException {
+    public static void set(ServerPlayer player, int limit) throws IOException {
         // 降低到现有装备数以下时拒绝，避免凭空卸装或丢物。
         var account = new PlayerAccount(player);
         var next =

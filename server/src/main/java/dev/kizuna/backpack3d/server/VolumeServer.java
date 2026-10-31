@@ -8,10 +8,9 @@ import dev.kizuna.inventoryui.server.fabric.FabricServerModule;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
-import net.minecraft.resource.ResourceType;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.packs.PackType;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -25,7 +24,7 @@ public final class VolumeServer implements ModInitializer, FabricServerModule {
     public void onInitialize() {
         PlayerContainerLimits.register();
         GroundInventory.register();
-        ResourceManagerHelper.get(ResourceType.SERVER_DATA).registerReloadListener(RULES);
+        ResourceManagerHelper.get(PackType.SERVER_DATA).registerReloadListener(RULES);
         ServerTickEvents.END_SERVER_TICK.register(
                 server -> {
                     // 关闭回调可能移除会话，遍历快照避免同 tick 的回收影响其他玩家。
@@ -39,7 +38,7 @@ public final class VolumeServer implements ModInitializer, FabricServerModule {
 
     @Override
     public void register(
-            MinecraftServer server, ServerModuleRegistry<ServerPlayerEntity> registry) {
+            MinecraftServer server, ServerModuleRegistry<ServerPlayer> registry) {
         var service = new TransferService(stack -> RULES.material(stack).size());
         registry.register(
                 Messages.MODULE,
@@ -56,7 +55,7 @@ public final class VolumeServer implements ModInitializer, FabricServerModule {
         SESSIONS.remove(session);
     }
 
-    public static VolumeSession session(ServerPlayerEntity player) {
+    public static VolumeSession session(ServerPlayer player) {
         // 原版右键也必须通过已协商的业务连接打开，缺少客户端模块时明确报错。
         var session = findSession(player);
         if (session == null) {
@@ -65,7 +64,7 @@ public final class VolumeServer implements ModInitializer, FabricServerModule {
         return session;
     }
 
-    static VolumeSession findSession(ServerPlayerEntity player) {
+    static VolumeSession findSession(ServerPlayer player) {
         // 附属可以在 BS3D 握手前读取个人库存，但不能提前取得地面容器访问权。
         return SESSIONS.stream()
                 .filter(session -> session.belongsTo(player))

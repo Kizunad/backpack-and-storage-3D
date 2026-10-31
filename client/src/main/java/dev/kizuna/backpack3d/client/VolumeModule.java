@@ -1,7 +1,7 @@
 package dev.kizuna.backpack3d.client;
 
 import com.google.protobuf.Message;
-
+import com.mojang.blaze3d.platform.InputConstants;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.item.ContainerSounds;
 import dev.kizuna.backpack3d.item.ContainerSounds.Action;
@@ -37,15 +37,12 @@ import dev.kizuna.inventoryui.window.UiWindowDefinition;
 
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.sound.PositionedSoundInstance;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
-
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.HashMap;
@@ -73,7 +70,7 @@ public final class VolumeModule implements ClientModule {
     private String error = "等待服务器同步";
     private Map<String, ItemStack> stacks = Map.of();
     private long generation;
-    private KeyBinding openKey;
+    private KeyMapping openKey;
     private VolumeComponent embedded;
     private boolean workspaceVisible;
 
@@ -154,15 +151,15 @@ public final class VolumeModule implements ClientModule {
         // 世界快捷键和工作台场景推进共享客户端 tick，不引入转移计时。
         openKey =
                 KeyBindingHelper.registerKeyBinding(
-                        new KeyBinding(
+                        new KeyMapping(
                                 "key.bs3d.open",
-                                InputUtil.Type.KEYSYM,
+                                InputConstants.Type.KEYSYM,
                                 GLFW.GLFW_KEY_B,
                                 "category.bs3d"));
         ClientTickEvents.END_CLIENT_TICK.register(
                 client -> {
                     // 工作台退出时结束背包访问；仅最小化窗口仍保留原有转移语义。
-                    boolean visible = client.currentScreen instanceof WorkspaceScreen;
+                    boolean visible = client.screen instanceof WorkspaceScreen;
                     if (embedded != null) {
                         if (workspaceVisible && !visible) {
                             embedded.scene().removed();
@@ -171,8 +168,8 @@ public final class VolumeModule implements ClientModule {
                         }
                     }
                     workspaceVisible = visible;
-                    while (openKey.wasPressed()) {
-                        if (client.player != null && client.currentScreen == null) {
+                    while (openKey.consumeClick()) {
+                        if (client.player != null && client.screen == null) {
                             open();
                         }
                     }
@@ -204,7 +201,7 @@ public final class VolumeModule implements ClientModule {
             InventoryUiClient.runtime().open("bs3d:open", "");
             InventoryUiClient.runtime().openWorkspace();
         } else {
-            MinecraftClient.getInstance().setScreen(new VolumeScreen(this));
+            Minecraft.getInstance().setScreen(new VolumeScreen(this));
         }
     }
 
@@ -218,19 +215,19 @@ public final class VolumeModule implements ClientModule {
 
     private void openGround(GroundOpened opened) {
         // 服务器先发完整快照再发打开事件，客户端不猜测地面背包的内容。
-        var client = MinecraftClient.getInstance();
+        var client = Minecraft.getInstance();
         if (embedded != null) {
             InventoryUiClient.runtime().open("bs3d:open", "");
-            if (!(client.currentScreen instanceof WorkspaceScreen)) {
+            if (!(client.screen instanceof WorkspaceScreen)) {
                 InventoryUiClient.runtime().openWorkspace();
             }
             embedded.scene().openContainer(opened.getContainer());
             return;
         }
-        if (!(client.currentScreen instanceof VolumeScreen)) {
+        if (!(client.screen instanceof VolumeScreen)) {
             client.setScreen(new VolumeScreen(this));
         }
-        ((VolumeScreen) client.currentScreen).openContainer(opened.getContainer());
+        ((VolumeScreen) client.screen).openContainer(opened.getContainer());
     }
 
     public void closeGround(String id) {
@@ -336,16 +333,16 @@ public final class VolumeModule implements ClientModule {
         deposit(source, Volumes.CARRIED, Cell.getDefaultInstance(), true /* automatic */, 0);
     }
 
-    public KeyBinding openKey() {
+    public KeyMapping openKey() {
         return openKey;
     }
 
-    public InputUtil.Key rotateYaw() {
-        // 只提供场景局部键值，不注册或更新全局 KeyBinding 映射。
+    public InputConstants.Key rotateYaw() {
+        // 只提供场景局部键值，不注册或更新全局 KeyMapping 映射。
         return ModelResources.rotationControls().yaw();
     }
 
-    public InputUtil.Key rotatePitch() {
+    public InputConstants.Key rotatePitch() {
         // 与左右旋转共用同一次配置重载结果。
         return ModelResources.rotationControls().pitch();
     }
@@ -432,10 +429,10 @@ public final class VolumeModule implements ClientModule {
 
     public void deposit(String target) {
         // 自动放置入口保留给程序接入；页面拖动使用带有精确格位的重载。
-        var player = MinecraftClient.getInstance().player;
+        var player = Minecraft.getInstance().player;
         if (player != null) {
             deposit(
-                    playerSlot(player.getInventory().selectedSlot),
+                    playerSlot(player.getInventory().selected),
                     target,
                     Cell.getDefaultInstance(),
                     true,
@@ -602,13 +599,13 @@ public final class VolumeModule implements ClientModule {
 
     private static void sound(String id, float volume, float pitch) {
         // 音效 ID 来自已注册 SoundEvent，允许数据包选择已有模组音效。
-        var identifier = Identifier.tryParse(id);
-        if (identifier != null && Registries.SOUND_EVENT.containsId(identifier)) {
-            MinecraftClient.getInstance()
+        var identifier = ResourceLocation.tryParse(id);
+        if (identifier != null && BuiltInRegistries.SOUND_EVENT.containsKey(identifier)) {
+            Minecraft.getInstance()
                     .getSoundManager()
                     .play(
-                            PositionedSoundInstance.master(
-                                    Registries.SOUND_EVENT.get(identifier), pitch, volume));
+                            SimpleSoundInstance.forUI(
+                                    BuiltInRegistries.SOUND_EVENT.get(identifier), pitch, volume));
         }
     }
 }

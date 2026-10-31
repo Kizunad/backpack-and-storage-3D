@@ -1,12 +1,10 @@
 package dev.kizuna.backpack3d.service;
 
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
-
-import net.minecraft.item.ItemStack;
-
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.world.item.ItemStack;
 
 /** 一次提交同时保存业务与原版库存，不能分开持久化。 */
 public interface Account {

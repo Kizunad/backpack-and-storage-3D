@@ -1,5 +1,7 @@
 package dev.kizuna.backpack3d.client;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.PlayerSlots;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
@@ -8,20 +10,17 @@ import dev.kizuna.inventoryui.client.InventoryUiClient;
 import dev.kizuna.inventoryui.theme.ThemeTokens;
 
 import net.fabricmc.fabric.api.client.rendering.v1.LivingEntityFeatureRendererRegistrationCallback;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.render.entity.PlayerEntityRenderer;
-import net.minecraft.client.render.entity.feature.FeatureRenderer;
-import net.minecraft.client.render.entity.feature.FeatureRendererContext;
-import net.minecraft.client.render.entity.model.PlayerEntityModel;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.math.RotationAxis;
-
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.client.model.PlayerModel;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.entity.RenderLayerParent;
+import net.minecraft.client.renderer.entity.layers.RenderLayer;
+import net.minecraft.client.renderer.entity.player.PlayerRenderer;
+import net.minecraft.world.item.ItemStack;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -44,7 +43,7 @@ public final class WornPreview {
     private static WornPreview drawing;
     private final VolumeModule module;
     private final Map<String, ModelAsset> assets = new LinkedHashMap<>();
-    private final Map<String, MatrixStack> transforms = new LinkedHashMap<>();
+    private final Map<String, PoseStack> transforms = new LinkedHashMap<>();
     private final PlayerSlotTargets slots = new PlayerSlotTargets();
     private Map<String, BagAnimation> animations;
     private float yaw = INITIAL_YAW_DEGREES;
@@ -54,7 +53,7 @@ public final class WornPreview {
     private boolean interactive;
     private String hovered = "";
     private String dropSource = "";
-    private MatrixStack torso;
+    private PoseStack torso;
     // 装备拖放体积单位为方块，略超出躯干，方便落在腰侧和胸背表面。
     private static final Vector3f EQUIP_FROM = new Vector3f(-0.5f, 0, -0.4f);
     private static final Vector3f EQUIP_TO = new Vector3f(0.5f, 0.85f, 0.4f);
@@ -70,10 +69,10 @@ public final class WornPreview {
         dropSource = source;
     }
 
-    public void drawDropTarget(DrawContext context, TextRenderer font, int x, int y) {
+    public void drawDropTarget(GuiGraphics context, Font font, int x, int y) {
         // 名称来自服务器容器目录，模型合盖时同样提供自动放置目标提示。
         if (!dropSource.isEmpty() && !hovered.isEmpty() && !dropSource.equals(hovered)) {
-            context.drawTextWithShadow(font, module.container(hovered).getTitle(), x, y + font.fontHeight,
+            context.drawString(font, module.container(hovered).getTitle(), x, y + font.lineHeight,
                     InventoryUiClient.runtime().color(ThemeTokens.INVENTORY_DROP_VALID));
         }
     }
@@ -83,7 +82,7 @@ public final class WornPreview {
         var worldRenderer = new WorldEquipmentRenderer(appearances);
         LivingEntityFeatureRendererRegistrationCallback.EVENT.register(
                 (type, renderer, helper, context) -> {
-                    if (renderer instanceof PlayerEntityRenderer playerRenderer) {
+                    if (renderer instanceof PlayerRenderer playerRenderer) {
                         helper.register(new Attachment(playerRenderer, worldRenderer));
                     }
                 });
@@ -164,7 +163,7 @@ public final class WornPreview {
     }
 
     public void draw(
-            DrawContext context,
+            GuiGraphics context,
             int x,
             int baseline,
             int scale,
@@ -173,13 +172,13 @@ public final class WornPreview {
             boolean input,
             Map<String, BagAnimation> animation) {
         // 渲染只借用玩家姿态，结束后恢复真实朝向与暂时隐藏的栈。
-        var player = MinecraftClient.getInstance().player;
+        var player = Minecraft.getInstance().player;
         if (player == null) {
             return;
         }
         // 暂存并恢复朝向，拖动预览不会让世界中的玩家转身或改变下一次网络输入。
-        var previousPose = new PlayerPose(player.bodyYaw, player.headYaw, player.prevHeadYaw,
-                player.getYaw(), player.getPitch());
+        var previousPose = new PlayerPose(player.yBodyRot, player.yHeadRot, player.yHeadRotO,
+                player.getYRot(), player.getXRot());
         animations = animation;
         mouseX = mx;
         mouseY = my;
@@ -191,13 +190,13 @@ public final class WornPreview {
         GuiSceneDepth.clear(context);
         var pendingStacks = hidePendingStacks(player);
         try {
-            player.bodyYaw = yaw;
-            player.headYaw = yaw;
-            player.prevHeadYaw = yaw;
-            player.setYaw(yaw);
-            player.setPitch(0);
-            var tilt = RotationAxis.POSITIVE_X.rotationDegrees(pitch);
-            InventoryScreen.drawEntity(
+            player.yBodyRot = yaw;
+            player.yHeadRot = yaw;
+            player.yHeadRotO = yaw;
+            player.setYRot(yaw);
+            player.setXRot(0);
+            var tilt = Axis.XP.rotationDegrees(pitch);
+            InventoryScreen.renderEntityInInventory(
                     context,
                     x,
                     baseline,
@@ -210,29 +209,29 @@ public final class WornPreview {
             GuiSceneDepth.clear(context);
             drawing = null;
             previousPose.restore(player);
-            pendingStacks.forEach((slot, stack) -> player.getInventory().setStack(slot, stack));
+            pendingStacks.forEach((slot, stack) -> player.getInventory().setItem(slot, stack));
         }
     }
 
     private record PlayerPose(float bodyYaw, float headYaw, float previousHeadYaw, float yaw, float pitch) {
-        void restore(AbstractClientPlayerEntity player) {
+        void restore(AbstractClientPlayer player) {
             // 展示期间借用的姿态恢复到原值，不影响下一次玩家输入。
-            player.bodyYaw = bodyYaw;
-            player.headYaw = headYaw;
-            player.prevHeadYaw = previousHeadYaw;
-            player.setYaw(yaw);
-            player.setPitch(pitch);
+            player.yBodyRot = bodyYaw;
+            player.yHeadRot = headYaw;
+            player.yHeadRotO = previousHeadYaw;
+            player.setYRot(yaw);
+            player.setXRot(pitch);
         }
     }
 
-    private Map<Integer, ItemStack> hidePendingStacks(AbstractClientPlayerEntity player) {
+    private Map<Integer, ItemStack> hidePendingStacks(AbstractClientPlayer player) {
         // 仅绘制期间隐藏待回执部位，finally 恢复同一栈引用，不预测修改客户端库存。
         Map<Integer, ItemStack> hidden = new LinkedHashMap<>();
         for (var snapshot : module.state().getPlayerSlotsList()) {
             int slot = snapshot.getPlayerSlot();
             if (module.pendingItem(VolumeModule.playerSlotPreviewId(slot))) {
-                hidden.put(slot, player.getInventory().getStack(slot));
-                player.getInventory().setStack(slot, ItemStack.EMPTY);
+                hidden.put(slot, player.getInventory().getItem(slot));
+                player.getInventory().setItem(slot, ItemStack.EMPTY);
             }
         }
         return hidden;
@@ -248,7 +247,7 @@ public final class WornPreview {
             return null;
         }
         Vector3f local =
-                new Matrix4f(torso.peek().getPositionMatrix())
+                new Matrix4f(torso.last().pose())
                         .invert()
                         .transformPosition(new Vector3f((float) x, (float) y, (float) depth));
         if (type.waist()) {
@@ -274,7 +273,7 @@ public final class WornPreview {
         return type.mounts().contains(mount) ? Placement.newBuilder().setMount(mount).build() : null;
     }
 
-    private void renderAttachments(MatrixStack body, VertexConsumerProvider buffers) {
+    private void renderAttachments(PoseStack body, MultiBufferSource buffers) {
         // 每帧使用当前目录，F3+T 删除注册后不能保留旧模型及其命中区。
         assets.clear();
         torso = ModelAsset.copy(body);
@@ -306,7 +305,7 @@ public final class WornPreview {
         renderAttachmentModels(buffers);
     }
 
-    private void renderAttachmentModels(VertexConsumerProvider buffers) {
+    private void renderAttachmentModels(MultiBufferSource buffers) {
         // 模型轮廓与半透明来源占位使用同一投影，避免视觉位置和命中位置错开。
         hovered = interactive ? pick(mouseX, mouseY) : "";
         for (var entry : transforms.entrySet()) {
@@ -327,8 +326,8 @@ public final class WornPreview {
 
     private void renderOutline(
             ModelAsset asset,
-            MatrixStack matrices,
-            VertexConsumerProvider buffers,
+            PoseStack matrices,
+            MultiBufferSource buffers,
             BagAnimation.Sample lid) {
         // 先绘制向周围偏移一像素的着色模型，再由原模型覆盖中心，留下边缘。
         int tint = InventoryUiClient.runtime().color(ThemeTokens.ACCENT);
@@ -341,7 +340,7 @@ public final class WornPreview {
                     continue;
                 }
                 var outline = ModelAsset.copy(matrices);
-                var position = outline.peek().getPositionMatrix();
+                var position = outline.last().pose();
                 position.m30(position.m30() + dx * OUTLINE_PIXELS);
                 position.m31(position.m31() + dy * OUTLINE_PIXELS);
                 position.m32(position.m32() - OUTLINE_DEPTH);
@@ -351,14 +350,14 @@ public final class WornPreview {
     }
 
     private static final class Attachment
-            extends FeatureRenderer<
-                    AbstractClientPlayerEntity, PlayerEntityModel<AbstractClientPlayerEntity>> {
+            extends RenderLayer<
+                    AbstractClientPlayer, PlayerModel<AbstractClientPlayer>> {
         private final WorldEquipmentRenderer worldRenderer;
 
         Attachment(
-                FeatureRendererContext<
-                                AbstractClientPlayerEntity,
-                                PlayerEntityModel<AbstractClientPlayerEntity>>
+                RenderLayerParent<
+                                AbstractClientPlayer,
+                                PlayerModel<AbstractClientPlayer>>
                         context,
                 WorldEquipmentRenderer worldRenderer) {
             super(context);
@@ -367,10 +366,10 @@ public final class WornPreview {
 
         @Override
         public void render(
-                MatrixStack matrices,
-                VertexConsumerProvider buffers,
+                PoseStack matrices,
+                MultiBufferSource buffers,
                 int light,
-                AbstractClientPlayerEntity player,
+                AbstractClientPlayer player,
                 float limbAngle,
                 float limbDistance,
                 float tickDelta,
@@ -378,26 +377,26 @@ public final class WornPreview {
                 float headYaw,
                 float headPitch) {
             // UI 专用动画和世界外观互斥，同一玩家不会被重复绘制两套背包。
-            if (drawing != null && player == MinecraftClient.getInstance().player) {
-                drawing.slots.capture(matrices, getContextModel(), player);
+            if (drawing != null && player == Minecraft.getInstance().player) {
+                drawing.slots.capture(matrices, getParentModel(), player);
                 drawing.slots.renderPending(drawing.module, buffers);
-                matrices.push();
+                matrices.pushPose();
                 try {
-                    getContextModel().body.rotate(matrices);
+                    getParentModel().body.translateAndRotate(matrices);
                     drawing.renderAttachments(matrices, buffers);
                 } finally {
-                    matrices.pop();
+                    matrices.popPose();
                 }
                 drawing.slots.renderHover(
                         drawing.interactive ? drawing.slotAt(drawing.mouseX, drawing.mouseY) : -1,
                         buffers);
             } else {
-                matrices.push();
+                matrices.pushPose();
                 try {
-                    getContextModel().body.rotate(matrices);
+                    getParentModel().body.translateAndRotate(matrices);
                     worldRenderer.render(player, matrices, buffers, light);
                 } finally {
-                    matrices.pop();
+                    matrices.popPose();
                 }
             }
         }

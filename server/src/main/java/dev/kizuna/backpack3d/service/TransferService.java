@@ -16,11 +16,6 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Receipt;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornContainer;
-
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -30,6 +25,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
 
 /** 先构造完整候选，再在同一调用内核对来源并原子提交。 */
 public final class TransferService {
@@ -260,7 +258,7 @@ public final class TransferService {
             Account account, MoveRequest request, List<ItemStack> vanilla) {
         // 先验证来源和卸装限制，再对拍指纹；客户端只引用服务器已有的真实栈。
         int slot = request.getPlayerSlot();
-        if (slot < 0 || slot > PlayerInventory.OFF_HAND_SLOT || slot >= vanilla.size()) {
+        if (slot < 0 || slot > Inventory.SLOT_OFFHAND || slot >= vanilla.size()) {
             throw new IllegalArgumentException("原版槽位无效：" + slot);
         }
         ItemStack stack = vanilla.get(slot);
@@ -378,13 +376,13 @@ public final class TransferService {
             inventory.set(slot, source.copy());
             return;
         }
-        if (!ItemStack.canCombine(held, source)) {
+        if (!ItemStack.isSameItemSameTags(held, source)) {
             throw new IllegalArgumentException("这只手已有其他物品，请先存入或换另一只手");
         }
-        if (held.getCount() + source.getCount() > held.getMaxCount()) {
+        if (held.getCount() + source.getCount() > held.getMaxStackSize()) {
             throw new IllegalArgumentException("这只手放不下整组物品");
         }
-        held.increment(source.getCount());
+        held.grow(source.getCount());
     }
 
     private static void insertInPlayerSlot(List<ItemStack> inventory, int slot, ItemStack source) {
@@ -393,7 +391,7 @@ public final class TransferService {
             insertInHand(inventory, slot, source);
             return;
         }
-        if (LivingEntity.getPreferredEquipmentSlot(source) != PlayerSlots.armorType(slot)) {
+        if (LivingEntity.getEquipmentSlotForItem(source) != PlayerSlots.armorType(slot)) {
             throw new IllegalArgumentException("物品不适合这个装备部位");
         }
         if (source.getCount() != 1) {
@@ -407,12 +405,12 @@ public final class TransferService {
 
     static int insert(List<ItemStack> vanilla, ItemStack remaining) {
         // 先合并同 NBT 栈，再找空槽；全部容纳不下就丢弃候选，不进行部分转移。
-        List<ItemStack> inventory = vanilla.subList(0, PlayerInventory.MAIN_SIZE);
+        List<ItemStack> inventory = vanilla.subList(0, Inventory.INVENTORY_SIZE);
         for (var stack : inventory) {
-            if (!stack.isEmpty() && ItemStack.canCombine(stack, remaining)) {
-                int count = Math.min(stack.getMaxCount() - stack.getCount(), remaining.getCount());
-                stack.increment(count);
-                remaining.decrement(count);
+            if (!stack.isEmpty() && ItemStack.isSameItemSameTags(stack, remaining)) {
+                int count = Math.min(stack.getMaxStackSize() - stack.getCount(), remaining.getCount());
+                stack.grow(count);
+                remaining.shrink(count);
                 if (remaining.isEmpty()) {
                     return inventory.indexOf(stack);
                 }

@@ -3,11 +3,10 @@ package dev.kizuna.backpack3d.client;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.google.protobuf.TextFormat;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ItemRegistry;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.RotationAxis;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -15,6 +14,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import net.minecraft.resources.ResourceLocation;
 
 /** 用真实导入资产覆盖归档读取、贴图、人体尺度与静态开包，而不是简化几何夹具。 */
 class BongGearModelsTest {
@@ -34,7 +34,7 @@ class BongGearModelsTest {
                 Files.createDirectories(file.getParent());
                 Files.copy(SOURCE.resolve(type.getAsset().getFile()), file);
                 BbModel model = BbModel.read(root,
-                        new ModelConfig.Entry(new Identifier(type.getModel()), file, null, null, Map.of()));
+                        new ModelConfig.Entry(new ResourceLocation(type.getModel()), file, null, null, Map.of()));
                 assertTrue(model.cubes().size() > 100, item.getId());
                 assertEquals(1, model.textures().size(), item.getId());
                 assertNull(model.open());
@@ -49,7 +49,7 @@ class BongGearModelsTest {
 
                 boolean waist = type.getMountsList().contains(Mount.WAIST_RIGHT_FRONT);
                 for (float angle : new float[] {0, 90, 180, 270}) {
-                    var worn = new MatrixStack();
+                    var worn = new PoseStack();
                     WornModelTransform.apply(worn, asset, waist, type.getMounts(0), angle);
                     float[] bounds = asset.bounds(worn, BagAnimation.Sample.CLOSED);
                     // 躯干高 0.75 格。未转换的 Bong 人体原点会把装备移到身体下方或远离腰侧。
@@ -59,8 +59,8 @@ class BongGearModelsTest {
                     assertTrue(bounds[3] - bounds[1] > 0.1f, item.getId());
                 }
                 if (!waist) {
-                    var side = new MatrixStack();
-                    side.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(90));
+                    var side = new PoseStack();
+                    side.mulPose(Axis.YP.rotationDegrees(90));
                     WornModelTransform.apply(side, asset, false, type.getMounts(0), 0);
                     float[] bounds = asset.bounds(side, BagAnimation.Sample.CLOSED);
                     if (type.getMounts(0) == Mount.TORSO_BACK) {

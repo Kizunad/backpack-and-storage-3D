@@ -13,36 +13,35 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
-import net.minecraft.block.Block;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.ShapeContext;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemPlacementContext;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.ItemUsageContext;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.RegistryKeys;
+import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.text.Text;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.Hand;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.WorldSavePath;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.RaycastContext;
-import net.minecraft.world.chunk.WorldChunk;
-
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -65,7 +64,7 @@ public final class GroundInventory implements GroundBags.Actions {
     private final MinecraftServer server;
     private final GroundJournal journal;
     private final Map<String, UUID> leases = new HashMap<>();
-    private final Map<ServerWorld, Set<ChunkPos>> loadedChunks = new HashMap<>();
+    private final Map<ServerLevel, Set<ChunkPos>> loadedChunks = new HashMap<>();
     private Map<String, Entry> entries = new LinkedHashMap<>();
     private boolean recoveryRequired;
 
@@ -73,8 +72,8 @@ public final class GroundInventory implements GroundBags.Actions {
         this.server = server;
         journal =
                 new GroundJournal(
-                        server.getSavePath(WorldSavePath.ROOT).resolve("data/bs3d"),
-                        server.getSavePath(WorldSavePath.PLAYERDATA));
+                        server.getWorldPath(LevelResource.ROOT).resolve("data/bs3d"),
+                        server.getWorldPath(LevelResource.PLAYER_DATA_DIR));
         journal.recover();
         if (Files.exists(journal.inventoryFile())) {
             read(NbtIo.readCompressed(journal.inventoryFile().toFile()));
@@ -84,7 +83,7 @@ public final class GroundInventory implements GroundBags.Actions {
     public static void register() {
         // 创造模式也通过收回操作移动实物，不能绕过库存事务直接破坏标记方块。
         PlayerBlockBreakEvents.BEFORE.register(
-                (world, player, pos, state, entity) -> !state.isOf(GroundBags.BLOCK));
+                (world, player, pos, state, entity) -> !state.is(GroundBags.BLOCK));
         // 目录恢复先于玩家登录，区块载入时按权威目录补齐或移除落地模型。
         ServerLifecycleEvents.SERVER_STARTING.register(
                 server -> {
@@ -99,7 +98,7 @@ public final class GroundInventory implements GroundBags.Actions {
                     var inventory = get(server);
                     for (Entry entry : inventory.entries.values()) {
                         var world = inventory.world(entry);
-                        if (world != null && world.isChunkLoaded(entry.pos())) {
+                        if (world != null && world.hasChunkAt(entry.pos())) {
                             inventory.show(entry, world);
                         }
                     }
@@ -127,13 +126,13 @@ public final class GroundInventory implements GroundBags.Actions {
         GroundBags.actions(
                 new GroundBags.Actions() {
                     @Override
-                    public ActionResult place(ItemUsageContext context) {
-                        return get(context.getWorld().getServer()).place(context);
+                    public InteractionResult place(UseOnContext context) {
+                        return get(context.getLevel().getServer()).place(context);
                     }
 
                     @Override
-                    public ActionResult use(
-                            PlayerEntity player, Hand hand, GroundBagBlockEntity bag) {
+                    public InteractionResult use(
+                            Player player, InteractionHand hand, GroundBagBlockEntity bag) {
                         return get(player.getServer()).use(player, hand, bag);
                     }
                 });
@@ -148,48 +147,48 @@ public final class GroundInventory implements GroundBags.Actions {
     }
 
     @Override
-    public ActionResult place(ItemUsageContext context) {
-        var player = (ServerPlayerEntity) context.getPlayer();
+    public InteractionResult place(UseOnContext context) {
+        var player = (ServerPlayer) context.getPlayer();
         if (player == null) {
-            return ActionResult.FAIL;
+            return InteractionResult.FAIL;
         }
         try {
             requireActor(player);
-            var world = player.getServerWorld();
-            var placement = new ItemPlacementContext(context);
-            BlockPos pos = placement.getBlockPos();
+            var world = player.serverLevel();
+            var placement = new BlockPlaceContext(context);
+            BlockPos pos = placement.getClickedPos();
             // 只在有支撑的上表面落地，不替换实体方块，也不允许隔墙或超距放置。
-            if (context.getSide() != Direction.UP
-                    || !player.isSneaking()
-                    || !world.getBlockState(pos).canReplace(placement)
-                    || !world.getBlockState(pos.down())
-                            .isSideSolidFullSquare(world, pos.down(), Direction.UP)
-                    || !world.canPlace(
-                            GroundBags.BLOCK.getDefaultState(), pos, ShapeContext.absent())
-                    || !world.isSpaceEmpty(
+            if (context.getClickedFace() != Direction.UP
+                    || !player.isShiftKeyDown()
+                    || !world.getBlockState(pos).canBeReplaced(placement)
+                    || !world.getBlockState(pos.below())
+                            .isFaceSturdy(world, pos.below(), Direction.UP)
+                    || !world.isUnobstructed(
+                            GroundBags.BLOCK.defaultBlockState(), pos, CollisionContext.empty())
+                    || !world.noCollision(
                             GroundBags.BLOCK
-                                    .getDefaultState()
+                                    .defaultBlockState()
                                     .getCollisionShape(world, pos)
-                                    .getBoundingBox()
-                                    .offset(pos))
-                    || world.isOutOfHeightLimit(pos)
-                    || !world.getWorldBorder().contains(pos)
-                    || !world.canPlayerModifyAt(player, pos)
-                    || !world.canPlayerModifyAt(player, context.getBlockPos())
-                    || player.getEyePos().squaredDistanceTo(context.getHitPos())
+                                    .bounds()
+                                    .move(pos))
+                    || world.isOutsideBuildHeight(pos)
+                    || !world.getWorldBorder().isWithinBounds(pos)
+                    || !world.mayInteract(player, pos)
+                    || !world.mayInteract(player, context.getClickedPos())
+                    || player.getEyePosition().distanceToSqr(context.getClickLocation())
                             > REACH_BLOCKS * REACH_BLOCKS) {
                 throw new IllegalArgumentException("请在身边有支撑的空地上放置背包");
             }
             var hit =
-                    world.raycast(
-                            new RaycastContext(
-                                    player.getEyePos(),
-                                    context.getHitPos(),
-                                    RaycastContext.ShapeType.COLLIDER,
-                                    RaycastContext.FluidHandling.NONE,
+                    world.clip(
+                            new ClipContext(
+                                    player.getEyePosition(),
+                                    context.getClickLocation(),
+                                    ClipContext.Block.COLLIDER,
+                                    ClipContext.Fluid.NONE,
                                     player));
-            if (hit.getType() != net.minecraft.util.hit.HitResult.Type.MISS
-                    && !hit.getBlockPos().equals(context.getBlockPos())) {
+            if (hit.getType() != net.minecraft.world.phys.HitResult.Type.MISS
+                    && !hit.getBlockPos().equals(context.getClickedPos())) {
                 throw new IllegalArgumentException("不能隔着方块放置背包");
             }
             var account = new PlayerAccount(player);
@@ -207,14 +206,14 @@ public final class GroundInventory implements GroundBags.Actions {
             if (entries.containsKey(id)) {
                 throw new IllegalArgumentException("该背包身份已在地面存在");
             }
-            String dimension = world.getRegistryKey().getValue().toString();
+            String dimension = world.dimension().location().toString();
             for (Entry existing : entries.values()) {
                 if (existing.dimension().equals(dimension) && existing.pos().equals(pos)) {
                     throw new IllegalArgumentException("这里已有地面背包");
                 }
             }
             var entry =
-                    new Entry(id, dimension, pos.toImmutable(), player.getYaw(), 0, stack.copy());
+                    new Entry(id, dimension, pos.immutable(), player.getYRot(), 0, stack.copy());
             var next = new LinkedHashMap<>(entries);
             next.put(id, entry);
             vanilla.set(slot, ItemStack.EMPTY);
@@ -225,38 +224,38 @@ public final class GroundInventory implements GroundBags.Actions {
                     null,
                     pos,
                     ContainerSounds.event(type.model(), Action.PLACE),
-                    SoundCategory.BLOCKS,
+                    SoundSource.BLOCKS,
                     SOUND_VOLUME,
                     SOUND_PITCH);
-            return ActionResult.CONSUME;
+            return InteractionResult.CONSUME;
         } catch (IOException | IllegalArgumentException invalid) {
-            player.sendMessage(Text.literal(invalid.getMessage()), true);
-            return ActionResult.FAIL;
+            player.displayClientMessage(Component.literal(invalid.getMessage()), true);
+            return InteractionResult.FAIL;
         }
     }
 
     @Override
-    public ActionResult use(PlayerEntity actor, Hand hand, GroundBagBlockEntity bag) {
-        var player = (ServerPlayerEntity) actor;
+    public InteractionResult use(Player actor, InteractionHand hand, GroundBagBlockEntity bag) {
+        var player = (ServerPlayer) actor;
         try {
             requireActor(player);
             Entry entry = requireAccess(player, bag.container());
-            if (!entry.pos().equals(bag.getPos())) {
+            if (!entry.pos().equals(bag.getBlockPos())) {
                 throw new IllegalArgumentException("地面背包位置不一致");
             }
-            if (player.isSneaking() && player.getStackInHand(hand).isEmpty()) {
+            if (player.isShiftKeyDown() && player.getItemInHand(hand).isEmpty()) {
                 pickup(player, hand, entry);
             } else {
                 VolumeServer.session(player).openGround(entry.id());
             }
-            return ActionResult.CONSUME;
+            return InteractionResult.CONSUME;
         } catch (IOException | IllegalArgumentException invalid) {
-            player.sendMessage(Text.literal(invalid.getMessage()), true);
-            return ActionResult.FAIL;
+            player.displayClientMessage(Component.literal(invalid.getMessage()), true);
+            return InteractionResult.FAIL;
         }
     }
 
-    private void pickup(ServerPlayerEntity player, Hand hand, Entry entry) throws IOException {
+    private void pickup(ServerPlayer player, InteractionHand hand, Entry entry) throws IOException {
         if (leases.containsKey(entry.id())) {
             throw new IllegalArgumentException("这个背包正在使用，请先关闭内景");
         }
@@ -268,49 +267,49 @@ public final class GroundInventory implements GroundBags.Actions {
         var next = new LinkedHashMap<>(entries);
         next.remove(entry.id());
         commit(player, data, vanilla, next);
-        player.getServerWorld()
-                .setBlockState(entry.pos(), Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
-        player.getServerWorld()
+        player.serverLevel()
+                .setBlock(entry.pos(), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+        player.serverLevel()
                 .playSound(
                         null,
                         entry.pos(),
                         ContainerSounds.event(
                                 ContainerItems.definition(entry.stack()).model(), Action.PICKUP),
-                        SoundCategory.BLOCKS,
+                        SoundSource.BLOCKS,
                         SOUND_VOLUME,
                         SOUND_PITCH);
     }
 
-    public Entry requireAccess(ServerPlayerEntity player, String id) {
+    public Entry requireAccess(ServerPlayer player, String id) {
         Entry entry = entries.get(id);
         if (entry == null
                 || !entry.dimension()
-                        .equals(player.getWorld().getRegistryKey().getValue().toString())
-                || !player.getServerWorld().isChunkLoaded(entry.pos())
-                || player.getEyePos().squaredDistanceTo(Vec3d.ofCenter(entry.pos()))
+                        .equals(player.level().dimension().location().toString())
+                || !player.serverLevel().hasChunkAt(entry.pos())
+                || player.getEyePosition().distanceToSqr(Vec3.atCenterOf(entry.pos()))
                         > REACH_BLOCKS * REACH_BLOCKS
-                || !player.getWorld().canPlayerModifyAt(player, entry.pos())
-                || !(player.getWorld().getBlockEntity(entry.pos())
+                || !player.level().mayInteract(player, entry.pos())
+                || !(player.level().getBlockEntity(entry.pos())
                         instanceof GroundBagBlockEntity bag)
                 || !bag.container().equals(id)) {
             throw new IllegalArgumentException("地面背包已不可访问");
         }
         // 每次开始与完成操作都重新检查遮挡，不允许打开后穿墙继续取物。
-        Vec3d target =
-                player.getWorld()
+        Vec3 target =
+                player.level()
                         .getBlockState(entry.pos())
-                        .getOutlineShape(player.getWorld(), entry.pos())
-                        .getBoundingBox()
+                        .getShape(player.level(), entry.pos())
+                        .bounds()
                         .getCenter()
-                        .add(Vec3d.of(entry.pos()));
+                        .add(Vec3.atLowerCornerOf(entry.pos()));
         var hit =
-                player.getWorld()
-                        .raycast(
-                                new RaycastContext(
-                                        player.getEyePos(),
+                player.level()
+                        .clip(
+                                new ClipContext(
+                                        player.getEyePosition(),
                                         target,
-                                        RaycastContext.ShapeType.COLLIDER,
-                                        RaycastContext.FluidHandling.NONE,
+                                        ClipContext.Block.COLLIDER,
+                                        ClipContext.Fluid.NONE,
                                         player));
         if (!hit.getBlockPos().equals(entry.pos())) {
             throw new IllegalArgumentException("地面背包被遮挡");
@@ -318,16 +317,16 @@ public final class GroundInventory implements GroundBags.Actions {
         return entry;
     }
 
-    public void acquire(ServerPlayerEntity player, String id) {
+    public void acquire(ServerPlayer player, String id) {
         requireAccess(player, id);
         UUID owner = leases.get(id);
-        if (owner != null && !owner.equals(player.getUuid())) {
+        if (owner != null && !owner.equals(player.getUUID())) {
             throw new IllegalArgumentException("另一位玩家正在使用这个背包");
         }
-        leases.put(id, player.getUuid());
+        leases.put(id, player.getUUID());
     }
 
-    List<String> acquireNearby(ServerPlayerEntity player, Set<String> current, int limit) {
+    List<String> acquireNearby(ServerPlayer player, Set<String> current, int limit) {
         // 计入已有访问权，补齐当前可见且未被他人使用的地面根，不突破页面上限。
         var result = new ArrayList<>(current);
         for (String id : entries.keySet()) {
@@ -351,15 +350,15 @@ public final class GroundInventory implements GroundBags.Actions {
         leases.remove(id, player);
     }
 
-    public Entry leased(ServerPlayerEntity player, String id) {
-        if (!player.getUuid().equals(leases.get(id))) {
+    public Entry leased(ServerPlayer player, String id) {
+        if (!player.getUUID().equals(leases.get(id))) {
             throw new IllegalArgumentException("地面背包访问权已失效");
         }
         return requireAccess(player, id);
     }
 
     void commitContents(
-            ServerPlayerEntity player,
+            ServerPlayer player,
             SavedInventory data,
             List<ItemStack> vanilla,
             Map<String, ItemStack> ground)
@@ -385,52 +384,52 @@ public final class GroundInventory implements GroundBags.Actions {
     }
 
     private void commit(
-            ServerPlayerEntity player,
+            ServerPlayer player,
             SavedInventory data,
             List<ItemStack> vanilla,
             Map<String, Entry> next)
             throws IOException {
         var account = new PlayerAccount(player);
         try {
-            journal.commit(player.getUuid(), account.snapshot(data, vanilla), write(next));
+            journal.commit(player.getUUID(), account.snapshot(data, vanilla), write(next));
         } catch (GroundJournal.RecoveryRequiredException committed) {
             // 已过日志提交点不能回滚或继续新事务；停服后先重放日志，再允许玩家读档。
             recoveryRequired = true;
-            server.stop(false);
+            server.halt(false);
             throw new IllegalStateException(committed.getMessage(), committed);
         }
         entries = next;
         account.applyCommitted(data, vanilla);
     }
 
-    private static void requireActor(ServerPlayerEntity player) {
+    private static void requireActor(ServerPlayer player) {
         if (!player.isAlive()
                 || player.isSpectator()
-                || player.hasVehicle()
-                || player.currentScreenHandler != player.playerScreenHandler
-                || !player.playerScreenHandler.getCursorStack().isEmpty()) {
+                || player.isPassenger()
+                || player.containerMenu != player.inventoryMenu
+                || !player.inventoryMenu.getCarried().isEmpty()) {
             throw new IllegalArgumentException("当前不能操作地面背包");
         }
     }
 
-    private static int handSlot(ServerPlayerEntity player, Hand hand) {
-        return hand == Hand.MAIN_HAND
-                ? player.getInventory().selectedSlot
-                : PlayerInventory.OFF_HAND_SLOT;
+    private static int handSlot(ServerPlayer player, InteractionHand hand) {
+        return hand == InteractionHand.MAIN_HAND
+                ? player.getInventory().selected
+                : Inventory.SLOT_OFFHAND;
     }
 
     private static SavedInventory nextRevision(SavedInventory data) {
         return data.toBuilder().setRevision(Math.addExact(data.getRevision(), 1)).build();
     }
 
-    private ServerWorld world(Entry entry) {
-        return server.getWorld(
-                RegistryKey.of(RegistryKeys.WORLD, new Identifier(entry.dimension())));
+    private ServerLevel world(Entry entry) {
+        return server.getLevel(
+                ResourceKey.create(Registries.DIMENSION, new ResourceLocation(entry.dimension())));
     }
 
-    private void show(Entry entry, ServerWorld world) {
+    private void show(Entry entry, ServerLevel world) {
         // 区块标记不是库存来源；崩溃前未保存的模型可从权威目录恢复。
-        world.setBlockState(entry.pos(), GroundBags.BLOCK.getDefaultState(), Block.NOTIFY_ALL);
+        world.setBlock(entry.pos(), GroundBags.BLOCK.defaultBlockState(), Block.UPDATE_ALL);
         if (world.getBlockEntity(entry.pos()) instanceof GroundBagBlockEntity bag) {
             bag.appearance(
                     entry.id(),
@@ -439,22 +438,22 @@ public final class GroundInventory implements GroundBags.Actions {
         }
     }
 
-    private void reconcile(ServerWorld world, WorldChunk chunk) {
+    private void reconcile(ServerLevel world, LevelChunk chunk) {
         for (var entity : List.copyOf(chunk.getBlockEntities().values())) {
             if (entity instanceof GroundBagBlockEntity bag) {
                 Entry entry = entries.get(bag.container());
                 if (entry == null
-                        || !entry.pos().equals(bag.getPos())
+                        || !entry.pos().equals(bag.getBlockPos())
                         || !entry.dimension()
-                                .equals(world.getRegistryKey().getValue().toString())) {
-                    world.setBlockState(
-                            bag.getPos(), Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
+                                .equals(world.dimension().location().toString())) {
+                    world.setBlock(
+                            bag.getBlockPos(), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
                 }
             }
         }
         for (Entry entry : entries.values()) {
-            if (entry.dimension().equals(world.getRegistryKey().getValue().toString())
-                    && new net.minecraft.util.math.ChunkPos(entry.pos()).equals(chunk.getPos())) {
+            if (entry.dimension().equals(world.dimension().location().toString())
+                    && new net.minecraft.world.level.ChunkPos(entry.pos()).equals(chunk.getPos())) {
                 show(entry, world);
             }
         }
@@ -465,41 +464,41 @@ public final class GroundInventory implements GroundBags.Actions {
         var pending = new HashMap<>(loadedChunks);
         loadedChunks.clear();
         for (var entry : pending.entrySet()) {
-            ServerWorld world = entry.getKey();
+            ServerLevel world = entry.getKey();
             for (ChunkPos pos : entry.getValue()) {
-                if (world.isChunkLoaded(pos.x, pos.z)) {
+                if (world.hasChunk(pos.x, pos.z)) {
                     reconcile(world, world.getChunk(pos.x, pos.z));
                 }
             }
         }
     }
 
-    private NbtCompound write(Map<String, Entry> values) {
-        var root = new NbtCompound();
+    private CompoundTag write(Map<String, Entry> values) {
+        var root = new CompoundTag();
         root.putInt("version", SAVE_VERSION);
-        var list = new NbtList();
+        var list = new ListTag();
         for (Entry entry : values.values()) {
-            var nbt = new NbtCompound();
+            var nbt = new CompoundTag();
             nbt.putString("id", entry.id());
             nbt.putString("dimension", entry.dimension());
             nbt.putLong("pos", entry.pos().asLong());
             nbt.putFloat("yaw", entry.yaw());
             nbt.putLong("revision", entry.revision());
-            nbt.put("stack", entry.stack().writeNbt(new NbtCompound()));
+            nbt.put("stack", entry.stack().save(new CompoundTag()));
             list.add(nbt);
         }
         root.put("bags", list);
         return root;
     }
 
-    private void read(NbtCompound root) throws IOException {
+    private void read(CompoundTag root) throws IOException {
         if (root.getInt("version") != SAVE_VERSION
-                || !root.contains("bags", NbtElement.LIST_TYPE)) {
+                || !root.contains("bags", Tag.TAG_LIST)) {
             throw new IOException("不支持或损坏的地面背包存档");
         }
-        for (var value : root.getList("bags", NbtElement.COMPOUND_TYPE)) {
-            var nbt = (NbtCompound) value;
-            ItemStack stack = ItemStack.fromNbt(nbt.getCompound("stack"));
+        for (var value : root.getList("bags", Tag.TAG_COMPOUND)) {
+            var nbt = (CompoundTag) value;
+            ItemStack stack = ItemStack.of(nbt.getCompound("stack"));
             String id = ContainerItems.identity(stack);
             // 完整解析内容再接受存档，禁止用损坏项覆盖为一个空包。
             StackCodec.encode(stack);
@@ -507,10 +506,10 @@ public final class GroundInventory implements GroundBags.Actions {
                     dev.kizuna.backpack3d.service.TransferService.empty(),
                     new ArrayList<>(List.of(stack)));
             String dimension = nbt.getString("dimension");
-            BlockPos pos = BlockPos.fromLong(nbt.getLong("pos"));
+            BlockPos pos = BlockPos.of(nbt.getLong("pos"));
             if (!id.equals(nbt.getString("id"))
                     || entries.containsKey(id)
-                    || Identifier.tryParse(dimension) == null
+                    || ResourceLocation.tryParse(dimension) == null
                     || !Float.isFinite(nbt.getFloat("yaw"))
                     || nbt.getLong("revision") < 0) {
                 throw new IOException("地面背包身份或位置记录无效");

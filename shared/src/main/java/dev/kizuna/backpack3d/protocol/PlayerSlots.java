@@ -1,13 +1,12 @@
 package dev.kizuna.backpack3d.protocol;
 
-import net.minecraft.enchantment.EnchantmentHelper;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
-
 import java.util.List;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
 
-/** 玩家展示槽位与原版装备部位的映射，统一使用 PlayerInventory 槽号。 */
+/** 玩家展示槽位与原版装备部位的映射，统一使用 Inventory 槽号。 */
 public final class PlayerSlots {
     public static final List<EquipmentSlot> ARMOR =
             List.of(
@@ -19,11 +18,11 @@ public final class PlayerSlots {
     private PlayerSlots() {}
 
     public static boolean isArmor(int slot) {
-        return slot >= PlayerInventory.MAIN_SIZE && slot < PlayerInventory.OFF_HAND_SLOT;
+        return slot >= Inventory.INVENTORY_SIZE && slot < Inventory.SLOT_OFFHAND;
     }
 
     public static boolean isInteractive(int slot, int selectedSlot) {
-        return slot == selectedSlot || slot == PlayerInventory.OFF_HAND_SLOT || isArmor(slot);
+        return slot == selectedSlot || slot == Inventory.SLOT_OFFHAND || isArmor(slot);
     }
 
     public static boolean bindingLocked(int slot, ItemStack stack, boolean creative) {
@@ -35,7 +34,7 @@ public final class PlayerSlots {
         if (equipment.getType() != EquipmentSlot.Type.ARMOR) {
             throw new IllegalArgumentException("不是盔甲部位：" + equipment);
         }
-        return equipment.getOffsetEntitySlotId(PlayerInventory.MAIN_SIZE);
+        return equipment.getIndex(Inventory.INVENTORY_SIZE);
     }
 
     public static EquipmentSlot armorType(int slot) {
@@ -43,7 +42,7 @@ public final class PlayerSlots {
         if (!isArmor(slot)) {
             throw new IllegalArgumentException("不是盔甲槽位：" + slot);
         }
-        return EquipmentSlot.fromTypeIndex(
-                EquipmentSlot.Type.ARMOR, slot - PlayerInventory.MAIN_SIZE);
+        return EquipmentSlot.byTypeAndIndex(
+                EquipmentSlot.Type.ARMOR, slot - Inventory.INVENTORY_SIZE);
     }
 }

@@ -8,14 +8,13 @@ import dev.kizuna.backpack3d.server.PlayerStorage;
 import dev.kizuna.backpack3d.service.TransferService;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.minecraft.entity.Entity;
-import net.minecraft.network.ClientConnection;
-import net.minecraft.network.NetworkSide;
-import net.minecraft.network.packet.s2c.play.PlayerListS2CPacket;
+import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayNetworkHandler;
-import net.minecraft.server.network.ServerPlayerEntity;
-
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import net.minecraft.world.entity.Entity;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -27,7 +26,7 @@ final class WorldEquipmentFixture {
     static final UUID SUBJECT = UUID.fromString("f270cae7-a374-4d87-8531-d049efaf90bc");
     private final Path command = Path.of("../world-appearance-step.txt");
     private int applied = -1;
-    private ServerPlayerEntity subject;
+    private ServerPlayer subject;
     private SavedInventory equipped;
     private double homeX;
     private double homeY;
@@ -40,7 +39,7 @@ final class WorldEquipmentFixture {
 
     private void tick(MinecraftServer server) {
         // 只在夹具显式写入步骤后操作；不改变测试者自身库存及两阶段修订号。
-        if (!Files.isRegularFile(command) || server.getPlayerManager().getPlayerList().isEmpty()) {
+        if (!Files.isRegularFile(command) || server.getPlayerList().getPlayers().isEmpty()) {
             return;
         }
         try {
@@ -55,7 +54,7 @@ final class WorldEquipmentFixture {
             if (step == applied) {
                 return;
             }
-            var viewer = server.getPlayerManager().getPlayerList().get(0);
+            var viewer = server.getPlayerList().getPlayers().get(0);
             switch (step) {
                 case 0 -> spawn(server, viewer);
                 case 1 -> {
@@ -76,11 +75,11 @@ final class WorldEquipmentFixture {
                         ((PlayerStorage) subject)
                                 .bs3d$setInventory(equipped.toBuilder().clearWorn().build());
                 case 3 -> ((PlayerStorage) subject).bs3d$setInventory(equipped);
-                case 4 -> subject.setPosition(homeX + 1024, homeY, homeZ);
-                case 5 -> subject.setPosition(homeX, homeY, homeZ);
+                case 4 -> subject.setPos(homeX + 1024, homeY, homeZ);
+                case 5 -> subject.setPos(homeX, homeY, homeZ);
                 case 6 ->
-                        subject.getServerWorld()
-                                .removePlayer(subject, Entity.RemovalReason.DISCARDED);
+                        subject.serverLevel()
+                                .removePlayerImmediately(subject, Entity.RemovalReason.DISCARDED);
                 default -> throw new IllegalArgumentException("未知世界外观验收步骤");
             }
             applied = step;
@@ -89,23 +88,23 @@ final class WorldEquipmentFixture {
         }
     }
 
-    private void spawn(MinecraftServer server, ServerPlayerEntity viewer) {
+    private void spawn(MinecraftServer server, ServerPlayer viewer) {
         // 观察者仍是实际联网客户端；假玩家只作为被观察的服务器实体，没有额外游戏窗口。
         subject =
-                new ServerPlayerEntity(
-                        server, viewer.getServerWorld(), new GameProfile(SUBJECT, "WornSubject"));
-        subject.networkHandler =
-                new ServerPlayNetworkHandler(
-                        server, new ClientConnection(NetworkSide.SERVERBOUND), subject);
+                new ServerPlayer(
+                        server, viewer.serverLevel(), new GameProfile(SUBJECT, "WornSubject"));
+        subject.connection =
+                new ServerGamePacketListenerImpl(
+                        server, new Connection(PacketFlow.SERVERBOUND), subject);
         equipped = TransferService.upgrade(SavedInventory.newBuilder().setFormatVersion(2).build());
         ((PlayerStorage) subject).bs3d$setInventory(equipped);
         homeX = viewer.getX() + 2;
         homeY = viewer.getY();
         homeZ = viewer.getZ() + 2;
-        subject.refreshPositionAndAngles(homeX, homeY, homeZ, 0, 0);
+        subject.moveTo(homeX, homeY, homeZ, 0, 0);
         subject.setNoGravity(true);
-        viewer.networkHandler.sendPacket(
-                new PlayerListS2CPacket(PlayerListS2CPacket.Action.ADD_PLAYER, subject));
-        subject.getServerWorld().onPlayerConnected(subject);
+        viewer.connection.send(
+                new ClientboundPlayerInfoUpdatePacket(ClientboundPlayerInfoUpdatePacket.Action.ADD_PLAYER, subject));
+        subject.serverLevel().addNewPlayer(subject);
     }
 }

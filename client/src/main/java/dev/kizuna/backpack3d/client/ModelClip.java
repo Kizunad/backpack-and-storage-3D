@@ -4,9 +4,6 @@ import static dev.kizuna.backpack3d.client.ModelJson.number;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-
-import net.minecraft.util.JsonHelper;
-
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
@@ -15,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.util.GsonHelper;
 
 /** Blockbench 骨骼关键帧：位置为模型像素，旋转为度，缩放为倍率，时间为秒。 */
 record ModelClip(
@@ -33,19 +31,19 @@ record ModelClip(
             throw new IllegalArgumentException("animation.length 必须为 (0, 60] 秒");
         }
         // 开合是一次性状态转换；循环动画、表达式及效果轨道不作静默近似。
-        String loop = JsonHelper.getString(json, "loop", "once");
+        String loop = GsonHelper.getAsString(json, "loop", "once");
         if (!Set.of("once", "hold").contains(loop)) {
             throw new IllegalArgumentException("开合动画只支持 once/hold：" + loop);
         }
         for (String field :
                 List.of("anim_time_update", "blend_weight", "start_delay", "loop_delay")) {
-            String expression = JsonHelper.getString(json, field, "");
+            String expression = GsonHelper.getAsString(json, field, "");
             if (!expression.isBlank()) {
                 throw new IllegalArgumentException("不支持动画表达式：" + field);
             }
         }
         Map<String, Map<String, List<Key>>> tracks = new LinkedHashMap<>();
-        var animators = JsonHelper.getObject(json, "animators", new JsonObject());
+        var animators = GsonHelper.getAsJsonObject(json, "animators", new JsonObject());
         for (var entry : animators.entrySet()) {
             String bone = entry.getKey();
             // 先确认目标骨骼，效果轨道或未知身份不进入关键帧解析。
@@ -61,13 +59,13 @@ record ModelClip(
     private static Map<String, List<Key>> readBoneTrack(
             String bone, JsonObject animator, float seconds) {
         // 每个骨骼按位置、旋转和缩放通道分别收集关键帧，随后统一排序。
-        if (!JsonHelper.getString(animator, "type", "bone").equals("bone")) {
+        if (!GsonHelper.getAsString(animator, "type", "bone").equals("bone")) {
             throw new IllegalArgumentException("仅支持 bone 动画轨道：" + bone);
         }
         Map<String, List<Key>> channels = new LinkedHashMap<>();
-        for (JsonElement element : JsonHelper.getArray(animator, "keyframes")) {
+        for (JsonElement element : GsonHelper.getAsJsonArray(animator, "keyframes")) {
             JsonObject frame = element.getAsJsonObject();
-            String channel = JsonHelper.getString(frame, "channel");
+            String channel = GsonHelper.getAsString(frame, "channel");
             if (!CHANNELS.contains(channel)) {
                 throw new IllegalArgumentException("不支持动画通道：" + channel);
             }
@@ -98,11 +96,11 @@ record ModelClip(
         if (time < 0 || time > duration) {
             throw new IllegalArgumentException("关键帧时间越出动画时长");
         }
-        String interpolation = JsonHelper.getString(frame, "interpolation", "linear");
+        String interpolation = GsonHelper.getAsString(frame, "interpolation", "linear");
         if (!interpolation.equals("linear") && !interpolation.equals("step")) {
             throw new IllegalArgumentException("只支持 linear/step 插值：" + interpolation);
         }
-        var points = JsonHelper.getArray(frame, "data_points");
+        var points = GsonHelper.getAsJsonArray(frame, "data_points");
         if (points.size() != 1) {
             throw new IllegalArgumentException("每个关键帧需要一个 data_point");
         }

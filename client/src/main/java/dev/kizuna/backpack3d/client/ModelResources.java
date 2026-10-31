@@ -6,13 +6,12 @@ import dev.kizuna.backpack3d.item.ItemRegistrations;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.resource.ResourceManager;
-import net.minecraft.resource.ResourcePackProfile;
-import net.minecraft.resource.ResourcePackSource;
-import net.minecraft.resource.ResourceType;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
-
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.packs.PackType;
+import net.minecraft.server.packs.repository.Pack;
+import net.minecraft.server.packs.repository.PackSource;
+import net.minecraft.server.packs.resources.ResourceManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +30,7 @@ import java.util.function.Consumer;
 public final class ModelResources implements SimpleSynchronousResourceReloadListener {
     private static final Logger LOG = LoggerFactory.getLogger("bs3d/resources");
     private static final String PACK_NAME = "bs3d/imported";
-    private static Map<Identifier, ModelAsset> models = Map.of();
+    private static Map<ResourceLocation, ModelAsset> models = Map.of();
     private static RotationControls rotationControls = RotationControls.DEFAULTS;
     private static final Set<String> missing = new HashSet<>();
 
@@ -39,20 +38,20 @@ public final class ModelResources implements SimpleSynchronousResourceReloadList
 
     static void initialize() {
         // 监听器在资源实际切换时发布模型，资源包列表扫描只准备候选资源。
-        ResourceManagerHelper.get(ResourceType.CLIENT_RESOURCES)
+        ResourceManagerHelper.get(PackType.CLIENT_RESOURCES)
                 .registerReloadListener(new ModelResources());
     }
 
     @Override
-    public Identifier getFabricId() {
-        return new Identifier("bs3d", "imported_models");
+    public ResourceLocation getFabricId() {
+        return new ResourceLocation("bs3d", "imported_models");
     }
 
     @Override
-    public void reload(ResourceManager manager) {
+    public void onResourceManagerReload(ResourceManager manager) {
         // 几何与同一次加载的纹理保持一致；原版恢复旧资源包时也恢复对应模型。
         models = Map.of();
-        try (var packs = manager.streamResourcePacks()) {
+        try (var packs = manager.listPacks()) {
             for (var pack : packs.toList()) {
                 if (pack instanceof ImportedResourcePack imported) {
                     models = imported.models();
@@ -63,15 +62,15 @@ public final class ModelResources implements SimpleSynchronousResourceReloadList
         missing.clear();
     }
 
-    public static void registerPack(Consumer<ResourcePackProfile> consumer) {
+    public static void registerPack(Consumer<Pack> consumer) {
         // 扫描不修改当前模型目录，候选资源要等原版重载完成后才生效。
         Path directory = FabricLoader.getInstance().getConfigDir().resolve("bs3d").toAbsolutePath();
-        var assets = new LinkedHashMap<Identifier, ModelAsset>();
-        var files = new LinkedHashMap<Identifier, byte[]>();
+        var assets = new LinkedHashMap<ResourceLocation, ModelAsset>();
+        var files = new LinkedHashMap<ResourceLocation, byte[]>();
         JsonObject sounds = ModelSounds.defaults();
         List<ModelConfig.Entry> configured = readRegistrations(directory);
         // 先加载附属 JAR 自带模型，玩家 config.toml 中同 ID 的登记随后覆盖它。
-        var overridden = new HashSet<Identifier>();
+        var overridden = new HashSet<ResourceLocation>();
         configured.forEach(entry -> overridden.add(entry.id()));
         for (var bundled : ItemRegistrations.bundledModels()) {
             if (overridden.contains(bundled.model())) {
@@ -84,18 +83,18 @@ public final class ModelResources implements SimpleSynchronousResourceReloadList
             loadModel(directory, entry, assets, files, sounds);
         }
         files.put(
-                new Identifier("bs3d", "sounds.json"),
+                new ResourceLocation("bs3d", "sounds.json"),
                 sounds.toString().getBytes(StandardCharsets.UTF_8));
 
-        ResourcePackProfile profile =
-                ResourcePackProfile.create(
+        Pack profile =
+                Pack.readMetaAndCreate(
                         PACK_NAME,
-                        Text.literal("Backpack and Storage 3D · 导入资源"),
+                        Component.literal("Backpack and Storage 3D · 导入资源"),
                         true,
                         name -> new ImportedResourcePack(name, files, assets),
-                        ResourceType.CLIENT_RESOURCES,
-                        ResourcePackProfile.InsertionPosition.TOP,
-                        ResourcePackSource.BUILTIN);
+                        PackType.CLIENT_RESOURCES,
+                        Pack.Position.TOP,
+                        PackSource.BUILT_IN);
         if (profile != null) {
             consumer.accept(profile);
         }
@@ -124,8 +123,8 @@ public final class ModelResources implements SimpleSynchronousResourceReloadList
     private static void loadModel(
             Path directory,
             ModelConfig.Entry entry,
-            Map<Identifier, ModelAsset> assets,
-            Map<Identifier, byte[]> files,
+            Map<ResourceLocation, ModelAsset> assets,
+            Map<ResourceLocation, byte[]> files,
             JsonObject sounds) {
         // 每个模型独立处理；单个文件失败不妨碍其余已登记资源加载。
         try {
@@ -151,7 +150,7 @@ public final class ModelResources implements SimpleSynchronousResourceReloadList
 
     static ModelAsset optional(String name) {
         // 原版收纳箱等类型允许保留标准物品模型，不为这种回退产生缺失警告。
-        Identifier id = Identifier.tryParse(name.contains(":") ? name : "bs3d:" + name);
+        ResourceLocation id = ResourceLocation.tryParse(name.contains(":") ? name : "bs3d:" + name);
         return id == null ? null : models.get(id);
     }
 

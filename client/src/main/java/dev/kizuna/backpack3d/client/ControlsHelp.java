@@ -3,16 +3,14 @@ package dev.kizuna.backpack3d.client;
 import dev.kizuna.backpack3d.client.InteriorRenderer.Rect;
 import dev.kizuna.inventoryui.client.InventoryUiClient;
 import dev.kizuna.inventoryui.theme.ThemeTokens;
-
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.text.OrderedText;
-import net.minecraft.text.Text;
-
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
 
 /** 右上角的按需帮助；展开后独占输入，避免点说明时穿透到模型或物品。 */
 final class ControlsHelp {
@@ -69,15 +67,15 @@ final class ControlsHelp {
         return false;
     }
 
-    void scroll(double amount, TextRenderer font) {
+    void scroll(double amount, Font font) {
         // 小窗口中仍能读完整说明，滚轮只滚帮助，不影响背后的内景缩放。
-        int lineHeight = font.fontHeight + LINE_GAP;
+        int lineHeight = font.lineHeight + LINE_GAP;
         scroll = Math.max(0, Math.min(maxScroll, scroll - (int) (amount * lineHeight)));
     }
 
     void draw(
-            DrawContext context,
-            TextRenderer font,
+            GuiGraphics context,
+            Font font,
             int width,
             int mouseX,
             int mouseY,
@@ -95,14 +93,14 @@ final class ControlsHelp {
                                 : ThemeTokens.BORDER);
         circle(context, centerX, centerY, RADIUS, borderColor);
         circle(context, centerX, centerY, RADIUS - BORDER, color(ThemeTokens.PANEL));
-        context.drawCenteredTextWithShadow(
-                font, "i", centerX, centerY - font.fontHeight / 2, color(ThemeTokens.TEXT));
+        context.drawCenteredString(
+                font, "i", centerX, centerY - font.lineHeight / 2, color(ThemeTokens.TEXT));
     }
 
-    private void drawPanel(DrawContext context, TextRenderer font, int width, String status) {
+    private void drawPanel(GuiGraphics context, Font font, int width, String status) {
         int panelWidth = Math.min(PANEL_WIDTH, width - MARGIN * 2);
         int textWidth = panelWidth - PADDING * 2;
-        List<OrderedText> lines = new ArrayList<>();
+        List<FormattedCharSequence> lines = new ArrayList<>();
         for (String paragraph :
                 List.of(
                         "操作提示",
@@ -112,9 +110,9 @@ final class ControlsHelp {
                         "已占用格以连接轮廓高亮，相邻格不显示内部亮线。手动放置须让物品完整占格处于可见层内。",
                         "拖动物品：放入目标格；拖到容器模型：自动找空位，合盖时也可用。",
                         "Shift 点击原版物品：放入随身容器，腰挂优先；Shift 点击内景物品：取回原版背包。",
-                        module.rotateYaw().getLocalizedText().getString()
+                        module.rotateYaw().getDisplayName().getString()
                                 + "：左右旋转物品；"
-                                + module.rotatePitch().getLocalizedText().getString()
+                                + module.rotatePitch().getDisplayName().getString()
                                 + "：上下旋转；Shift：反向。",
                         "拖动角色手中的物品到内景格位存入；从内景拖到左手或右手取出。双手也可互相拖放，目标手为空或能整组叠放同种物品时接收。",
                         "盔甲可在身体部位、双手与容器之间拖放；装备部位须匹配且为空。",
@@ -125,27 +123,27 @@ final class ControlsHelp {
                         "转移即时完成；ESC 只关闭帮助或合盖退出。拒绝时物品保留原位。",
                         "旋转键在 config/bs3d/config.toml 的 controls 表修改，F3+T 重载；打开背包键在游戏设置中修改。",
                         "当前状态：" + status)) {
-            lines.addAll(font.wrapLines(Text.literal(paragraph), textWidth));
+            lines.addAll(font.split(Component.literal(paragraph), textWidth));
         }
         int left = width - MARGIN - panelWidth;
         int top = button.bottom() + GAP;
-        int lineHeight = font.fontHeight + LINE_GAP;
+        int lineHeight = font.lineHeight + LINE_GAP;
         int contentHeight = lines.size() * lineHeight;
         int panelHeight =
                 Math.min(
                         PADDING * 2 + contentHeight,
-                        context.getScaledWindowHeight() - top - MARGIN);
+                        context.guiHeight() - top - MARGIN);
         panel = new Rect(left, top, panelWidth, panelHeight);
         maxScroll = Math.max(0, contentHeight - (panelHeight - PADDING * 2));
         scroll = Math.min(scroll, maxScroll);
         context.fill(left, top, left + panelWidth, top + panelHeight, color(ThemeTokens.PANEL));
-        context.drawBorder(left, top, panelWidth, panelHeight, color(ThemeTokens.BORDER));
+        context.renderOutline(left, top, panelWidth, panelHeight, color(ThemeTokens.BORDER));
         context.enableScissor(
                 left + PADDING, top + PADDING, panel.right() - PADDING, panel.bottom() - PADDING);
         try {
             int y = top + PADDING - scroll;
-            for (OrderedText line : lines) {
-                context.drawText(font, line, left + PADDING, y, color(ThemeTokens.TEXT), false);
+            for (FormattedCharSequence line : lines) {
+                context.drawString(font, line, left + PADDING, y, color(ThemeTokens.TEXT), false);
                 y += lineHeight;
             }
         } finally {
@@ -163,7 +161,7 @@ final class ControlsHelp {
     }
 
     private static void circle(
-            DrawContext context, int centerX, int centerY, int radius, int color) {
+            GuiGraphics context, int centerX, int centerY, int radius, int color) {
         // 每行填充圆内弦段，绘制和点击都使用同一半径，不依赖额外贴图。
         for (int y = -radius; y <= radius; y++) {
             int halfWidth = (int) Math.sqrt(radius * radius - y * y);

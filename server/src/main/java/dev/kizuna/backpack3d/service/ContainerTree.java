@@ -13,9 +13,6 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornContainer;
-
-import net.minecraft.item.ItemStack;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -24,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import net.minecraft.world.item.ItemStack;
 
 /** 一次事务的容器树副本；所有内容最终写回所属的真实容器物品，禁止跨物品悬挂库存。 */
 public final class ContainerTree {

@@ -1,17 +1,15 @@
 package dev.kizuna.backpack3d.client;
 
-import net.minecraft.client.util.InputUtil;
-
 import org.tomlj.TomlTable;
-
+import com.mojang.blaze3d.platform.InputConstants;
 import java.util.Set;
 
 /** 背包场景独享的旋转键，不加入原版全局按键注册表。 */
-record RotationControls(InputUtil.Key yaw, InputUtil.Key pitch) {
+record RotationControls(InputConstants.Key yaw, InputConstants.Key pitch) {
     static final RotationControls DEFAULTS =
             new RotationControls(
-                    InputUtil.fromTranslationKey("key.keyboard.r"),
-                    InputUtil.fromTranslationKey("key.keyboard.t"));
+                    InputConstants.getKey("key.keyboard.r"),
+                    InputConstants.getKey("key.keyboard.t"));
     private static final Set<String> KEYS = Set.of("rotate_yaw", "rotate_pitch");
 
     static RotationControls read(TomlTable table) {
@@ -29,14 +27,14 @@ record RotationControls(InputUtil.Key yaw, InputUtil.Key pitch) {
                 readKey(table, "rotate_pitch", DEFAULTS.pitch()));
     }
 
-    private static InputUtil.Key readKey(TomlTable table, String field, InputUtil.Key fallback) {
+    private static InputConstants.Key readKey(TomlTable table, String field, InputConstants.Key fallback) {
         // 使用原版键名解析，键盘和鼠标绑定都只由背包场景消费。
         String value = table.getString(field);
         if (value == null) {
             return fallback;
         }
-        InputUtil.Key key = InputUtil.fromTranslationKey(value);
-        if (key.equals(InputUtil.UNKNOWN_KEY)) {
+        InputConstants.Key key = InputConstants.getKey(value);
+        if (key.equals(InputConstants.UNKNOWN)) {
             throw new IllegalArgumentException("controls." + field + " 必须为有效按键");
         }
         return key;

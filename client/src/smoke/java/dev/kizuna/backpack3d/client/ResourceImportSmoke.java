@@ -2,19 +2,18 @@ package dev.kizuna.backpack3d.client;
 
 import dev.kizuna.backpack3d.item.ContainerSounds;
 import dev.kizuna.backpack3d.item.ContainerSounds.Action;
+import com.mojang.blaze3d.audio.OggAudioStream;
 import dev.kizuna.backpack3d.item.ContainerItems;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.AccessibilityOnboardingScreen;
-import net.minecraft.client.gui.screen.TitleScreen;
-import net.minecraft.client.sound.OggAudioStream;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.random.Random;
-
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.AccessibilityOnboardingScreen;
+import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.util.RandomSource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
@@ -47,16 +46,16 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 });
     }
 
-    private void tick(MinecraftClient client) throws Exception {
+    private void tick(Minecraft client) throws Exception {
         // 标题页也完成资源加载，无需连接服务器或创建玩家世界。
         if (started == 0) {
             started = System.currentTimeMillis();
         }
         require(System.currentTimeMillis() - started < TIMEOUT_MILLIS, "资源重载超时");
-        if (client.currentScreen instanceof AccessibilityOnboardingScreen) {
+        if (client.screen instanceof AccessibilityOnboardingScreen) {
             client.setScreen(new TitleScreen());
         }
-        if (!(client.currentScreen instanceof TitleScreen) || client.getOverlay() != null) {
+        if (!(client.screen instanceof TitleScreen) || client.getOverlay() != null) {
             return;
         }
         if (reload != null) {
@@ -77,13 +76,13 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 original = Files.readString(directory.resolve("config.toml"));
                 var vanilla =
                         client.getSoundManager()
-                                .get(SoundEvents.UI_BUTTON_CLICK.value().getId())
-                                .getSound(Random.create());
+                                .getSoundEvent(SoundEvents.UI_BUTTON_CLICK.value().getLocation())
+                                .getSound(RandomSource.create());
                 try (var input =
                         client.getResourceManager()
-                                .getResource(vanilla.getLocation())
+                                .getResource(vanilla.getPath())
                                 .orElseThrow()
-                                .getInputStream()) {
+                                .open()) {
                     Files.write(directory.resolve("test.ogg"), input.readAllBytes());
                 }
                 Files.writeString(
@@ -114,18 +113,18 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 for (Action action : Action.values()) {
                     var sound =
                             client.getSoundManager()
-                                    .get(ContainerSounds.id("grass_pouch", action))
-                                    .getSound(Random.create());
+                                    .getSoundEvent(ContainerSounds.id("grass_pouch", action))
+                                    .getSound(RandomSource.create());
                     require(
-                            sound.getIdentifier().getPath().startsWith("imports/"),
+                            sound.getLocation().getPath().startsWith("imports/"),
                             "自定义动作音效未生效：" + action);
                     try (var input =
                                     client.getResourceManager()
-                                            .getResource(sound.getLocation())
+                                            .getResource(sound.getPath())
                                             .orElseThrow()
-                                            .getInputStream();
+                                            .open();
                             var audio = new OggAudioStream(input)) {
-                        require(audio.getBuffer(4096).hasRemaining(), "OGG 无法解码：" + action);
+                        require(audio.read(4096).hasRemaining(), "OGG 无法解码：" + action);
                     }
                 }
                 reload(client, "version = 1\nmodels = []\n");
@@ -137,13 +136,13 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 require(
                         ModelResources.find("bs3d_smoke:bundled_pouch") != null,
                         "清空 config.toml 后附属自带模型被移除");
-                Identifier texture = new Identifier("bs3d", "imports/bs3d/grass_pouch/0.png");
+                ResourceLocation texture = new ResourceLocation("bs3d", "imports/bs3d/grass_pouch/0.png");
                 require(client.getResourceManager().getResource(texture).isEmpty(), "旧贴图仍在资源目录");
                 var sound =
                         client.getSoundManager()
-                                .get(ContainerSounds.id("grass_pouch", Action.PLACE))
-                                .getSound(Random.create());
-                require(sound.getIdentifier().getNamespace().equals("minecraft"), "移除自定义声后未恢复默认");
+                                .getSoundEvent(ContainerSounds.id("grass_pouch", Action.PLACE))
+                                .getSound(RandomSource.create());
+                require(sound.getLocation().getNamespace().equals("minecraft"), "移除自定义声后未恢复默认");
                 reload(client, "version = 1\n[[models]\n");
             }
             case 3 -> {
@@ -162,23 +161,23 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 String result =
                         "registered-only; invalid-file-isolation; five-custom-ogg-actions; decode;"
                                 + " revoke; malformed-config; restore; bundled-addon-model; nine-bong-containers";
-                Files.writeString(client.runDirectory.toPath().resolve("resources-ok.txt"), result);
+                Files.writeString(client.gameDirectory.toPath().resolve("resources-ok.txt"), result);
                 System.out.println("BS3D_RESOURCES " + result);
                 step++;
-                client.scheduleStop();
+                client.stop();
             }
             default -> {}
         }
     }
 
-    private void reload(MinecraftClient client, String config) throws Exception {
+    private void reload(Minecraft client, String config) throws Exception {
         // 调用 F3+T 使用的同一入口，下一 tick 等原版纹理与声音重载完成。
         Files.writeString(directory.resolve("config.toml"), config);
         ModelAsset beforeScan = ModelResources.find("grass_pouch");
-        client.getResourcePackManager().scanPacks();
+        client.getResourcePackRepository().reload();
         require(beforeScan == ModelResources.find("grass_pouch"), "仅扫描资源包就提前切换了模型");
         step++;
-        reload = client.reloadResources();
+        reload = client.reloadResourcePacks();
     }
 
     private static void require(boolean condition, String message) {
@@ -187,17 +186,17 @@ public final class ResourceImportSmoke implements ClientModInitializer {
         }
     }
 
-    private static void verifyBongGear(MinecraftClient client) {
+    private static void verifyBongGear(Minecraft client) {
         // 同时验证真实注册、物品动态渲染模型和资源包中的内嵌贴图，覆盖已有空配置的升级。
         for (String name : BONG_GEAR) {
-            var stack = ContainerItems.create(new Identifier("bs3d", name));
+            var stack = ContainerItems.create(new ResourceLocation("bs3d", name));
             var definition = ContainerItems.definition(stack);
             var asset = ModelResources.find(definition.model());
             require(asset != null, "Bong 模型未加载：" + name);
-            require(client.getItemRenderer().getModel(stack, null, null, 0).isBuiltin(),
+            require(client.getItemRenderer().getModel(stack, null, null, 0).isCustomRenderer(),
                     "未启用三维物品渲染：" + name);
             require(client.getResourceManager()
-                    .getResource(new Identifier("bs3d", "imports/bs3d/" + name + "/0.png")).isPresent(),
+                    .getResource(new ResourceLocation("bs3d", "imports/bs3d/" + name + "/0.png")).isPresent(),
                     "Bong 贴图未加载：" + name);
             var animation = new BagAnimation();
             animation.configure(asset);

@@ -4,9 +4,6 @@ import dev.kizuna.backpack3d.item.ContainerSounds;
 import dev.kizuna.backpack3d.item.ContainerSounds.Action;
 import dev.kizuna.backpack3d.item.ItemRegistrations;
 import dev.kizuna.backpack3d.item.ResourcePaths;
-
-import net.minecraft.util.Identifier;
-
 import org.tomlj.Toml;
 import org.tomlj.TomlTable;
 
@@ -20,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+import net.minecraft.resources.ResourceLocation;
 
 /** 本地资源白名单。路径相对于 config/bs3d，不读取编辑器记录的绝对路径。 */
 final class ModelConfig {
@@ -29,7 +27,7 @@ final class ModelConfig {
             Set.of("id", "file", "open_animation", "close_animation", "sounds");
 
     record Entry(
-            Identifier id,
+            ResourceLocation id,
             Path file,
             // null 表示自动寻找同名 open/close，空字符串表示主动禁用。
             String openAnimation,
@@ -56,7 +54,7 @@ final class ModelConfig {
         }
         var controls = RotationControls.read(document.getTable("controls"));
         var entries = new ArrayList<Entry>();
-        var identities = new HashSet<Identifier>();
+        var identities = new HashSet<ResourceLocation>();
         var registeredFiles = new HashSet<Path>();
         var models = document.getArray("models");
         if (models != null) {
@@ -86,7 +84,7 @@ final class ModelConfig {
         if (!name.contains(":")) {
             throw new IllegalArgumentException("models.id 必须包含命名空间：" + name);
         }
-        Identifier id = ContainerSounds.modelId(name);
+        ResourceLocation id = ContainerSounds.modelId(name);
         Path file = localPath(directory, required(table, "file"), ".bbmodel");
         Map<Action, Path> sounds = readSounds(directory, table.getTable("sounds"), name);
         return new Entry(

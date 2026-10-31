@@ -1,10 +1,10 @@
 package dev.kizuna.backpack3d.client;
 
+import com.mojang.blaze3d.vertex.PoseStack;
 import dev.kizuna.backpack3d.item.ContainerItems;
 
 import net.fabricmc.fabric.api.client.rendering.v1.BuiltinItemRendererRegistry;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.client.renderer.MultiBufferSource;
 
 /** 背包在手中、原版库存和内景里复用同一份三维模型。 */
 final class ContainerItemModels {
@@ -26,8 +26,8 @@ final class ContainerItemModels {
 
     private static void render(
             String model,
-            MatrixStack matrices,
-            VertexConsumerProvider buffers,
+            PoseStack matrices,
+            MultiBufferSource buffers,
             int light,
             int overlay) {
         // 原版物品局部系中心为半格；资产以模型像素计量，绘制后恢复调用方矩阵。
@@ -35,14 +35,14 @@ final class ContainerItemModels {
         if (asset == null) {
             return;
         }
-        matrices.push();
+        matrices.pushPose();
         try {
             matrices.translate(ITEM_CENTER, ITEM_CENTER, ITEM_CENTER);
             float scale = 1 / MODEL_UNITS_PER_BLOCK;
             matrices.scale(scale, scale, scale);
             asset.render(matrices, buffers, 0, null, light, overlay);
         } finally {
-            matrices.pop();
+            matrices.popPose();
         }
     }
 }

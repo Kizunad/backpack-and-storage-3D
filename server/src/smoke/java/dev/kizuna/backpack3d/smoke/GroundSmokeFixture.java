@@ -9,12 +9,11 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
 import dev.kizuna.backpack3d.server.GroundInventory;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
-
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -31,7 +30,7 @@ final class GroundSmokeFixture {
                     Path result = Path.of("../ground-access-ok.txt");
                     if (!Files.isRegularFile(request)
                             || Files.exists(result)
-                            || server.getPlayerManager().getPlayerList().isEmpty()) {
+                            || server.getPlayerList().getPlayers().isEmpty()) {
                         return;
                     }
                     try {
@@ -39,13 +38,13 @@ final class GroundSmokeFixture {
                         if (id.isEmpty()) {
                             return;
                         }
-                        var viewer = server.getPlayerManager().getPlayerList().get(0);
+                        var viewer = server.getPlayerList().getPlayers().get(0);
                         var other =
-                                new ServerPlayerEntity(
+                                new ServerPlayer(
                                         server,
-                                        viewer.getServerWorld(),
+                                        viewer.serverLevel(),
                                         new GameProfile(UUID.randomUUID(), "GroundObserver"));
-                        other.setPosition(viewer.getPos());
+                        other.setPos(viewer.position());
                         var ground = GroundInventory.get(server);
                         try {
                             ground.acquire(other, id);
@@ -55,7 +54,7 @@ final class GroundSmokeFixture {
                                 throw new IllegalStateException("未走到独占访问校验", expected);
                             }
                         }
-                        other.setPosition(viewer.getPos().add(20, 0, 0));
+                        other.setPos(viewer.position().add(20, 0, 0));
                         try {
                             ground.requireAccess(other, id);
                             throw new IllegalStateException("远处玩家仍能访问地面背包");
@@ -68,7 +67,7 @@ final class GroundSmokeFixture {
                 });
     }
 
-    static void prepare(ServerPlayerEntity player) {
+    static void prepare(ServerPlayer player) {
         try {
             if (!Files.readString(Path.of("../client/phase.txt")).strip().equals("ground")) {
                 return;
@@ -76,17 +75,17 @@ final class GroundSmokeFixture {
             var bag = ContainerItems.create(ContainerItems.POUCH);
             String id = ContainerItems.identity(bag);
             var sword = new ItemStack(Items.IRON_SWORD);
-            sword.setDamage(17);
-            sword.setCustomName(Text.literal("地面测试铁剑"));
+            sword.setDamageValue(17);
+            sword.setHoverName(Component.literal("地面测试铁剑"));
             ContainerItems.setContents(
                     bag,
                     List.of(
                             stored(id, sword, 0, 0, 0, 1, 2, 1),
                             stored(id, new ItemStack(Items.STONE, 8), 0, 0, 1, 1, 1, 1)));
-            player.getInventory().selectedSlot = 0;
-            player.getInventory().setStack(0, bag);
-            player.getInventory().setStack(PlayerInventory.OFF_HAND_SLOT, ItemStack.EMPTY);
-            player.playerScreenHandler.sendContentUpdates();
+            player.getInventory().selected = 0;
+            player.getInventory().setItem(0, bag);
+            player.getInventory().setItem(Inventory.SLOT_OFFHAND, ItemStack.EMPTY);
+            player.inventoryMenu.broadcastChanges();
             Files.writeString(Path.of("../ground-test-id.txt"), id);
         } catch (IOException failure) {
             throw new UncheckedIOException(failure);

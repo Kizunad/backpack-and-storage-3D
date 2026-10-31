@@ -2,14 +2,10 @@ package dev.kizuna.backpack3d.client;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-
+import com.mojang.blaze3d.audio.OggAudioStream;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.item.ContainerSounds;
 import dev.kizuna.backpack3d.item.ContainerSounds.Action;
-
-import net.minecraft.client.sound.OggAudioStream;
-import net.minecraft.util.Identifier;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import net.minecraft.resources.ResourceLocation;
 
 /** 为导入资源包生成声音目录，校验可选 OGG 并保留失败动作的默认声音。 */
 final class ModelSounds {
@@ -46,15 +43,15 @@ final class ModelSounds {
     }
 
     static void addOverrides(
-            ModelConfig.Entry entry, JsonObject sounds, Map<Identifier, byte[]> files) {
+            ModelConfig.Entry entry, JsonObject sounds, Map<ResourceLocation, byte[]> files) {
         for (var configured : entry.sounds().entrySet()) {
             Path path = configured.getValue();
             try {
                 byte[] bytes = readOgg(path);
-                Identifier event = ContainerSounds.id(entry.id().toString(), configured.getKey());
-                Identifier sound = new Identifier("bs3d", "imports/" + event.getPath());
+                ResourceLocation event = ContainerSounds.id(entry.id().toString(), configured.getKey());
+                ResourceLocation sound = new ResourceLocation("bs3d", "imports/" + event.getPath());
                 files.put(
-                        new Identifier(sound.getNamespace(), "sounds/" + sound.getPath() + ".ogg"),
+                        new ResourceLocation(sound.getNamespace(), "sounds/" + sound.getPath() + ".ogg"),
                         bytes);
                 putSound(sounds, event, sound.toString(), false);
             } catch (IOException | IllegalArgumentException invalid) {
@@ -90,7 +87,7 @@ final class ModelSounds {
             long limit = (long) (format.getFrameRate() * format.getFrameSize() * MAX_SOUND_SECONDS);
             long decoded = 0;
             int count;
-            while ((count = audio.getBuffer(AUDIO_CHUNK_BYTES).remaining()) > 0) {
+            while ((count = audio.read(AUDIO_CHUNK_BYTES).remaining()) > 0) {
                 decoded += count;
                 if (decoded > limit) {
                     throw new IllegalArgumentException("动作音效不能超过 60 秒");
@@ -104,7 +101,7 @@ final class ModelSounds {
     }
 
     private static void putSound(
-            JsonObject catalog, Identifier event, String sound, boolean reference) {
+            JsonObject catalog, ResourceLocation event, String sound, boolean reference) {
         var definition = new JsonObject();
         definition.addProperty("replace", true);
         var source = new JsonObject();

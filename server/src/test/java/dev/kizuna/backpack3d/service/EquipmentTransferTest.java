@@ -5,17 +5,15 @@ import static org.junit.jupiter.api.Assertions.*;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.*;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
-
-import net.minecraft.Bootstrap;
 import net.minecraft.SharedConstants;
-import net.minecraft.enchantment.Enchantments;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
-
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.Bootstrap;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.enchantment.Enchantments;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -30,53 +28,53 @@ class EquipmentTransferTest {
 
     @BeforeAll
     static void bootstrap() {
-        SharedConstants.createGameVersion();
-        Bootstrap.initialize();
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
         ContainerItems.initialize();
     }
 
     @Test
     void bothHandsTransferNbtAfterCommitAndReplayOnlyOnce() throws IOException {
         var sword = new ItemStack(Items.IRON_SWORD);
-        sword.setDamage(17);
-        sword.setCustomName(Text.literal("旧剑"));
+        sword.setDamageValue(17);
+        sword.setHoverName(Component.literal("旧剑"));
         account.inventory.set(0, sword);
-        var request = toSlot(0, PlayerInventory.OFF_HAND_SLOT);
+        var request = toSlot(0, Inventory.SLOT_OFFHAND);
         service.prepare(account, request);
-        assertTrue(ItemStack.areEqual(sword, account.inventory.get(0)));
-        assertTrue(account.inventory.get(PlayerInventory.OFF_HAND_SLOT).isEmpty());
+        assertTrue(ItemStack.matches(sword, account.inventory.get(0)));
+        assertTrue(account.inventory.get(Inventory.SLOT_OFFHAND).isEmpty());
         service.commit(account, request);
         service.commit(account, request);
         assertEquals(1, account.commits);
         assertTrue(account.inventory.get(0).isEmpty());
-        assertTrue(ItemStack.areEqual(sword, account.inventory.get(PlayerInventory.OFF_HAND_SLOT)));
-        service.commit(account, toSlot(PlayerInventory.OFF_HAND_SLOT, 0));
-        assertTrue(ItemStack.areEqual(sword, account.inventory.get(0)));
+        assertTrue(ItemStack.matches(sword, account.inventory.get(Inventory.SLOT_OFFHAND)));
+        service.commit(account, toSlot(Inventory.SLOT_OFFHAND, 0));
+        assertTrue(ItemStack.matches(sword, account.inventory.get(0)));
         assertEquals(2, account.commits);
     }
 
     @Test
     void handMergeIsWholeStackAndDoesNotDisplaceOtherItems() throws IOException {
         account.inventory.set(0, new ItemStack(Items.STONE, 16));
-        account.inventory.set(PlayerInventory.OFF_HAND_SLOT, new ItemStack(Items.DIRT));
+        account.inventory.set(Inventory.SLOT_OFFHAND, new ItemStack(Items.DIRT));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> service.commit(account, toSlot(0, PlayerInventory.OFF_HAND_SLOT)));
-        account.inventory.set(PlayerInventory.OFF_HAND_SLOT, new ItemStack(Items.STONE, 50));
+                () -> service.commit(account, toSlot(0, Inventory.SLOT_OFFHAND)));
+        account.inventory.set(Inventory.SLOT_OFFHAND, new ItemStack(Items.STONE, 50));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> service.commit(account, toSlot(0, PlayerInventory.OFF_HAND_SLOT)));
+                () -> service.commit(account, toSlot(0, Inventory.SLOT_OFFHAND)));
         assertEquals(16, account.inventory.get(0).getCount());
-        account.inventory.set(PlayerInventory.OFF_HAND_SLOT, new ItemStack(Items.STONE, 48));
-        service.commit(account, toSlot(0, PlayerInventory.OFF_HAND_SLOT));
-        assertEquals(64, account.inventory.get(PlayerInventory.OFF_HAND_SLOT).getCount());
+        account.inventory.set(Inventory.SLOT_OFFHAND, new ItemStack(Items.STONE, 48));
+        service.commit(account, toSlot(0, Inventory.SLOT_OFFHAND));
+        assertEquals(64, account.inventory.get(Inventory.SLOT_OFFHAND).getCount());
         assertTrue(account.inventory.get(0).isEmpty());
     }
 
     @Test
     void switchedHandAndChangedSourceRejectAtCompletion() {
         account.inventory.set(0, new ItemStack(Items.STONE));
-        var request = toSlot(0, PlayerInventory.OFF_HAND_SLOT);
+        var request = toSlot(0, Inventory.SLOT_OFFHAND);
         service.prepare(account, request);
         account.selectedSlot = 1;
         assertThrows(IllegalArgumentException.class, () -> service.commit(account, request));
@@ -102,26 +100,26 @@ class EquipmentTransferTest {
         for (var piece : pieces.entrySet()) {
             int armorSlot = PlayerSlots.armorSlot(piece.getKey());
             ItemStack stack = new ItemStack(piece.getValue());
-            stack.setDamage(7);
+            stack.setDamageValue(7);
             account.inventory.set(0, stack);
             service.commit(account, toSlot(0, armorSlot));
-            assertTrue(ItemStack.areEqual(stack, account.inventory.get(armorSlot)));
-            service.commit(account, toSlot(armorSlot, PlayerInventory.OFF_HAND_SLOT));
+            assertTrue(ItemStack.matches(stack, account.inventory.get(armorSlot)));
+            service.commit(account, toSlot(armorSlot, Inventory.SLOT_OFFHAND));
             assertTrue(account.inventory.get(armorSlot).isEmpty());
-            service.commit(account, fromPlayer(PlayerInventory.OFF_HAND_SLOT, bag).build());
+            service.commit(account, fromPlayer(Inventory.SLOT_OFFHAND, bag).build());
             Item stored =
                     tree().items().stream()
                             .filter(value -> value.getContainer().equals(bag))
                             .filter(
                                     value ->
                                             StackCodec.decode(value.getStackNbt())
-                                                    .isOf(piece.getValue()))
+                                                    .is(piece.getValue()))
                             .findFirst()
                             .orElseThrow();
             service.commit(
                     account,
                     move(stored.getId(), Volumes.PLAYER).setTargetPlayerSlot(armorSlot).build());
-            assertTrue(ItemStack.areEqual(stack, account.inventory.get(armorSlot)));
+            assertTrue(ItemStack.matches(stack, account.inventory.get(armorSlot)));
         }
     }
 
@@ -136,7 +134,7 @@ class EquipmentTransferTest {
         assertThrows(
                 IllegalArgumentException.class, () -> service.commit(account, toSlot(0, head)));
         assertEquals(0, account.commits);
-        assertTrue(account.inventory.get(head).isOf(Items.DIAMOND_HELMET));
+        assertTrue(account.inventory.get(head).is(Items.DIAMOND_HELMET));
     }
 
     @Test
@@ -144,7 +142,7 @@ class EquipmentTransferTest {
         String bag = wearNew(ContainerItems.BASKET, Mount.TORSO_BACK);
         int head = PlayerSlots.armorSlot(EquipmentSlot.HEAD);
         ItemStack helmet = new ItemStack(Items.IRON_HELMET);
-        helmet.addEnchantment(Enchantments.BINDING_CURSE, 1);
+        helmet.enchant(Enchantments.BINDING_CURSE, 1);
         account.inventory.set(head, helmet);
         assertThrows(
                 IllegalArgumentException.class, () -> service.commit(account, toSlot(head, 0)));
@@ -153,7 +151,7 @@ class EquipmentTransferTest {
                 () -> service.commit(account, fromPlayer(head, bag).build()));
         account.creative = true;
         service.commit(account, toSlot(head, 0));
-        assertTrue(ItemStack.areEqual(helmet, account.inventory.get(0)));
+        assertTrue(ItemStack.matches(helmet, account.inventory.get(0)));
     }
 
     @Test
@@ -164,7 +162,7 @@ class EquipmentTransferTest {
             account.inventory.set(0, new ItemStack(entry.getKey()));
             int slot = PlayerSlots.armorSlot(entry.getValue());
             service.commit(account, toSlot(0, slot));
-            assertTrue(account.inventory.get(slot).isOf(entry.getKey()));
+            assertTrue(account.inventory.get(slot).is(entry.getKey()));
         }
     }
 
@@ -173,7 +171,7 @@ class EquipmentTransferTest {
         String basket = wearNew(ContainerItems.BASKET, Mount.TORSO_BACK);
         String pouch = wearNew(ContainerItems.POUCH, Mount.WAIST_LEFT_FRONT);
         ItemStack sword = new ItemStack(Items.IRON_SWORD);
-        sword.setCustomName(Text.literal("随包保存"));
+        sword.setHoverName(Component.literal("随包保存"));
         account.inventory.set(0, sword);
         service.commit(account, fromPlayer(0, pouch).build());
         service.commit(account, move(pouch, basket).build());
@@ -188,21 +186,21 @@ class EquipmentTransferTest {
         service.commit(
                 account,
                 move(pouch, Volumes.PLAYER)
-                        .setTargetPlayerSlot(PlayerInventory.OFF_HAND_SLOT)
+                        .setTargetPlayerSlot(Inventory.SLOT_OFFHAND)
                         .build());
-        ItemStack carried = account.inventory.get(PlayerInventory.OFF_HAND_SLOT);
+        ItemStack carried = account.inventory.get(Inventory.SLOT_OFFHAND);
         assertEquals(pouch, ContainerItems.identity(carried));
         assertTrue(
-                ItemStack.areEqual(
+                ItemStack.matches(
                         sword,
                         StackCodec.decode(
                                 ContainerItems.contents(carried).getItems(0).getStackNbt())));
         // 经过真实序列化再取出，验证内容依附于物品 NBT，而不是仅存在内存中的节点。
         account.inventory.set(
-                PlayerInventory.OFF_HAND_SLOT, StackCodec.decode(StackCodec.encode(carried)));
+                Inventory.SLOT_OFFHAND, StackCodec.decode(StackCodec.encode(carried)));
         service.commit(
                 account,
-                fromPlayer(PlayerInventory.OFF_HAND_SLOT, Volumes.WORN)
+                fromPlayer(Inventory.SLOT_OFFHAND, Volumes.WORN)
                         .setWornTarget(
                                 Placement.newBuilder()
                                         .setMount(Mount.WAIST_RIGHT_FRONT)
@@ -220,7 +218,7 @@ class EquipmentTransferTest {
                         .anyMatch(
                                 value ->
                                         value.getContainer().equals(pouch)
-                                                && ItemStack.areEqual(
+                                                && ItemStack.matches(
                                                         sword,
                                                         StackCodec.decode(value.getStackNbt()))));
     }
@@ -334,24 +332,24 @@ class EquipmentTransferTest {
     @ValueSource(strings = {"gu_jia_bei_lou", "xiu_kuang_bei_jia", "za_pi_xing_nang",
             "pi_nang_xiong_gua", "herb_pouch", "ore_sack", "water_skin", "moisture_guard", "coin_box"})
     void bongGearPreservesIdentityContentsAndMountRulesAcrossSave(String name) throws IOException {
-        Identifier typeId = new Identifier("bs3d", name);
+        ResourceLocation typeId = new ResourceLocation("bs3d", name);
         ItemStack fresh = ContainerItems.create(typeId);
         var type = ContainerItems.definition(fresh);
-        assertEquals(1, fresh.getMaxCount());
+        assertEquals(1, fresh.getMaxStackSize());
         String container = wearNew(typeId, type.mounts().get(0));
         ItemStack keepsake = new ItemStack(Items.DIAMOND, 7);
-        keepsake.setCustomName(Text.literal("随包保存的信物"));
+        keepsake.setHoverName(Component.literal("随包保存的信物"));
         account.inventory.set(0, keepsake);
         var store = fromPlayer(0, container).build();
         var before = account.data;
         service.prepare(account, store);
         assertSame(before, account.data);
-        assertTrue(ItemStack.areEqual(keepsake, account.inventory.get(0)));
+        assertTrue(ItemStack.matches(keepsake, account.inventory.get(0)));
         service.commit(account, store);
         service.commit(account, move(container, Volumes.PLAYER).setTargetPlayerSlot(0).build());
         ItemStack carried = account.inventory.get(0);
         assertEquals(container, ContainerItems.identity(carried));
-        assertTrue(ItemStack.areEqual(keepsake,
+        assertTrue(ItemStack.matches(keepsake,
                 StackCodec.decode(ContainerItems.contents(carried).getItems(0).getStackNbt())));
 
         // 两份持久数据重新解码后仍是同一件真实物品，再次穿戴并拒绝错误部位。
@@ -366,7 +364,7 @@ class EquipmentTransferTest {
                 .setWornTarget(Placement.newBuilder().setMount(type.mounts().get(0))).build());
         assertEquals(type.inside(), tree().containers().get(0).getSize());
         assertTrue(tree().items().stream().anyMatch(item -> item.getContainer().equals(container)
-                && ItemStack.areEqual(keepsake, StackCodec.decode(item.getStackNbt()))));
+                && ItemStack.matches(keepsake, StackCodec.decode(item.getStackNbt()))));
     }
 
     @Test
@@ -391,7 +389,7 @@ class EquipmentTransferTest {
         assertThrows(IllegalArgumentException.class, this::tree);
     }
 
-    private String wearNew(Identifier type, Mount mount) throws IOException {
+    private String wearNew(ResourceLocation type, Mount mount) throws IOException {
         account.inventory.set(0, ContainerItems.create(type));
         String id = ContainerItems.identity(account.inventory.get(0));
         service.commit(
@@ -426,7 +424,7 @@ class EquipmentTransferTest {
         SavedInventory data = TransferService.empty();
         List<ItemStack> inventory =
                 new ArrayList<>(
-                        Collections.nCopies(PlayerInventory.OFF_HAND_SLOT + 1, ItemStack.EMPTY));
+                        Collections.nCopies(Inventory.SLOT_OFFHAND + 1, ItemStack.EMPTY));
         int selectedSlot;
         boolean creative;
         int commits;

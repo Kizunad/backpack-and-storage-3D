@@ -8,16 +8,6 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornModel;
 import dev.kizuna.inventoryui.client.InventoryUiClient;
 import dev.kizuna.inventoryui.theme.ThemeTokens;
-
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
-import net.minecraft.client.util.ScreenshotRecorder;
-import net.minecraft.entity.EntityPose;
-import net.minecraft.text.Text;
-
 import org.joml.Quaternionf;
 import org.lwjgl.opengl.GL11;
 
@@ -26,8 +16,16 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.UUID;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Screenshot;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.Pose;
 
-/** 不激活 WornPreview，直接验证玩家 FeatureRenderer 的世界分支和远端权威外观。 */
+/** 不激活 WornPreview，直接验证玩家 RenderLayer 的世界分支和远端权威外观。 */
 final class WorldEquipmentProbe extends Screen {
     private static final UUID SUBJECT = UUID.fromString("f270cae7-a374-4d87-8531-d049efaf90bc");
     private final VolumeModule module;
@@ -36,7 +34,7 @@ final class WorldEquipmentProbe extends Screen {
     private boolean done;
 
     WorldEquipmentProbe(VolumeModule module) {
-        super(Text.literal("World equipment probe"));
+        super(Component.literal("World equipment probe"));
         this.module = module;
     }
 
@@ -50,29 +48,29 @@ final class WorldEquipmentProbe extends Screen {
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        if (done || client.world == null) {
+    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+        if (done || minecraft.level == null) {
             return;
         }
-        var player = (AbstractClientPlayerEntity) client.world.getPlayerByUuid(SUBJECT);
+        var player = (AbstractClientPlayer) minecraft.level.getPlayerByUUID(SUBJECT);
         if (player != null) {
             subjectEntityId = player.getId();
         }
-        String dimension = client.world.getRegistryKey().getValue().toString();
+        String dimension = minecraft.level.dimension().location().toString();
         List<WornModel> models = module.appearances().models(SUBJECT, subjectEntityId, dimension);
         switch (step) {
             case 0 -> {
                 if (player == null || models.size() != 2) {
                     return;
                 }
-                verifyRendered(context, player, models, EntityPose.STANDING);
-                verifyRendered(context, player, models, EntityPose.CROUCHING);
-                var self = client.player;
+                verifyRendered(context, player, models, Pose.STANDING);
+                verifyRendered(context, player, models, Pose.CROUCHING);
+                var self = minecraft.player;
                 verifyRendered(
                         context,
                         self,
-                        module.appearances().models(self.getUuid(), self.getId(), dimension),
-                        EntityPose.STANDING);
+                        module.appearances().models(self.getUUID(), self.getId(), dimension),
+                        Pose.STANDING);
                 command(1);
             }
             case 1 -> {
@@ -114,40 +112,40 @@ final class WorldEquipmentProbe extends Screen {
     }
 
     private void verifyRendered(
-            DrawContext context,
-            AbstractClientPlayerEntity player,
+            GuiGraphics context,
+            AbstractClientPlayer player,
             List<WornModel> models,
-            EntityPose pose) {
+            Pose pose) {
         var snapshot =
                 EquipmentAppearance.newBuilder()
-                        .setPlayerUuid(player.getUuidAsString())
+                        .setPlayerUuid(player.getStringUUID())
                         .setEntityId(player.getId())
-                        .setDimension(player.getWorld().getRegistryKey().getValue().toString())
+                        .setDimension(player.level().dimension().location().toString())
                         .addAllModels(models)
                         .build();
-        EntityPose previous = player.getPose();
-        float oldBodyYaw = player.bodyYaw;
-        float oldHeadYaw = player.headYaw;
-        float oldPreviousHeadYaw = player.prevHeadYaw;
-        float oldYaw = player.getYaw();
-        float oldPitch = player.getPitch();
+        Pose previous = player.getPose();
+        float oldBodyYaw = player.yBodyRot;
+        float oldHeadYaw = player.yHeadRot;
+        float oldPreviousHeadYaw = player.yHeadRotO;
+        float oldYaw = player.getYRot();
+        float oldPitch = player.getXRot();
         try {
             // 同一位置前后对拍，差别只能来自外观缓存；站姿与蹲姿都走真实骨架。
             player.setPose(pose);
-            player.bodyYaw = 145;
-            player.headYaw = 145;
-            player.prevHeadYaw = 145;
-            player.setYaw(145);
-            player.setPitch(0);
+            player.yBodyRot = 145;
+            player.yHeadRot = 145;
+            player.yHeadRotO = 145;
+            player.setYRot(145);
+            player.setXRot(0);
             drawPlayer(context, player);
-            try (var equipped = ScreenshotRecorder.takeScreenshot(client.getFramebuffer())) {
+            try (var equipped = Screenshot.takeScreenshot(minecraft.getMainRenderTarget())) {
                 module.appearances().accept(snapshot.toBuilder().clearModels().build());
                 drawPlayer(context, player);
-                try (var bare = ScreenshotRecorder.takeScreenshot(client.getFramebuffer())) {
+                try (var bare = Screenshot.takeScreenshot(minecraft.getMainRenderTarget())) {
                     int changed = 0;
                     for (int y = 0; y < bare.getHeight(); y++) {
                         for (int x = 0; x < bare.getWidth(); x++) {
-                            if (bare.getColor(x, y) != equipped.getColor(x, y)) {
+                            if (bare.getPixelRGBA(x, y) != equipped.getPixelRGBA(x, y)) {
                                 changed++;
                             }
                         }
@@ -165,32 +163,32 @@ final class WorldEquipmentProbe extends Screen {
             }
             module.appearances().accept(snapshot);
             drawPlayer(context, player);
-            ScreenshotRecorder.saveScreenshot(
-                    client.runDirectory,
+            Screenshot.grab(
+                    minecraft.gameDirectory,
                     "world-equipment-" + player.getName().getString() + "-" + pose + ".png",
-                    client.getFramebuffer(),
+                    minecraft.getMainRenderTarget(),
                     text -> {});
         } finally {
             module.appearances().accept(snapshot);
             player.setPose(previous);
-            player.bodyYaw = oldBodyYaw;
-            player.headYaw = oldHeadYaw;
-            player.prevHeadYaw = oldPreviousHeadYaw;
-            player.setYaw(oldYaw);
-            player.setPitch(oldPitch);
+            player.yBodyRot = oldBodyYaw;
+            player.yHeadRot = oldHeadYaw;
+            player.yHeadRotO = oldPreviousHeadYaw;
+            player.setYRot(oldYaw);
+            player.setXRot(oldPitch);
         }
     }
 
-    private void drawPlayer(DrawContext context, AbstractClientPlayerEntity player) {
+    private void drawPlayer(GuiGraphics context, AbstractClientPlayer player) {
         // 每次独立对拍都先清掉前一模型的深度，背景和实体分别提交。
-        context.draw();
+        context.flush();
         RenderSystem.depthMask(true);
-        RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT, MinecraftClient.IS_SYSTEM_MAC);
+        RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
         context.fill(
                 0, 0, width, height, InventoryUiClient.runtime().color(ThemeTokens.BACKGROUND));
-        context.draw();
-        RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT, MinecraftClient.IS_SYSTEM_MAC);
-        InventoryScreen.drawEntity(
+        context.flush();
+        RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
+        InventoryScreen.renderEntityInInventory(
                 context,
                 width / 2,
                 height * 4 / 5,
@@ -198,14 +196,14 @@ final class WorldEquipmentProbe extends Screen {
                 new Quaternionf().rotateZ((float) Math.PI),
                 null,
                 player);
-        context.draw();
+        context.flush();
     }
 
     private void command(int next) {
         // 本地标记仅驱动 smoke 假玩家；生产协议没有这个控制入口。
         try {
             Files.writeString(
-                    client.runDirectory.toPath().resolve("../world-appearance-step.txt"),
+                    minecraft.gameDirectory.toPath().resolve("../world-appearance-step.txt"),
                     Integer.toString(next));
             step = next;
         } catch (IOException failure) {
@@ -214,7 +212,7 @@ final class WorldEquipmentProbe extends Screen {
     }
 
     @Override
-    public boolean shouldPause() {
+    public boolean isPauseScreen() {
         return false;
     }
 }
