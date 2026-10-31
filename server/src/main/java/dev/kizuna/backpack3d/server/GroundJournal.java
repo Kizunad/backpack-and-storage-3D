@@ -1,8 +1,9 @@
 package dev.kizuna.backpack3d.server;
 
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.Tag;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,7 +28,7 @@ final class GroundJournal {
         // 此文件写入成功即为提交点；之后的 I/O 错误不能当作未提交继续接受操作。
         var transaction = new CompoundTag();
         transaction.putInt("version", FORMAT_VERSION);
-        transaction.putUUID("player", player);
+        transaction.store("player", UUIDUtil.CODEC, player);
         transaction.put("player_data", playerNbt.copy());
         transaction.put("ground_data", groundNbt.copy());
         AtomicNbtFiles.write(directory.resolve("pending.dat"), transaction);
@@ -44,16 +45,19 @@ final class GroundJournal {
             return;
         }
         // 启服、玩家读档之前重放，不依赖上次区块保存到哪一步；重复重放结果相同。
-        var transaction = NbtIo.readCompressed(pending.toFile());
-        if (transaction.getInt("version") != FORMAT_VERSION
-                || !transaction.hasUUID("player")
-                || !transaction.contains("player_data", Tag.TAG_COMPOUND)
-                || !transaction.contains("ground_data", Tag.TAG_COMPOUND)) {
+        var transaction = NbtIo.readCompressed(pending, NbtAccounter.unlimitedHeap());
+        var player = transaction.read("player", UUIDUtil.CODEC);
+        var playerData = transaction.getCompound("player_data");
+        var groundData = transaction.getCompound("ground_data");
+        if (transaction.getIntOr("version", 0) != FORMAT_VERSION
+                || player.isEmpty()
+                || playerData.isEmpty()
+                || groundData.isEmpty()) {
             throw new IOException("地面背包恢复日志损坏，已停止加载");
         }
-        AtomicNbtFiles.write(inventoryFile(), transaction.getCompound("ground_data"));
-        Path playerFile = playerDirectory.resolve(transaction.getUUID("player") + ".dat");
-        AtomicNbtFiles.write(playerFile, transaction.getCompound("player_data"));
+        AtomicNbtFiles.write(inventoryFile(), groundData.get());
+        Path playerFile = playerDirectory.resolve(player.get() + ".dat");
+        AtomicNbtFiles.write(playerFile, playerData.get());
         Files.delete(pending);
     }
 

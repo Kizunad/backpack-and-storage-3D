@@ -1,6 +1,6 @@
 # 物品与声音扩展
 
-适用：`0.1.0-SNAPSHOT`。真实 ItemStack 保留原版和模组的 NBT、模型、名称及附魔。缺少专用尺寸规则时按 `1×1×1` 格处理。
+适用：`0.1.0-SNAPSHOT`。真实 ItemStack 保留原版和模组的数据组件、模型、名称及附魔。缺少专用尺寸规则时按 `1×1×1` 格处理。
 
 ## 工作台场景
 
@@ -14,29 +14,29 @@
 
 ```java
 ContainerItems.register(
-        ResourceLocation id,
+        Identifier id,
         String title,
         String descriptionTranslationKey,
         String model,
         Size inside,
         Size outside,
         List<Mount> mounts,
-        Map<ResourceLocation, JsonObject> optional);
+        Map<Identifier, JsonObject> optional);
 ```
 
 `descriptionTranslationKey` 是简介的语言键，空字符串表示无补充简介。扩展模组在 `assets/<命名空间>/lang/zh_cn.json`、`en_us.json` 等资源中提供文案。客户端会在原版物品 tooltip 与 BS3D 模型悬停 tooltip 中追加该描述，保留原物品名称、Lore、附魔及其他模组提示；拖放、相机拖动和帮助面板捕获期间不显示悬停提示。
 
-`optional` 参数**必须显式传入**且不能为 `null`；没有附属配置时传 `Map.of()`。它是附属扩展字段表，键为带命名空间的 `ResourceLocation`，值为 `JsonObject`。字段结构、单位、合法范围和回退由对应附属定义；BS3D 不解析重量或其他附属业务，也不要求安装对应附属。未安装的附属字段不会参与基础库存逻辑。
+`optional` 参数**必须显式传入**且不能为 `null`；没有附属配置时传 `Map.of()`。它是附属扩展字段表，键为带命名空间的 `Identifier`，值为 `JsonObject`。字段结构、单位、合法范围和回退由对应附属定义；BS3D 不解析重量或其他附属业务，也不要求安装对应附属。未安装的附属字段不会参与基础库存逻辑。
 
 例如在注册阶段准备重量附属的单件自重（单位克），无需引用重量附属 Java 类：
 
 ```java
 var weight = new JsonObject();
 weight.addProperty("grams", 250);
-var optional = Map.of(new ResourceLocation("bs3d_weights", "weight"), weight);
+var optional = Map.of(Identifier.fromNamespaceAndPath("bs3d_weights", "weight"), weight);
 
 ContainerItems.register(
-        new ResourceLocation("example", "pouch"),
+        Identifier.fromNamespaceAndPath("example", "pouch"),
         "示例草包",
         "item.example.pouch.description",
         "example:pouch",
@@ -48,7 +48,7 @@ ContainerItems.register(
 
 该片段仅展示当前源码注册入口，需要在两端初始化、注册表冻结前调用，并另行提供模型及语言资源。注册时复制整个字段对象，读取时也返回副本，注册方和附属不能通过修改 JSON 悄悄改写已有配置。
 
-原版及第三方已注册物品通过 `ItemMetadata.register(Item item, String descriptionTranslationKey, Map<ResourceLocation, JsonObject> optional)` 补充描述和附属字段，例如 `ItemMetadata.register(Items.IRON_SWORD, "item.example.iron_sword.description", optional)`。该入口不创建或替换真实物品；每个物品类型只允许登记一次，容器注册已自动登记，不要重复调用。查询入口为 `ItemMetadata.of(ItemStack)`，其 `descriptionTranslationKey()` 返回语言键，`optional(ResourceLocation)` 返回 `Optional<JsonObject>`；未登记类型按无描述和空字段表处理。字段属于物品类型，不是容器 UUID，也不会写入物品 NBT 或由客户端请求上报。
+原版及第三方已注册物品通过 `ItemMetadata.register(Item item, String descriptionTranslationKey, Map<Identifier, JsonObject> optional)` 补充描述和附属字段，例如 `ItemMetadata.register(Items.IRON_SWORD, "item.example.iron_sword.description", optional)`。该入口不创建或替换真实物品；每个物品类型只允许登记一次，容器注册已自动登记，不要重复调用。查询入口为 `ItemMetadata.of(ItemStack)`，其 `descriptionTranslationKey()` 返回语言键，`optional(Identifier)` 返回 `Optional<JsonObject>`；未登记类型按无描述和空字段表处理。字段属于物品类型，不是容器 UUID，也不会写入物品数据或由客户端请求上报。
 
 重量附属在逻辑服务器匹配 `bs3d_weights:weight`：合法 `grams` 优先；缺失或无效字段记录 WARN 后回退到现有数据包规则，无匹配时使用 100 克。每个物品类型在一次成功规则加载周期中只警告一次。内置容器传空 `optional`，不在 BS3D 中硬编码附属业务重量，默认值仍由重量附属数据包提供。
 
@@ -58,7 +58,7 @@ ContainerItems.register(
 
 ## 使用标准 item tag
 
-在数据包中定义 `data/example/tags/items/metal_equipment.json`：
+在数据包中定义 `data/example/tags/item/metal_equipment.json`：
 
 ```json
 {"replace": false, "values": ["minecraft:iron_sword", "minecraft:iron_pickaxe"]}
@@ -105,7 +105,7 @@ ContainerItems.register(
 
 2026-10-14 未发布源码增加 `InventoryAccess.snapshot(ServerPlayer)`：仅服务端主线程调用，返回不可变穿戴存档及原版槽位、已授权地面容器的栈副本；不提供事务写入权限。地面键是实例 UUID，取快照时重新验证租约、维度和距离；地面物品不属于随身库存。
 
-客户端 `ContainerDetails.register(ResourceLocation, Provider)` 在初始化时登记短文本提供者；`summary()` 显示背包页总览，`container(String containerId)` 根据容器 UUID 提供标题附加文字。空文本不增加占位，绘制沿用当前主题；宿主统一裁切标题，附属不接管场景或输入。身份重复时拒绝注册。API 未冻结，接入方必须使用包含这些入口的新产物。
+客户端 `ContainerDetails.register(Identifier, Provider)` 在初始化时登记短文本提供者；`summary()` 显示背包页总览，`container(String containerId)` 根据容器 UUID 提供标题附加文字。空文本不增加占位，绘制沿用当前主题；宿主统一裁切标题，附属不接管场景或输入。身份重复时拒绝注册。API 未冻结，接入方必须使用包含这些入口的新产物。
 
 容器物品的 UUID 和内容属于保存契约。集成方应移动真实 ItemStack，不能复用同一 UUID 创建多份库存；嵌套限制和字段说明见[通信契约](Protocol.md)。
 

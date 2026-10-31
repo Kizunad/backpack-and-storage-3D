@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 /** 本地资源白名单。路径相对于 config/bs3d，不读取编辑器记录的绝对路径。 */
 final class ModelConfig {
@@ -27,7 +27,7 @@ final class ModelConfig {
             Set.of("id", "file", "open_animation", "close_animation", "sounds");
 
     record Entry(
-            ResourceLocation id,
+            Identifier id,
             Path file,
             // null 表示自动寻找同名 open/close，空字符串表示主动禁用。
             String openAnimation,
@@ -54,7 +54,7 @@ final class ModelConfig {
         }
         var controls = RotationControls.read(document.getTable("controls"));
         var entries = new ArrayList<Entry>();
-        var identities = new HashSet<ResourceLocation>();
+        var identities = new HashSet<Identifier>();
         var registeredFiles = new HashSet<Path>();
         var models = document.getArray("models");
         if (models != null) {
@@ -84,7 +84,7 @@ final class ModelConfig {
         if (!name.contains(":")) {
             throw new IllegalArgumentException("models.id 必须包含命名空间：" + name);
         }
-        ResourceLocation id = ContainerSounds.modelId(name);
+        Identifier id = ContainerSounds.modelId(name);
         Path file = localPath(directory, required(table, "file"), ".bbmodel");
         Map<Action, Path> sounds = readSounds(directory, table.getTable("sounds"), name);
         return new Entry(

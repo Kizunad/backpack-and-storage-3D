@@ -8,12 +8,12 @@ import com.google.gson.JsonParser;
 import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
 
-import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.minecraft.tags.TagKey;
 import net.minecraft.util.GsonHelper;
 import net.minecraft.world.item.BlockItem;
@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Map;
 
 /** 数据包用原版 item tag 选择完成声音与占用体积。 */
-public final class HandlingRules implements SimpleSynchronousResourceReloadListener {
+public final class HandlingRules implements ResourceManagerReloadListener {
     private static final int DIMENSION_COUNT = 3;
     private static final int MIN_SIZE_CELLS = 1;
     private static final int MAX_SIZE_CELLS = 3;
@@ -34,11 +34,6 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
     private static final float DEFAULT_VOLUME = 0.4f;
     private static final float DEFAULT_PITCH = 1.0f;
     private List<Rule> rules = List.of();
-
-    @Override
-    public ResourceLocation getFabricId() {
-        return new ResourceLocation("bs3d", "handling_rules");
-    }
 
     @Override
     public void onResourceManagerReload(ResourceManager resources) {
@@ -58,7 +53,7 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
         rules = List.copyOf(loadedRules);
     }
 
-    private static Rule readRule(ResourceLocation resourceId, Resource resource) {
+    private static Rule readRule(Identifier resourceId, Resource resource) {
         // 文件边界负责关闭 reader 和补充文件名；字段错误由下面的解析步骤说明。
         try (var reader = resource.openAsReader()) {
             JsonObject json = GsonHelper.convertToJsonObject(JsonParser.parseReader(reader), "规则根节点");
@@ -66,10 +61,10 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
                 throw new IllegalArgumentException("duration_ticks 已废弃");
             }
 
-            ResourceLocation tagId = readIdentifier(json, "tag");
+            Identifier tagId = readIdentifier(json, "tag");
             TagKey<Item> tag = TagKey.create(Registries.ITEM, tagId);
 
-            ResourceLocation soundId = readIdentifier(json, "sound");
+            Identifier soundId = readIdentifier(json, "sound");
             if (!BuiltInRegistries.SOUND_EVENT.containsKey(soundId)) {
                 throw new IllegalArgumentException("sound 未注册：" + soundId);
             }
@@ -83,10 +78,10 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
         }
     }
 
-    private static ResourceLocation readIdentifier(JsonObject json, String field) {
+    private static Identifier readIdentifier(JsonObject json, String field) {
         // 保留字段名，让无效命名空间与无效路径都能直接定位到配置项。
         String value = GsonHelper.getAsString(json, field);
-        ResourceLocation identifier = ResourceLocation.tryParse(value);
+        Identifier identifier = Identifier.tryParse(value);
         if (identifier == null) {
             throw new IllegalArgumentException(field + " 不是有效的资源 ID：" + value);
         }
@@ -131,7 +126,7 @@ public final class HandlingRules implements SimpleSynchronousResourceReloadListe
         String sound = "minecraft:entity.item.pickup";
         if (stack.getItem() instanceof BlockItem blockItem) {
             var soundGroup = blockItem.getBlock().defaultBlockState().getSoundType();
-            sound = soundGroup.getPlaceSound().getLocation().toString();
+            sound = soundGroup.getPlaceSound().location().toString();
         }
         return new Material(
                 sound, DEFAULT_VOLUME, DEFAULT_PITCH, Volumes.UNIT);

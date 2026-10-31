@@ -19,7 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.GsonHelper;
 
 /** 解析已登记的 Blockbench 4.x 立方体模型，几何解析不依赖 OpenGL。 */
@@ -27,7 +27,7 @@ record BbModel(
         // 可见立方体保留完整骨骼链，绘制与命中使用同一份几何。
         List<Cube> cubes,
         // 资源包内的纹理路径及 PNG 内容，不包含编辑器本机路径。
-        Map<ResourceLocation, byte[]> textures,
+        Map<Identifier, byte[]> textures,
         // null 表示该方向没有动画片段，播放层决定静态展示或反放另一方向。
         ModelClip open,
         ModelClip close) {
@@ -40,7 +40,7 @@ record BbModel(
     record Bone(String id, Vector3f origin, Vector3f rotation) {}
 
     /** 面纹理及 UV 已归一化；rotation 表示顺时针四分之一圈的数量。 */
-    record Face(ResourceLocation texture, float u0, float v0, float u1, float v1, int rotation) {}
+    record Face(Identifier texture, float u0, float v0, float u1, float v1, int rotation) {}
 
     /** 几何、枢轴用模型像素计量，旋转用度；bones 从外层到内层排列。 */
     record Cube(
@@ -54,8 +54,8 @@ record BbModel(
     static BbModel read(Path directory, ModelConfig.Entry entry) throws IOException {
         // 依次读取文档、纹理、几何层级，最后绑定配置选择的动画。
         JsonObject json = readDocument(entry.file());
-        Map<ResourceLocation, byte[]> images = ModelTextures.read(directory, entry, json);
-        List<ResourceLocation> textureIds = List.copyOf(images.keySet());
+        Map<Identifier, byte[]> images = ModelTextures.read(directory, entry, json);
+        List<Identifier> textureIds = List.copyOf(images.keySet());
         JsonObject resolution = GsonHelper.getAsJsonObject(json, "resolution");
         float width = number(resolution.get("width"), "resolution.width");
         float height = number(resolution.get("height"), "resolution.height");
@@ -137,7 +137,7 @@ record BbModel(
     /** 单次解析的状态集中保存，递归时只传递当前骨骼链和继承可见性。 */
     private static final class GeometryReader {
         private final Map<String, JsonObject> elements;
-        private final List<ResourceLocation> textures;
+        private final List<Identifier> textures;
         private final float width;
         private final float height;
         private final Set<String> bones = new HashSet<>();
@@ -146,7 +146,7 @@ record BbModel(
 
         GeometryReader(
                 Map<String, JsonObject> elements,
-                List<ResourceLocation> textures,
+                List<Identifier> textures,
                 float width,
                 float height) {
             this.elements = elements;
@@ -211,7 +211,7 @@ record BbModel(
     private static Cube readCube(
             JsonObject element,
             List<Bone> bones,
-            List<ResourceLocation> textures,
+            List<Identifier> textures,
             float width,
             float height) {
         // 网格、box UV 及 rescale 需要其他渲染语义，拒绝比错画更容易定位资源问题。

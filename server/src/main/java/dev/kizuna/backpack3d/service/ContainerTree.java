@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.world.item.ItemStack;
 
 /** 一次事务的容器树副本；所有内容最终写回所属的真实容器物品，禁止跨物品悬挂库存。 */
@@ -31,19 +32,24 @@ public final class ContainerTree {
     private final List<ItemStack> inventory;
     private final Map<String, ItemStack> ground;
     private final int waistLimit;
+    private final HolderLookup.Provider registries;
 
-    public ContainerTree(SavedInventory data, List<ItemStack> inventory) {
-        this(data, inventory, new LinkedHashMap<>());
+    public ContainerTree(HolderLookup.Provider registries, SavedInventory data, List<ItemStack> inventory) {
+        this(registries, data, inventory, new LinkedHashMap<>());
     }
 
     public ContainerTree(
-            SavedInventory data, List<ItemStack> inventory, Map<String, ItemStack> ground) {
+            HolderLookup.Provider registries,
+            SavedInventory data,
+            List<ItemStack> inventory,
+            Map<String, ItemStack> ground) {
         // 调用者提供的槽位列表属于本次候选，解析期间不修改玩家真实库存。
+        this.registries = registries;
         this.inventory = inventory;
         this.ground = ground;
         waistLimit = waistLimit(data);
         for (WornContainer worn : data.getWornList()) {
-            Node root = read(StackCodec.decode(worn.getStackNbt()), null, 0);
+            Node root = read(StackCodec.decode(worn.getStackNbt(), registries), null, 0);
             root.mount = worn.getMount();
             root.angle = worn.getWaistAngleDegrees();
             roots.add(root);
@@ -112,7 +118,7 @@ public final class ContainerTree {
             if (!expected.equals(item.getSize())) {
                 throw new IllegalArgumentException("物品朝向和尺寸不一致");
             }
-            ItemStack childStack = StackCodec.decode(item.getStackNbt());
+            ItemStack childStack = StackCodec.decode(item.getStackNbt(), registries);
             Node child =
                     ContainerItems.definition(childStack) == null
                             ? null
@@ -170,7 +176,7 @@ public final class ContainerTree {
                 Item.newBuilder()
                         .setId(itemId)
                         .setContainer(Volumes.PLAYER)
-                        .setStackNbt(StackCodec.encode(stack))
+                        .setStackNbt(StackCodec.encode(stack, registries))
                         .setBaseSize(size)
                         .setSize(size)
                         .build();
@@ -179,7 +185,7 @@ public final class ContainerTree {
 
     public ItemStack stack(Entry entry) {
         return entry.container == null
-                ? StackCodec.decode(entry.item.getStackNbt())
+                ? StackCodec.decode(entry.item.getStackNbt(), registries)
                 : pack(entry.container);
     }
 
@@ -341,7 +347,7 @@ public final class ContainerTree {
             if (entry.container != null) {
                 item =
                         item.toBuilder()
-                                .setStackNbt(StackCodec.encode(pack(entry.container)))
+                                .setStackNbt(StackCodec.encode(pack(entry.container), registries))
                                 .build();
             }
             items.add(item);
@@ -363,7 +369,7 @@ public final class ContainerTree {
             } else {
                 result.add(
                         WornContainer.newBuilder()
-                                .setStackNbt(StackCodec.encode(stack))
+                                .setStackNbt(StackCodec.encode(stack, registries))
                                 .setMount(node.mount)
                                 .setWaistAngleDegrees(node.angle)
                                 .build());
@@ -426,7 +432,7 @@ public final class ContainerTree {
                     entry.container == null
                             ? entry.item
                             : entry.item.toBuilder()
-                                    .setStackNbt(StackCodec.encode(pack(entry.container)))
+                                    .setStackNbt(StackCodec.encode(pack(entry.container), registries))
                                     .build());
             if (entry.container != null) {
                 collectItems(entry.container, result);
@@ -440,7 +446,7 @@ public final class ContainerTree {
                 .setContainer(location)
                 .setBaseSize(node.type.outside())
                 .setSize(node.type.outside())
-                .setStackNbt(StackCodec.encode(pack(node)))
+                .setStackNbt(StackCodec.encode(pack(node), registries))
                 .build();
     }
 

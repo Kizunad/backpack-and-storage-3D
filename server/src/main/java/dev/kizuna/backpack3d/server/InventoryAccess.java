@@ -18,7 +18,7 @@ public final class InventoryAccess {
 
     public static boolean tryStoreCarried(ServerPlayer player, ItemStack stack) throws IOException {
         // 登录整理只访问玩家已装备的容器，不要求客户端握手，也不授权地面库存。
-        if (!player.getServer().isSameThread()) {
+        if (!player.level().getServer().isSameThread()) {
             throw new IllegalStateException("随身容器整理必须在服务器主线程执行");
         }
         var account = new PlayerAccount(player);
@@ -38,8 +38,7 @@ public final class InventoryAccess {
     public static CursorTransfer.Candidate previewCursor(
             ServerPlayer player, CursorTransfer.Request request, ByteString fingerprint) {
         // 调用者必须持有当前原版页面；所有检查在主线程读取真实栈，客户端不能传 NBT。
-        var server = player.getServer();
-        if (server == null || !server.isSameThread()) {
+        if (!player.level().getServer().isSameThread()) {
             throw new IllegalStateException("光标交换必须在服务器主线程执行");
         }
         if (!player.isAlive() || player.isSpectator()) {
@@ -50,7 +49,7 @@ public final class InventoryAccess {
             throw new IllegalArgumentException("原版容器已不可用");
         }
         var cursor = handler.getCarried();
-        if (!StackCodec.fingerprint(cursor).equals(fingerprint)) {
+        if (!StackCodec.fingerprint(cursor, player.registryAccess()).equals(fingerprint)) {
             throw new IllegalArgumentException("光标物品已变化");
         }
         return CursorTransfer.prepare(
@@ -74,7 +73,7 @@ public final class InventoryAccess {
 
     private static void applyCursor(ServerPlayer player, CursorTransfer.Candidate candidate) {
         // 仅供同一服务器调用内组合原版点击；调用者完成整笔事务后才同步。
-        if (!player.getServer().isSameThread()) {
+        if (!player.level().getServer().isSameThread()) {
             throw new IllegalStateException("光标交换必须在服务器主线程执行");
         }
         ((PlayerStorage) player).bs3d$setInventory(candidate.data());
@@ -151,8 +150,7 @@ public final class InventoryAccess {
 
     public static Snapshot snapshot(ServerPlayer player) {
         // 所有栈都是本次读取的副本；附属修改副本不会影响玩家或地面权威库存。
-        var server = player.getServer();
-        if (server == null || !server.isSameThread()) {
+        if (!player.level().getServer().isSameThread()) {
             throw new IllegalStateException("库存快照必须在服务器主线程读取");
         }
         var personal = new PlayerAccount(player);

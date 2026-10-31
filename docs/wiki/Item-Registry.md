@@ -78,7 +78,7 @@ ItemRegistrations.register("end_botany", ItemRegistry.newBuilder()
 
 | 入口 | 说明 |
 |---|---|
-| `register(String source, ItemRegistry registry)` | 校验并注册消息，返回 `Map<ResourceLocation, Item>`；`source` 仅用于错误定位 |
+| `register(String source, ItemRegistry registry)` | 校验并注册消息，返回 `Map<Identifier, Item>`；`source` 仅用于错误定位 |
 | `registerBinary(String source, byte[] bytes)` | 二进制清单，携带未知字段时拒绝 |
 | `registerText(String source, String text)` | 文本格式清单 |
 | `registerResource(ModContainer mod, String path)` | 读取模组内 `.txtpb` / `.binpb`，方式一即调用此入口 |
@@ -118,7 +118,8 @@ end_botany.jar
     models/seed_pouch.bbmodel
     sounds/pouch_open.ogg
     sounds/pouch_place.ogg
-  assets/end_botany/models/item/seed_pouch.json   # parent 为 builtin/entity
+  assets/end_botany/items/seed_pouch.json         # minecraft:special，内层为 bs3d:container
+  assets/end_botany/models/item/seed_pouch.json   # 展示变换 display
   assets/end_botany/lang/zh_cn.json
 ```
 

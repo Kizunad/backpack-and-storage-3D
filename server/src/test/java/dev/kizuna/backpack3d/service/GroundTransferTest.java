@@ -2,12 +2,12 @@ package dev.kizuna.backpack3d.service;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import dev.kizuna.backpack3d.TestRegistries;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.StackCodec;
 import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
-import net.minecraft.SharedConstants;
-import net.minecraft.server.Bootstrap;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -23,9 +23,7 @@ class GroundTransferTest {
 
     @BeforeAll
     static void bootstrap() {
-        SharedConstants.tryDetectVersion();
-        Bootstrap.bootStrap();
-        ContainerItems.initialize();
+        TestRegistries.bootstrap();
     }
 
     @Test
@@ -80,7 +78,7 @@ class GroundTransferTest {
     @Test
     void groundRootIsNotAWornOrVanillaSlotAndCannotBeTakenThroughMove() {
         String id = groundBag();
-        var tree = new ContainerTree(account.data, account.inventory, account.ground);
+        var tree = new ContainerTree(TestRegistries.VANILLA, account.data, account.inventory, account.ground);
         var root = tree.containers().get(0);
         assertTrue(root.getGrounded());
         assertFalse(root.getWorn());
@@ -131,11 +129,16 @@ class GroundTransferTest {
                 .setAutoPlace(true)
                 .setPlayerSlot(0)
                 .setStackFingerprint(
-                        StackCodec.fingerprint(StackCodec.encode(account.inventory.get(0))))
+                        StackCodec.fingerprint(StackCodec.encode(account.inventory.get(0), TestRegistries.VANILLA)))
                 .build();
     }
 
     private static final class GroundMemory implements Account {
+        @Override
+        public HolderLookup.Provider registries() {
+            return TestRegistries.VANILLA;
+        }
+
         SavedInventory data = TransferService.empty();
         List<ItemStack> inventory =
                 new ArrayList<>(

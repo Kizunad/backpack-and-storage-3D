@@ -5,15 +5,16 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.kizuna.backpack3d.TestRegistries;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.StackCodec;
 import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornContainer;
-import net.minecraft.SharedConstants;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.Bootstrap;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import org.junit.jupiter.api.BeforeAll;
@@ -50,22 +51,20 @@ class CursorTransferTest {
 
     @BeforeAll
     static void bootstrap() {
-        SharedConstants.tryDetectVersion();
-        Bootstrap.bootStrap();
-        ContainerItems.initialize();
+        TestRegistries.bootstrap();
     }
 
     @Test
     void emptySlotHasStableFingerprintButCannotBecomeStoredItem() {
-        assertEquals(StackCodec.SHA256_BYTES, StackCodec.fingerprint(ItemStack.EMPTY).size());
-        assertThrows(IllegalArgumentException.class, () -> StackCodec.encode(ItemStack.EMPTY));
+        assertEquals(StackCodec.SHA256_BYTES, StackCodec.fingerprint(ItemStack.EMPTY, TestRegistries.VANILLA).size());
+        assertThrows(IllegalArgumentException.class, () -> StackCodec.encode(ItemStack.EMPTY, TestRegistries.VANILLA));
     }
 
     @Test
     void previewLeavesSourceUntouchedAndPreservesCompleteNbt() {
         var account = new MemoryAccount();
         var sword = new ItemStack(Items.IRON_SWORD);
-        sword.setHoverName(Component.literal("工作站旁的剑"));
+        sword.set(DataComponents.CUSTOM_NAME, Component.literal("工作站旁的剑"));
         sword.setDamageValue(12);
         var before = account.data;
         var candidate =
@@ -73,7 +72,7 @@ class CursorTransferTest {
         assertSame(before, account.data);
         assertTrue(ItemStack.matches(sword, candidate.moved()));
         assertTrue(candidate.cursor().isEmpty());
-        var tree = new ContainerTree(candidate.data(), new ArrayList<>(candidate.inventory()));
+        var tree = new ContainerTree(TestRegistries.VANILLA, candidate.data(), new ArrayList<>(candidate.inventory()));
         assertTrue(
                 ItemStack.matches(
                         sword,
@@ -82,7 +81,7 @@ class CursorTransferTest {
                                         .filter(item -> item.getContainer().equals(account.bag))
                                         .findFirst()
                                         .orElseThrow()
-                                        .getStackNbt())));
+                                        .getStackNbt(), TestRegistries.VANILLA)));
     }
 
     @Test
@@ -91,7 +90,7 @@ class CursorTransferTest {
         var source = new ItemStack(Items.OAK_PLANKS, 4);
         var stored = CursorTransfer.prepare(account, source, store(account), stack -> Volumes.UNIT);
         account.apply(stored);
-        var tree = new ContainerTree(account.data, account.slots);
+        var tree = new ContainerTree(TestRegistries.VANILLA, account.data, account.slots);
         var item =
                 tree.items().stream()
                         .filter(value -> value.getContainer().equals(account.bag))
@@ -106,7 +105,7 @@ class CursorTransferTest {
         assertTrue(ItemStack.matches(source, taken.cursor()));
         assertEquals(2, taken.data().getRevision());
         assertTrue(
-                new ContainerTree(taken.data(), new ArrayList<>(taken.inventory()))
+                new ContainerTree(TestRegistries.VANILLA, taken.data(), new ArrayList<>(taken.inventory()))
                         .items().stream()
                                 .noneMatch(value -> value.getContainer().equals(account.bag)));
     }
@@ -195,6 +194,11 @@ class CursorTransferTest {
     }
 
     private static final class MemoryAccount implements Account {
+        @Override
+        public HolderLookup.Provider registries() {
+            return TestRegistries.VANILLA;
+        }
+
         SavedInventory data;
         List<ItemStack> slots = new ArrayList<>();
         final String bag;
@@ -209,7 +213,7 @@ class CursorTransferTest {
             bag = ContainerItems.identity(pouch);
             var worn = WornContainer.newBuilder()
                     .setMount(Mount.WAIST_RIGHT_FRONT)
-                    .setStackNbt(StackCodec.encode(pouch))
+                    .setStackNbt(StackCodec.encode(pouch, TestRegistries.VANILLA))
                     .build();
             data =
                     TransferService.empty().toBuilder()

@@ -1,9 +1,9 @@
 dependencies {
-    // 组合进来的 Loom 工程直接取 named 开发 JAR：按坐标走 mod 重映射的缓存不随上游改动刷新，也不会先构建上游。
-    implementation('dev.kizuna.inventoryui:kizuna-inventory-ui-framework') { targetConfiguration = 'namedElements' }
-    implementation('dev.kizuna.inventoryui:server') { targetConfiguration = 'namedElements' }
-    modImplementation project(':server')
-    modImplementation libs.owo
+    // 组合进来的 Inventory UI 按坐标替换为源码工程；26.x 不重映射，直接取其普通 JAR，并先构建上游。
+    implementation 'dev.kizuna.inventoryui:kizuna-inventory-ui-framework'
+    implementation 'dev.kizuna.inventoryui:server'
+    implementation project(':server')
+    implementation libs.owo
     implementation libs.tomlj
     include libs.tomlj
     include libs.antlr.runtime

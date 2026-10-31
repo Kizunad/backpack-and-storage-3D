@@ -2,13 +2,15 @@ package dev.kizuna.backpack3d.service;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import dev.kizuna.backpack3d.TestRegistries;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.*;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
-import net.minecraft.SharedConstants;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.Bootstrap;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
@@ -28,16 +30,14 @@ class EquipmentTransferTest {
 
     @BeforeAll
     static void bootstrap() {
-        SharedConstants.tryDetectVersion();
-        Bootstrap.bootStrap();
-        ContainerItems.initialize();
+        TestRegistries.bootstrap();
     }
 
     @Test
     void bothHandsTransferNbtAfterCommitAndReplayOnlyOnce() throws IOException {
         var sword = new ItemStack(Items.IRON_SWORD);
         sword.setDamageValue(17);
-        sword.setHoverName(Component.literal("旧剑"));
+        sword.set(DataComponents.CUSTOM_NAME, Component.literal("旧剑"));
         account.inventory.set(0, sword);
         var request = toSlot(0, Inventory.SLOT_OFFHAND);
         service.prepare(account, request);
@@ -112,7 +112,7 @@ class EquipmentTransferTest {
                             .filter(value -> value.getContainer().equals(bag))
                             .filter(
                                     value ->
-                                            StackCodec.decode(value.getStackNbt())
+                                            StackCodec.decode(value.getStackNbt(), TestRegistries.VANILLA)
                                                     .is(piece.getValue()))
                             .findFirst()
                             .orElseThrow();
@@ -142,7 +142,11 @@ class EquipmentTransferTest {
         String bag = wearNew(ContainerItems.BASKET, Mount.TORSO_BACK);
         int head = PlayerSlots.armorSlot(EquipmentSlot.HEAD);
         ItemStack helmet = new ItemStack(Items.IRON_HELMET);
-        helmet.enchant(Enchantments.BINDING_CURSE, 1);
+        helmet.enchant(
+                TestRegistries.VANILLA
+                        .lookupOrThrow(Registries.ENCHANTMENT)
+                        .getOrThrow(Enchantments.BINDING_CURSE),
+                1);
         account.inventory.set(head, helmet);
         assertThrows(
                 IllegalArgumentException.class, () -> service.commit(account, toSlot(head, 0)));
@@ -171,7 +175,7 @@ class EquipmentTransferTest {
         String basket = wearNew(ContainerItems.BASKET, Mount.TORSO_BACK);
         String pouch = wearNew(ContainerItems.POUCH, Mount.WAIST_LEFT_FRONT);
         ItemStack sword = new ItemStack(Items.IRON_SWORD);
-        sword.setHoverName(Component.literal("随包保存"));
+        sword.set(DataComponents.CUSTOM_NAME, Component.literal("随包保存"));
         account.inventory.set(0, sword);
         service.commit(account, fromPlayer(0, pouch).build());
         service.commit(account, move(pouch, basket).build());
@@ -194,10 +198,10 @@ class EquipmentTransferTest {
                 ItemStack.matches(
                         sword,
                         StackCodec.decode(
-                                ContainerItems.contents(carried).getItems(0).getStackNbt())));
+                                ContainerItems.contents(carried).getItems(0).getStackNbt(), TestRegistries.VANILLA)));
         // 经过真实序列化再取出，验证内容依附于物品 NBT，而不是仅存在内存中的节点。
         account.inventory.set(
-                Inventory.SLOT_OFFHAND, StackCodec.decode(StackCodec.encode(carried)));
+                Inventory.SLOT_OFFHAND, StackCodec.decode(StackCodec.encode(carried, TestRegistries.VANILLA), TestRegistries.VANILLA));
         service.commit(
                 account,
                 fromPlayer(Inventory.SLOT_OFFHAND, Volumes.WORN)
@@ -220,7 +224,7 @@ class EquipmentTransferTest {
                                         value.getContainer().equals(pouch)
                                                 && ItemStack.matches(
                                                         sword,
-                                                        StackCodec.decode(value.getStackNbt()))));
+                                                        StackCodec.decode(value.getStackNbt(), TestRegistries.VANILLA))));
     }
 
     @Test
@@ -250,7 +254,7 @@ class EquipmentTransferTest {
         assertEquals(1, account.data.getWornCount());
         assertEquals(
                 Volumes.size(3, 3, 4),
-                ContainerItems.definition(StackCodec.decode(account.data.getWorn(0).getStackNbt()))
+                ContainerItems.definition(StackCodec.decode(account.data.getWorn(0).getStackNbt(), TestRegistries.VANILLA))
                         .outside());
     }
 
@@ -274,7 +278,7 @@ class EquipmentTransferTest {
                 3, ContainerTree.waistLimit(SavedInventory.parseFrom(account.data.toByteArray())));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> TransferService.validate(account.data.toBuilder().setWaistLimit(2).build()));
+                () -> TransferService.validate(account.data.toBuilder().setWaistLimit(2).build(), TestRegistries.VANILLA));
     }
 
     @Test
@@ -325,20 +329,20 @@ class EquipmentTransferTest {
     }
 
     private ContainerTree tree() {
-        return new ContainerTree(account.data, new ArrayList<>(account.inventory));
+        return new ContainerTree(TestRegistries.VANILLA, account.data, new ArrayList<>(account.inventory));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"gu_jia_bei_lou", "xiu_kuang_bei_jia", "za_pi_xing_nang",
             "pi_nang_xiong_gua", "herb_pouch", "ore_sack", "water_skin", "moisture_guard", "coin_box"})
     void bongGearPreservesIdentityContentsAndMountRulesAcrossSave(String name) throws IOException {
-        ResourceLocation typeId = new ResourceLocation("bs3d", name);
+        Identifier typeId = Identifier.fromNamespaceAndPath("bs3d", name);
         ItemStack fresh = ContainerItems.create(typeId);
         var type = ContainerItems.definition(fresh);
         assertEquals(1, fresh.getMaxStackSize());
         String container = wearNew(typeId, type.mounts().get(0));
         ItemStack keepsake = new ItemStack(Items.DIAMOND, 7);
-        keepsake.setHoverName(Component.literal("随包保存的信物"));
+        keepsake.set(DataComponents.CUSTOM_NAME, Component.literal("随包保存的信物"));
         account.inventory.set(0, keepsake);
         var store = fromPlayer(0, container).build();
         var before = account.data;
@@ -350,10 +354,10 @@ class EquipmentTransferTest {
         ItemStack carried = account.inventory.get(0);
         assertEquals(container, ContainerItems.identity(carried));
         assertTrue(ItemStack.matches(keepsake,
-                StackCodec.decode(ContainerItems.contents(carried).getItems(0).getStackNbt())));
+                StackCodec.decode(ContainerItems.contents(carried).getItems(0).getStackNbt(), TestRegistries.VANILLA)));
 
         // 两份持久数据重新解码后仍是同一件真实物品，再次穿戴并拒绝错误部位。
-        account.inventory.set(0, StackCodec.decode(StackCodec.encode(carried)));
+        account.inventory.set(0, StackCodec.decode(StackCodec.encode(carried, TestRegistries.VANILLA), TestRegistries.VANILLA));
         account.data = SavedInventory.parseFrom(account.data.toByteArray());
         Mount invalid = type.waist() ? Mount.TORSO_BACK
                 : type.mounts().contains(Mount.TORSO_BACK) ? Mount.TORSO_FRONT : Mount.TORSO_BACK;
@@ -364,7 +368,7 @@ class EquipmentTransferTest {
                 .setWornTarget(Placement.newBuilder().setMount(type.mounts().get(0))).build());
         assertEquals(type.inside(), tree().containers().get(0).getSize());
         assertTrue(tree().items().stream().anyMatch(item -> item.getContainer().equals(container)
-                && ItemStack.matches(keepsake, StackCodec.decode(item.getStackNbt()))));
+                && ItemStack.matches(keepsake, StackCodec.decode(item.getStackNbt(), TestRegistries.VANILLA))));
     }
 
     @Test
@@ -389,7 +393,7 @@ class EquipmentTransferTest {
         assertThrows(IllegalArgumentException.class, this::tree);
     }
 
-    private String wearNew(ResourceLocation type, Mount mount) throws IOException {
+    private String wearNew(Identifier type, Mount mount) throws IOException {
         account.inventory.set(0, ContainerItems.create(type));
         String id = ContainerItems.identity(account.inventory.get(0));
         service.commit(
@@ -413,7 +417,7 @@ class EquipmentTransferTest {
         return move("", target)
                 .setPlayerSlot(slot)
                 .setStackFingerprint(
-                        StackCodec.fingerprint(StackCodec.encode(account.inventory.get(slot))));
+                        StackCodec.fingerprint(StackCodec.encode(account.inventory.get(slot), TestRegistries.VANILLA)));
     }
 
     private MoveRequest toSlot(int source, int target) {
@@ -421,6 +425,11 @@ class EquipmentTransferTest {
     }
 
     private static class MemoryAccount implements Account {
+        @Override
+        public HolderLookup.Provider registries() {
+            return TestRegistries.VANILLA;
+        }
+
         SavedInventory data = TransferService.empty();
         List<ItemStack> inventory =
                 new ArrayList<>(

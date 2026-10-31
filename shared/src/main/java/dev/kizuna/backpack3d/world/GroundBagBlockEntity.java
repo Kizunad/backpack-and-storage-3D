@@ -1,11 +1,14 @@
 package dev.kizuna.backpack3d.world;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
 
 /** 区块只保存位置标记和公开外观，完整物品保存在服务端地面库存中。 */
 public final class GroundBagBlockEntity extends BlockEntity {
@@ -41,24 +44,25 @@ public final class GroundBagBlockEntity extends BlockEntity {
     }
 
     @Override
-    protected void saveAdditional(CompoundTag nbt) {
-        super.saveAdditional(nbt);
-        nbt.putString("container", container);
-        nbt.putString("item_type", itemType);
-        nbt.putFloat("yaw", yaw);
+    protected void saveAdditional(ValueOutput output) {
+        super.saveAdditional(output);
+        output.putString("container", container);
+        output.putString("item_type", itemType);
+        output.putFloat("yaw", yaw);
     }
 
     @Override
-    public void load(CompoundTag nbt) {
-        super.load(nbt);
-        container = nbt.getString("container");
-        itemType = nbt.getString("item_type");
-        yaw = nbt.getFloat("yaw");
+    protected void loadAdditional(ValueInput input) {
+        // 缺字段时与 1.20.1 的 NBT 读取一致：字符串取空、角度取 0。
+        super.loadAdditional(input);
+        container = input.getStringOr("container", "");
+        itemType = input.getStringOr("item_type", "");
+        yaw = input.getFloatOr("yaw", 0);
     }
 
     @Override
-    public CompoundTag getUpdateTag() {
-        return saveWithoutMetadata();
+    public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
+        return saveWithoutMetadata(registries);
     }
 
     @Override

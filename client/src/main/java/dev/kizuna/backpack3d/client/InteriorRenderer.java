@@ -1,10 +1,7 @@
 package dev.kizuna.backpack3d.client;
 
 import com.mojang.blaze3d.platform.Lighting;
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.mojang.blaze3d.vertex.VertexFormat;
 import dev.kizuna.backpack3d.protocol.OrthogonalRotation;
 import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Cell;
@@ -14,6 +11,8 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
 import dev.kizuna.inventoryui.client.InventoryUiClient;
 import dev.kizuna.inventoryui.theme.ThemeTokens;
 import org.joml.Matrix3f;
+import org.joml.Matrix3x2f;
+import org.joml.Matrix3x2fc;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -24,16 +23,25 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import net.fabricmc.fabric.api.client.rendering.v1.PictureInPictureRendererRegistry;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.renderer.LevelRenderer;
-import net.minecraft.client.renderer.LightTexture;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.client.gui.render.pip.PictureInPictureRenderer;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.item.ItemStackRenderState;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.client.renderer.state.gui.pip.PictureInPictureRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.item.ItemDisplayContext;
 
-/** 三维格子、真实物品和鼠标命中共用相机及可见层范围。 */
+/**
+ * 三维格子、真实物品和鼠标命中共用相机及可见层范围。
+ *
+ * <p>GUI 提取阶段计算投影与命中；格子和物品由 {@link SceneRenderer} 在画中画纹理里绘制，纹理自带深度缓冲，
+ * 不再需要在 GUI 深度缓冲上清理和隔离。
+ */
 public final class InteriorRenderer {
     private static final int RGB_MASK = 0x00FFFFFF;
     private static final int PENDING_ALPHA = 0x70000000;
@@ -49,7 +57,6 @@ public final class InteriorRenderer {
     private static final float MIN_ZOOM = 0.65f;
     private static final float MAX_ZOOM = 1.6f;
     private static final float ZOOM_PER_SCROLL_STEP = 0.08f;
-    private static final float COLOR_CHANNEL_MAX = 255f;
     private static final int[][] CUBE_FACES = {
         {0, 4, 6, 2}, {5, 1, 3, 7}, {1, 0, 2, 3},
         {4, 5, 7, 6}, {2, 6, 7, 3}, {1, 5, 4, 0}
@@ -57,9 +64,16 @@ public final class InteriorRenderer {
     private final List<CellHit> hits = new ArrayList<>();
     private final Map<String, CellHit> itemHits = new HashMap<>();
     private final LayerRange layers = new LayerRange();
+    // 本帧画中画贴图的线宽换算，提取阶段按视口尺寸更新。
+    private BoxShapes.LineScale lines;
     private float yaw = INITIAL_YAW_DEGREES;
     private float pitch = INITIAL_PITCH_DEGREES;
     private float zoom = 1;
+
+    static void register() {
+        // 经 Fabric 注册：同一帧有多个内景窗口时，Fabric 为每个状态各分配一个渲染器和纹理。
+        PictureInPictureRendererRegistry.register(context -> new SceneRenderer());
+    }
 
     public void rotate(double dx, double dy) {
         // 俯仰角不越过水平面，保持底层与前后方向可辨认。
@@ -83,7 +97,7 @@ public final class InteriorRenderer {
     }
 
     public void draw(
-            GuiGraphics context,
+            GuiGraphicsExtractor context,
             VolumeModule module,
             Container container,
             Rect bounds,
@@ -92,19 +106,12 @@ public final class InteriorRenderer {
             String selected,
             Item preview,
             int orientation) {
-        // 独立页面的屏幕原点为零，嵌入场景共用下一重载的渲染与命中规则。
-        draw(context, module, container, bounds, mouseX, mouseY, selected, preview, orientation, 0, 0);
-    }
-
-    public void draw(
-            GuiGraphics context, VolumeModule module, Container container, Rect bounds,
-            int mouseX, int mouseY, String selected, Item preview, int orientation,
-            int scissorX, int scissorY) {
-        // 保存 UI 批次后启用独立深度场，结束时恢复裁剪和光照，避免影响其他窗口。
+        // 坐标均为当前 GUI 矩阵下的局部坐标；画中画状态带上该矩阵，嵌入工作台时由 GUI 渲染器平移贴图。
         hits.clear();
         itemHits.clear();
         var size = container.getSize();
         layers.resize(size.getHeight());
+        lines = BoxShapes.LineScale.texture(bounds.width(), bounds.height());
         float scale =
                 Math.min(bounds.width(), bounds.height())
                         / (Math.max(size.getHeight(), Math.max(size.getWidth(), size.getDepth()))
@@ -119,68 +126,91 @@ public final class InteriorRenderer {
                         pitch);
         var matrices = scene.matrices();
         matrices.translate(-size.getWidth() / 2f, -size.getHeight() / 2f, -size.getDepth() / 2f);
-        var buffers = Minecraft.getInstance().renderBuffers().bufferSource();
-        context.flush();
-        context.enableScissor(bounds.x() + scissorX, bounds.y() + scissorY,
-                bounds.right() + scissorX, bounds.bottom() + scissorY);
-        GuiSceneDepth.clear(context);
-        RenderSystem.enableDepthTest();
-        Lighting.setupFor3DItems();
-        try {
-            drawGrid(matrices, buffers, size);
-            buffers.endBatch();
-            MultiBufferSource itemBuffers = clippedItems(buffers, matrices);
-            drawItems(matrices, itemBuffers, module, container.getId(), selected);
-            drawOccupiedOutline(
-                    matrices, buffers, module.state().getItemsList(), container.getId());
-            Cell hover =
-                    placementAt(
-                            module.state().getItemsList(),
-                            container.getId(),
-                            container.getSize(),
-                            preview,
-                            orientation,
-                            mouseX,
-                            mouseY);
-            if (preview == null) {
-                drawCellHover(matrices, buffers, hover);
-            }
-            drawPreview(
-                    matrices,
-                    itemBuffers,
-                    buffers,
-                    module,
-                    container.getId(),
-                    preview,
-                    hover,
-                    orientation);
-            buffers.endBatch();
-        } finally {
-            // 保留内景颜色，清掉它的深度后再交回二维 UI，避免拖窗时盖住后绘制的控件。
-            GuiSceneDepth.clear(context);
-            context.disableScissor();
-            RenderSystem.disableDepthTest();
-            Lighting.setupFor3DItems();
-        }
-        drawCounts(context, matrices, module, container.getId(), bounds);
+        var world = new Matrix4f(matrices.last().pose());
+        collectCellHits(world, size);
+        collectItemHits(world, module, container.getId());
+        Cell hover =
+                placementAt(
+                        module.state().getItemsList(),
+                        container.getId(),
+                        container.getSize(),
+                        preview,
+                        orientation,
+                        mouseX,
+                        mouseY);
+        var frame =
+                new Frame(
+                        module, container.getId(), size, world, scene.normal(), selected, preview, hover, orientation);
+        context.guiRenderState.addPicturesInPictureState(
+                SceneState.of(
+                        this, frame, bounds, new Matrix3x2f(context.pose()), context.scissorStack.peek()));
+        drawCounts(context, world, module, container.getId(), bounds);
     }
 
-    private void drawGrid(
-            PoseStack matrices, MultiBufferSource.BufferSource buffers, Size size) {
-        // 网格和命中只生成可见层；底板跟随剖面的下界，相机中心和缩放不发生跳变。
+    private void collectCellHits(Matrix4f world, Size size) {
+        // 命中只生成可见层，与网格绘制使用同一组内缩格框。
         for (int y = layers.lower(); y < layers.upper(); y++) {
             for (int z = 0; z < size.getDepth(); z++) {
                 for (int x = 0; x < size.getWidth(); x++) {
-                    var cell = Volumes.cell(x, y, z);
-                    var from = new Vector3f(x + CELL_INSET, y + CELL_INSET, z + CELL_INSET);
-                    var to =
-                            new Vector3f(
-                                    x + 1 - CELL_INSET, y + 1 - CELL_INSET, z + 1 - CELL_INSET);
-                    var points = ModelAsset.vertices(from, to);
+                    var points = ModelAsset.vertices(cellFrom(x, y, z), cellTo(x, y, z));
                     for (var point : points) {
-                        matrices.last().pose().transformPosition(point);
+                        world.transformPosition(point);
                     }
-                    hits.add(new CellHit(cell, points));
+                    hits.add(new CellHit(Volumes.cell(x, y, z), points));
+                }
+            }
+        }
+    }
+
+    private void collectItemHits(Matrix4f world, VolumeModule module, String container) {
+        // 绘制与命中共用同一占格投影，旋转场景后仍按实际可见位置选择。
+        for (var item : module.state().getItemsList()) {
+            if (!item.getContainer().equals(container)
+                    || !layers.intersects(item.getCell().getY(), item.getSize().getHeight())) {
+                continue;
+            }
+            var itemPoints = ModelAsset.vertices(visibleFrom(item), visibleTo(item));
+            for (var point : itemPoints) {
+                world.transformPosition(point);
+            }
+            itemHits.put(item.getId(), new CellHit(item.getCell(), itemPoints));
+        }
+    }
+
+    private void paint(Frame frame, PoseStack matrices, SubmitNodeCollector collector) {
+        // 渲染阶段：矩阵已对齐到提取时的 GUI 局部坐标，再乘场景矩阵，与命中投影完全一致。
+        matrices.mulPose(frame.world());
+        matrices.last().normal().set(frame.normal());
+        SubmitNodeCollector items = collector;
+        if (!layers.full()) {
+            // 切片只裁物品四边形，网格线已按层范围生成；裁切按容器坐标的 Y 轴进行。
+            Matrix4f inverse = new Matrix4f(matrices.last().pose()).invert();
+            items = new SlicingSubmitCollector(collector, inverse, layers.lower(), layers.upper());
+        }
+        drawGrid(matrices, collector, frame.size());
+        drawItems(matrices, items, frame.module(), frame.container(), frame.selected());
+        drawOccupiedOutline(matrices, collector, frame.module().state().getItemsList(), frame.container());
+        if (frame.preview() == null) {
+            drawCellHover(matrices, collector, frame.hover());
+        }
+        drawPreview(
+                matrices,
+                items,
+                collector,
+                frame.module(),
+                frame.container(),
+                frame.preview(),
+                frame.hover(),
+                frame.orientation());
+    }
+
+    private void drawGrid(PoseStack matrices, SubmitNodeCollector collector, Size size) {
+        // 网格只画可见层；底板跟随剖面的下界，相机中心和缩放不发生跳变。
+        for (int y = layers.lower(); y < layers.upper(); y++) {
+            for (int z = 0; z < size.getDepth(); z++) {
+                for (int x = 0; x < size.getWidth(); x++) {
+                    var from = cellFrom(x, y, z);
+                    var to = cellTo(x, y, z);
                     int floor =
                             color(
                                     ((x + z) & 1) == 0
@@ -189,23 +219,23 @@ public final class InteriorRenderer {
                     if (y == layers.lower()) {
                         solid(
                                 matrices,
-                                buffers,
+                                collector,
                                 new Vector3f(from.x, y - FLOOR_THICKNESS, from.z),
                                 new Vector3f(to.x, y, to.z),
                                 floor);
                     }
-                    wire(matrices, buffers, from, to, color(ThemeTokens.INVENTORY_BORDER));
+                    wire(matrices, collector, from, to, color(ThemeTokens.INVENTORY_BORDER));
                 }
             }
         }
     }
 
-    private void drawCellHover(PoseStack matrices, MultiBufferSource buffers, Cell hover) {
+    private void drawCellHover(PoseStack matrices, SubmitNodeCollector collector, Cell hover) {
         // 未携带物品时只提示当前格；携带时由候选体积统一显示可放置或拒绝颜色。
         if (hover != null) {
             wire(
                     matrices,
-                    buffers,
+                    collector,
                     new Vector3f(hover.getX(), hover.getY(), hover.getZ()),
                     new Vector3f(hover.getX() + 1, hover.getY() + 1, hover.getZ() + 1),
                     color(ThemeTokens.ACCENT));
@@ -214,67 +244,34 @@ public final class InteriorRenderer {
 
     private void drawItems(
             PoseStack matrices,
-            MultiBufferSource buffers,
+            SubmitNodeCollector collector,
             VolumeModule module,
             String container,
             String selected) {
-        // 绘制与命中共用同一占格投影，旋转场景后仍按实际可见位置选择。
+        // 与命中使用同一可见体积；未收到回执的物品保留原占格，用半透明实体占位，不预测移动库存。
         for (var item : module.state().getItemsList()) {
-            if (!item.getContainer().equals(container)) {
+            if (!item.getContainer().equals(container)
+                    || !layers.intersects(item.getCell().getY(), item.getSize().getHeight())) {
                 continue;
             }
-            drawStoredItem(matrices, buffers, module, item, selected);
-        }
-    }
-
-    private void drawStoredItem(PoseStack matrices, MultiBufferSource buffers,
-                                VolumeModule module, Item item, String selected) {
-        // 单物品的绘制、占位和命中共享裁剪后的体积。
-        var position = item.getCell();
-        var size = item.getSize();
-        if (!layers.intersects(position.getY(), size.getHeight())) {
-            return;
-        }
-        float bottom = Math.max(position.getY(), layers.lower());
-        float top = Math.min(position.getY() + size.getHeight(), layers.upper());
-        var itemPoints =
-                ModelAsset.vertices(
-                        new Vector3f(position.getX(), bottom, position.getZ()),
-                        new Vector3f(
-                                position.getX() + size.getWidth(),
-                                top,
-                                position.getZ() + size.getDepth()));
-        for (var point : itemPoints) {
-            matrices.last().pose().transformPosition(point);
-        }
-        itemHits.put(item.getId(), new CellHit(position, itemPoints));
-        if (module.pendingItem(item.getId())) {
-            // 未收到回执时保留原占格，用半透明实体占位，不预测移动库存。
-            int tint = color(ThemeTokens.ACCENT) & RGB_MASK | PENDING_ALPHA;
-            solid(matrices, buffers,
-                    new Vector3f(position.getX(), bottom, position.getZ()),
-                    new Vector3f(position.getX() + size.getWidth(), top, position.getZ() + size.getDepth()),
-                    tint);
-        } else {
-            renderItem(matrices, buffers, module, item, position, item.getOrientation());
-        }
-        if (selected.equals(item.getId())) {
-            wire(
-                    matrices,
-                    buffers,
-                    new Vector3f(position.getX(), bottom, position.getZ()),
-                    new Vector3f(
-                            position.getX() + size.getWidth(),
-                            top,
-                            position.getZ() + size.getDepth()),
-                    color(ThemeTokens.ACCENT));
+            var from = visibleFrom(item);
+            var to = visibleTo(item);
+            if (module.pendingItem(item.getId())) {
+                int tint = color(ThemeTokens.ACCENT) & RGB_MASK | PENDING_ALPHA;
+                solid(matrices, collector, from, to, tint);
+            } else {
+                renderItem(matrices, collector, module, item, item.getCell(), item.getOrientation());
+            }
+            if (selected.equals(item.getId())) {
+                wire(matrices, collector, from, to, color(ThemeTokens.ACCENT));
+            }
         }
     }
 
     private void drawPreview(
             PoseStack matrices,
-            MultiBufferSource itemBuffers,
-            MultiBufferSource buffers,
+            SubmitNodeCollector itemCollector,
+            SubmitNodeCollector collector,
             VolumeModule module,
             String container,
             Item preview,
@@ -296,7 +293,7 @@ public final class InteriorRenderer {
                                 preview.getId());
         wire(
                 matrices,
-                buffers,
+                collector,
                 new Vector3f(hover.getX(), Math.max(hover.getY(), layers.lower()), hover.getZ()),
                 new Vector3f(
                         hover.getX() + footprint.getWidth(),
@@ -304,17 +301,17 @@ public final class InteriorRenderer {
                         hover.getZ() + footprint.getDepth()),
                 color(fits ? ThemeTokens.ACCENT : ThemeTokens.INVENTORY_DROP_INVALID));
         if (fits) {
-            renderItem(matrices, itemBuffers, module, preview, hover, orientation);
+            renderItem(matrices, itemCollector, module, preview, hover, orientation);
         }
     }
 
     private void drawCounts(
-            GuiGraphics context,
-            PoseStack matrices,
+            GuiGraphicsExtractor context,
+            Matrix4f world,
             VolumeModule module,
             String container,
             Rect bounds) {
-        // 数量放在投影坐标旁，模型始终走原版三维渲染而不是 drawItem 的 GUI 图标。
+        // 数量放在投影坐标旁，作为二维文字叠在画中画纹理之上。
         for (var item : module.state().getItemsList()) {
             if (!item.getContainer().equals(container)
                     || !layers.intersects(item.getCell().getY(), item.getSize().getHeight())) {
@@ -326,10 +323,10 @@ public final class InteriorRenderer {
                             position.getX() + item.getSize().getWidth() / 2f,
                             Math.min(position.getY() + item.getSize().getHeight(), layers.upper()),
                             position.getZ() + item.getSize().getDepth() / 2f);
-            matrices.last().pose().transformPosition(projected);
+            world.transformPosition(projected);
             var stack = module.stack(item.getId());
             if (stack.getCount() > 1 && bounds.contains(projected.x, projected.y)) {
-                context.drawString(
+                context.text(
                         Minecraft.getInstance().font,
                         "×" + stack.getCount(),
                         (int) projected.x + TEXT_OFFSET_PIXELS,
@@ -341,7 +338,7 @@ public final class InteriorRenderer {
 
     private static void renderItem(
             PoseStack matrices,
-            MultiBufferSource buffers,
+            SubmitNodeCollector collector,
             VolumeModule module,
             Item item,
             Cell cell,
@@ -350,35 +347,30 @@ public final class InteriorRenderer {
         var footprint = OrthogonalRotation.size(Volumes.baseSize(item), orientation);
         var base = Volumes.baseSize(item);
         matrices.pushPose();
-        try {
-            matrices.translate(
-                    cell.getX() + footprint.getWidth() / 2f,
-                    cell.getY() + footprint.getHeight() / 2f,
-                    cell.getZ() + footprint.getDepth() / 2f);
-            var m = OrthogonalRotation.matrix(orientation);
-            matrices.mulPose(
-                    new Quaternionf()
-                            .setFromNormalized(
-                                    new Matrix3f(
-                                            m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8])));
-            float displaySize =
-                    Math.max(base.getWidth(), Math.max(base.getHeight(), base.getDepth()))
-                            * ITEM_SCALE;
-            matrices.scale(displaySize, displaySize, displaySize);
-            var client = Minecraft.getInstance();
-            client.getItemRenderer()
-                    .renderStatic(
-                            module.stack(item.getId()),
-                            ItemDisplayContext.FIXED,
-                            LightTexture.FULL_BRIGHT,
-                            OverlayTexture.NO_OVERLAY,
-                            matrices,
-                            buffers,
-                            client.level,
-                            item.getId().hashCode());
-        } finally {
-            matrices.popPose();
-        }
+        matrices.translate(
+                cell.getX() + footprint.getWidth() / 2f,
+                cell.getY() + footprint.getHeight() / 2f,
+                cell.getZ() + footprint.getDepth() / 2f);
+        var m = OrthogonalRotation.matrix(orientation);
+        matrices.mulPose(
+                new Quaternionf()
+                        .setFromNormalized(
+                                new Matrix3f(m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8])));
+        float displaySize =
+                Math.max(base.getWidth(), Math.max(base.getHeight(), base.getDepth())) * ITEM_SCALE;
+        matrices.scale(displaySize, displaySize, displaySize);
+        var client = Minecraft.getInstance();
+        var state = new ItemStackRenderState();
+        client.getItemModelResolver()
+                .updateForTopItem(
+                        state,
+                        module.stack(item.getId()),
+                        ItemDisplayContext.FIXED,
+                        client.level,
+                        null,
+                        item.getId().hashCode());
+        state.submit(matrices, collector, LightCoordsUtil.FULL_BRIGHT, OverlayTexture.NO_OVERLAY, 0);
+        matrices.popPose();
     }
 
     public Cell cellAt(double x, double y) {
@@ -433,92 +425,78 @@ public final class InteriorRenderer {
         return InventoryUiClient.runtime().color(token);
     }
 
-    private MultiBufferSource clippedItems(
-            MultiBufferSource buffers, PoseStack matrices) {
-        // 全景直接使用原版批次。切片只裁物品 QUADS，网格线已按层范围生成。
-        if (layers.full()) {
-            return buffers;
-        }
-        Matrix4f inverse = new Matrix4f(matrices.last().pose()).invert();
-        return layer -> {
-            VertexConsumer consumer = buffers.getBuffer(layer);
-            if (layer.mode() != VertexFormat.Mode.QUADS) {
-                return consumer;
-            }
-            return new SliceVertexConsumer(consumer, inverse, layers.lower(), layers.upper());
-        };
+    private static Vector3f cellFrom(int x, int y, int z) {
+        return new Vector3f(x + CELL_INSET, y + CELL_INSET, z + CELL_INSET);
+    }
+
+    private static Vector3f cellTo(int x, int y, int z) {
+        return new Vector3f(x + 1 - CELL_INSET, y + 1 - CELL_INSET, z + 1 - CELL_INSET);
+    }
+
+    private Vector3f visibleFrom(Item item) {
+        // 物品体积按可见层裁剪；单位为格，容器坐标。
+        var position = item.getCell();
+        return new Vector3f(position.getX(), Math.max(position.getY(), layers.lower()), position.getZ());
+    }
+
+    private Vector3f visibleTo(Item item) {
+        var position = item.getCell();
+        var size = item.getSize();
+        return new Vector3f(
+                position.getX() + size.getWidth(),
+                Math.min(position.getY() + size.getHeight(), layers.upper()),
+                position.getZ() + size.getDepth());
     }
 
     private void drawOccupiedOutline(
-            PoseStack matrices,
-            MultiBufferSource buffers,
-            List<Item> items,
-            String container) {
+            PoseStack matrices, SubmitNodeCollector collector, List<Item> items, String container) {
         // 只强调已占用区域的轮廓；相邻格连接处仍可见暗色参考网格，但不画高亮接缝。
-        var consumer = buffers.getBuffer(RenderType.lines());
         int highlight = color(ThemeTokens.ACCENT);
-        for (var edge : OccupiedOutline.build(items, container, layers)) {
-            float nx = edge.endX() - edge.x();
-            float ny = edge.endY() - edge.y();
-            float nz = edge.endZ() - edge.z();
-            consumer.vertex(matrices.last().pose(), edge.x(), edge.y(), edge.z())
-                    .color(highlight)
-                    .normal(matrices.last().normal(), nx, ny, nz)
-                    .endVertex();
-            consumer.vertex(
-                            matrices.last().pose(),
-                            edge.endX(),
-                            edge.endY(),
-                            edge.endZ())
-                    .color(highlight)
-                    .normal(matrices.last().normal(), nx, ny, nz)
-                    .endVertex();
-        }
+        var edges = OccupiedOutline.build(items, container, layers);
+        collector.submitCustomGeometry(
+                matrices,
+                RenderTypes.lines(),
+                (pose, consumer) -> {
+                    for (var edge : edges) {
+                        BoxShapes.line(
+                                pose,
+                                consumer,
+                                new Vector3f(edge.x(), edge.y(), edge.z()),
+                                new Vector3f(edge.endX(), edge.endY(), edge.endZ()),
+                                highlight,
+                                lines);
+                    }
+                });
     }
 
     private static void solid(
-            PoseStack matrices,
-            MultiBufferSource buffers,
-            Vector3f from,
-            Vector3f to,
-            int color) {
+            PoseStack matrices, SubmitNodeCollector collector, Vector3f from, Vector3f to, int color) {
         // 半透明实体保留来源体积，不用不透明物品遮住待确认状态。
         var vertices = ModelAsset.vertices(from, to);
-        var consumer = buffers.getBuffer(RenderType.entityTranslucent(ModelAsset.WHITE));
-        for (var face : CUBE_FACES) {
-            for (int index : face) {
-                var point = vertices[index];
-                consumer.vertex(matrices.last().pose(), point.x, point.y, point.z)
-                        .color(color)
-                        .uv(0, 0)
-                        .overlayCoords(OverlayTexture.NO_OVERLAY)
-                        .uv2(LightTexture.FULL_BRIGHT)
-                        .normal(matrices.last().normal(), 0, 1, 0)
-                        .endVertex();
-            }
-        }
+        collector.submitCustomGeometry(
+                matrices,
+                RenderTypes.entityTranslucent(ModelAsset.WHITE),
+                (pose, consumer) -> {
+                    for (var face : CUBE_FACES) {
+                        for (int index : face) {
+                            consumer.addVertex(pose, vertices[index])
+                                    .setColor(color)
+                                    .setUv(0, 0)
+                                    .setOverlay(OverlayTexture.NO_OVERLAY)
+                                    .setLight(LightCoordsUtil.FULL_BRIGHT)
+                                    .setNormal(pose, 0, 1, 0);
+                        }
+                    }
+                });
     }
 
-    private static void wire(
-            PoseStack matrices,
-            MultiBufferSource buffers,
-            Vector3f from,
-            Vector3f to,
-            int color) {
-        // RenderLayer 自带线宽与深度设置，包围线与物品模型共享同一世界矩阵。
-        LevelRenderer.renderLineBox(
+    private void wire(
+            PoseStack matrices, SubmitNodeCollector collector, Vector3f from, Vector3f to, int color) {
+        // 包围线与物品模型共享同一场景矩阵。
+        collector.submitCustomGeometry(
                 matrices,
-                buffers.getBuffer(RenderType.lines()),
-                from.x,
-                from.y,
-                from.z,
-                to.x,
-                to.y,
-                to.z,
-                net.minecraft.util.FastColor.ARGB32.red(color) / COLOR_CHANNEL_MAX,
-                net.minecraft.util.FastColor.ARGB32.green(color) / COLOR_CHANNEL_MAX,
-                net.minecraft.util.FastColor.ARGB32.blue(color) / COLOR_CHANNEL_MAX,
-                1);
+                RenderTypes.lines(),
+                (pose, consumer) -> BoxShapes.outline(pose, consumer, from, to, color, lines));
     }
 
     /** x/y 为左上角坐标，width/height 为尺寸，均使用 GUI 逻辑像素；右边和下边不含端点。 */
@@ -550,6 +528,77 @@ public final class InteriorRenderer {
 
         double depth() {
             return Arrays.stream(vertices).mapToDouble(v -> v.z).average().orElse(0);
+        }
+    }
+
+    /** 一帧内景的绘制输入；world 为容器坐标（格）到 GUI 局部坐标的变换。 */
+    private record Frame(
+            VolumeModule module,
+            String container,
+            Size size,
+            Matrix4f world,
+            Matrix3f normal,
+            String selected,
+            Item preview,
+            Cell hover,
+            int orientation) {}
+
+    /** 内景画中画状态：(x0, y0)–(x1, y1) 为视口的 GUI 局部坐标，pose 为提交时的 GUI 矩阵。 */
+    private record SceneState(
+            InteriorRenderer interior,
+            Frame frame,
+            int x0,
+            int y0,
+            int x1,
+            int y1,
+            float scale,
+            Matrix3x2fc pose,
+            ScreenRectangle scissorArea,
+            ScreenRectangle bounds)
+            implements PictureInPictureRenderState {
+        static SceneState of(
+                InteriorRenderer interior,
+                Frame frame,
+                Rect view,
+                Matrix3x2fc pose,
+                ScreenRectangle scissorArea) {
+            // 外框按 GUI 矩阵变换后与裁剪求交；GUI 渲染器据此决定层叠，无交集时不绘制。
+            var bounds = new ScreenRectangle(view.x(), view.y(), view.width(), view.height()).transformMaxBounds(pose);
+            if (scissorArea != null) {
+                bounds = scissorArea.intersection(bounds);
+            }
+            return new SceneState(
+                    interior, frame, view.x(), view.y(), view.right(), view.bottom(), 1, pose, scissorArea, bounds);
+        }
+    }
+
+    /** 内景画中画渲染器：在独立纹理和深度缓冲里画格子与物品，再由 GUI 渲染器贴回窗口。 */
+    private static final class SceneRenderer extends PictureInPictureRenderer<SceneState> {
+        @Override
+        public Class<SceneState> getRenderStateClass() {
+            return SceneState.class;
+        }
+
+        @Override
+        protected void renderToTexture(SceneState state, PoseStack matrices, SubmitNodeCollector collector) {
+            // 基础矩阵已把原点移到纹理中心、按 GUI 缩放放大并翻转 Z；
+            // 翻回 Z 并把原点移回视口左上角所在的 GUI 局部坐标，之后与提取阶段的投影一致。
+            // 26.2 的 ITEMS_FLAT 主光正对观察者、副光来自屏幕上方，与 1.20.1 setupFor3DItems 的屏幕方向一致。
+            Minecraft.getInstance().gameRenderer.lighting().setupFor(Lighting.Entry.ITEMS_FLAT);
+            matrices.scale(1, 1, -1);
+            matrices.translate(-(state.x0() + state.x1()) / 2f, -(state.y0() + state.y1()) / 2f, 0);
+            state.interior().paint(state.frame(), matrices, collector);
+        }
+
+        @Override
+        protected float getTranslateY(int height, int guiScale) {
+            // 默认原点在纹理底边；场景按视口中心对齐。
+            return height / 2f;
+        }
+
+        @Override
+        protected String getTextureLabel() {
+            return "bs3d interior";
         }
     }
 }

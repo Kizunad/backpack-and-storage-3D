@@ -8,21 +8,23 @@ import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.client.model.PlayerModel;
 import net.minecraft.client.model.geom.ModelPart;
-import net.minecraft.client.player.AbstractClientPlayer;
-import net.minecraft.client.renderer.LevelRenderer;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.RenderType;
-import net.minecraft.util.FastColor;
+import net.minecraft.client.model.player.PlayerModel;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.util.ARGB;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.player.Inventory;
 
-/** 从真实玩家骨架捕获双手与盔甲部位，绘制轮廓和鼠标命中共用同一体积。 */
+/**
+ * 从真实玩家骨架捕获双手与盔甲部位，绘制轮廓和鼠标命中共用同一体积。
+ *
+ * <p>变换保存为场景局部 GUI 坐标，可直接与鼠标比较；绘制时按 textureScale 换回画中画贴图像素。
+ */
 final class PlayerSlotTargets {
     private static final float MODEL_UNITS_PER_BLOCK = 16;
-    private static final float COLOR_CHANNEL_MAX = 255f;
     private static final float PENDING_OPACITY = 0.45f;
     // 以下边界以皮肤像素为单位；盔甲外扩一像素，裤腿与靴子在腿部八像素处分界。
     private static final Bounds HEAD = bounds(-5, -9, -5, 5, 1, 5);
@@ -33,10 +35,7 @@ final class PlayerSlotTargets {
     private static final Bounds BOOTS = bounds(-3, 8, -3, 3, 13, 3);
     private final List<Target> targets = new ArrayList<>();
 
-    void capture(
-            PoseStack matrices,
-            PlayerModel<AbstractClientPlayer> model,
-            AbstractClientPlayer player) {
+    void capture(PoseStack matrices, PlayerModel model, AvatarRenderState state, int selectedSlot) {
         // 每帧从模型姿态重建，不保存随人物旋转失效的屏幕矩形。
         targets.clear();
         addPart(matrices, model.head, EquipmentSlot.HEAD, HEAD);
@@ -47,12 +46,9 @@ final class PlayerSlotTargets {
         }
         for (HumanoidArm arm : HumanoidArm.values()) {
             PoseStack transform = ModelAsset.copy(matrices);
-            model.translateToHand(arm, transform);
+            model.translateToHand(state, arm, transform);
             targets.add(new Target(PlayerSlots.armorSlot(EquipmentSlot.CHEST), transform, SLEEVE));
-            int slot =
-                    arm == player.getMainArm()
-                            ? player.getInventory().selected
-                            : Inventory.SLOT_OFFHAND;
+            int slot = arm == state.mainArm ? selectedSlot : Inventory.SLOT_OFFHAND;
             targets.add(new Target(slot, transform, HAND));
         }
     }
@@ -112,7 +108,7 @@ final class PlayerSlotTargets {
         return found ? result : null;
     }
 
-    void renderHover(int slot, MultiBufferSource buffers) {
+    void renderHover(int slot, SubmitNodeCollector collector, float textureScale, BoxShapes.LineScale lines) {
         // 一个装备槽可能覆盖多块骨架，同时显示轮廓，页面无需增加二维装备栏。
         int color = InventoryUiClient.runtime().color(ThemeTokens.ACCENT);
         for (Target target : targets) {
@@ -121,36 +117,29 @@ final class PlayerSlotTargets {
             }
             Vector3f from = target.bounds().from();
             Vector3f to = target.bounds().to();
-            LevelRenderer.renderLineBox(
-                    target.transform(),
-                    buffers.getBuffer(RenderType.lines()),
-                    from.x,
-                    from.y,
-                    from.z,
-                    to.x,
-                    to.y,
-                    to.z,
-                    FastColor.ARGB32.red(color) / COLOR_CHANNEL_MAX,
-                    FastColor.ARGB32.green(color) / COLOR_CHANNEL_MAX,
-                    FastColor.ARGB32.blue(color) / COLOR_CHANNEL_MAX,
-                    1);
+            collector.submitCustomGeometry(
+                    ModelAsset.scaled(target.transform(), textureScale),
+                    RenderTypes.lines(),
+                    (pose, consumer) -> BoxShapes.outline(pose, consumer, from, to, color, lines));
         }
     }
 
-    void renderPending(VolumeModule module, MultiBufferSource buffers) {
+    void renderPending(VolumeModule module, SubmitNodeCollector collector, float textureScale) {
         // 手持和装备的来源保留半透明占位，拒绝回执后恢复真实模型。
-        int color = InventoryUiClient.runtime().color(ThemeTokens.ACCENT);
+        int color =
+                ARGB.color(
+                        Math.round(PENDING_OPACITY * 255),
+                        InventoryUiClient.runtime().color(ThemeTokens.ACCENT));
         for (Target target : targets) {
             if (!module.pendingItem(VolumeModule.playerSlotPreviewId(target.slot()))) {
                 continue;
             }
             Vector3f from = target.bounds().from();
             Vector3f to = target.bounds().to();
-            LevelRenderer.addChainedFilledBoxVertices(target.transform(), buffers.getBuffer(RenderType.debugFilledBox()),
-                    from.x, from.y, from.z, to.x, to.y, to.z,
-                    FastColor.ARGB32.red(color) / COLOR_CHANNEL_MAX,
-                    FastColor.ARGB32.green(color) / COLOR_CHANNEL_MAX,
-                    FastColor.ARGB32.blue(color) / COLOR_CHANNEL_MAX, PENDING_OPACITY);
+            collector.submitCustomGeometry(
+                    ModelAsset.scaled(target.transform(), textureScale),
+                    RenderTypes.debugFilledBox(),
+                    (pose, consumer) -> BoxShapes.filled(pose, consumer, from, to, color));
         }
     }
 

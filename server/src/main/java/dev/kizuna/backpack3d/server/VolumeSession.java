@@ -84,7 +84,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayer> {
         try {
             var candidate = account();
             // 构造整树会校验嵌套和唯一身份，损坏时抛出 IllegalArgumentException。
-            new ContainerTree(candidate.data(), candidate.inventory(), candidate.ground());
+            new ContainerTree(candidate.registries(), candidate.data(), candidate.inventory(), candidate.ground());
         } catch (IllegalArgumentException invalid) {
             if (added) {
                 releaseGround(List.of(id));
@@ -249,7 +249,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayer> {
         var player = connection.context();
         long revision = ((PlayerStorage) player).bs3d$getInventory().getRevision();
         if (opened && (groundChanged
-                || lastSelectedSlot != player.getInventory().selected
+                || lastSelectedSlot != player.getInventory().getSelectedSlot()
                 || inventoryChanged(player)
                 || lastCreative != player.isCreative()
                 || lastRevision != revision)) {
@@ -310,7 +310,8 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayer> {
                         .setTransfer(transfer);
         try {
             var account = account();
-            var tree = new ContainerTree(saved, new ArrayList<>(lastInventory), account.ground());
+            var tree =
+                    new ContainerTree(account.registries(), saved, new ArrayList<>(lastInventory), account.ground());
             state.putAllGroundRevisions(account.groundRevisions());
             state.addAllItems(tree.items());
             state.addAllContainers(tree.containers());
@@ -329,7 +330,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayer> {
 
     private void addPlayerSlots(State.Builder state, ServerPlayer player) {
         // 双手与盔甲即使为空也提供可拖入的身体落点。
-        lastSelectedSlot = player.getInventory().selected;
+        lastSelectedSlot = player.getInventory().getSelectedSlot();
         lastCreative = player.isCreative();
         state.addPlayerSlots(playerSlot(lastSelectedSlot, player.getMainHandItem()));
         state.addPlayerSlots(playerSlot(Inventory.SLOT_OFFHAND, player.getOffhandItem()));
@@ -345,7 +346,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayer> {
         var snapshot = PlayerSlotStack.newBuilder().setPlayerSlot(slot);
         if (!stack.isEmpty()) {
             try {
-                snapshot.setStackNbt(StackCodec.encode(stack));
+                snapshot.setStackNbt(StackCodec.encode(stack, connection.context().registryAccess()));
                 var type = ContainerItems.definition(stack);
                 if (type != null) {
                     // 损坏容器可以留在原版槽位供处理，但不能继续作为可打开、可拖动的预览栈。

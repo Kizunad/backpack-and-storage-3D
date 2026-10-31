@@ -8,7 +8,7 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 
@@ -74,7 +74,7 @@ final class ControlsHelp {
     }
 
     void draw(
-            GuiGraphics context,
+            GuiGraphicsExtractor context,
             Font font,
             int width,
             int mouseX,
@@ -93,11 +93,11 @@ final class ControlsHelp {
                                 : ThemeTokens.BORDER);
         circle(context, centerX, centerY, RADIUS, borderColor);
         circle(context, centerX, centerY, RADIUS - BORDER, color(ThemeTokens.PANEL));
-        context.drawCenteredString(
+        context.centeredText(
                 font, "i", centerX, centerY - font.lineHeight / 2, color(ThemeTokens.TEXT));
     }
 
-    private void drawPanel(GuiGraphics context, Font font, int width, String status) {
+    private void drawPanel(GuiGraphicsExtractor context, Font font, int width, String status) {
         int panelWidth = Math.min(PANEL_WIDTH, width - MARGIN * 2);
         int textWidth = panelWidth - PADDING * 2;
         List<FormattedCharSequence> lines = new ArrayList<>();
@@ -137,13 +137,13 @@ final class ControlsHelp {
         maxScroll = Math.max(0, contentHeight - (panelHeight - PADDING * 2));
         scroll = Math.min(scroll, maxScroll);
         context.fill(left, top, left + panelWidth, top + panelHeight, color(ThemeTokens.PANEL));
-        context.renderOutline(left, top, panelWidth, panelHeight, color(ThemeTokens.BORDER));
+        context.outline(left, top, panelWidth, panelHeight, color(ThemeTokens.BORDER));
         context.enableScissor(
                 left + PADDING, top + PADDING, panel.right() - PADDING, panel.bottom() - PADDING);
         try {
             int y = top + PADDING - scroll;
             for (FormattedCharSequence line : lines) {
-                context.drawString(font, line, left + PADDING, y, color(ThemeTokens.TEXT), false);
+                context.text(font, line, left + PADDING, y, color(ThemeTokens.TEXT), false);
                 y += lineHeight;
             }
         } finally {
@@ -161,7 +161,7 @@ final class ControlsHelp {
     }
 
     private static void circle(
-            GuiGraphics context, int centerX, int centerY, int radius, int color) {
+            GuiGraphicsExtractor context, int centerX, int centerY, int radius, int color) {
         // 每行填充圆内弦段，绘制和点击都使用同一半径，不依赖额外贴图。
         for (int y = -radius; y <= radius; y++) {
             int halfWidth = (int) Math.sqrt(radius * radius - y * y);

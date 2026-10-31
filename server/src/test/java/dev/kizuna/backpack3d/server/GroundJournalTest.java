@@ -3,6 +3,7 @@ package dev.kizuna.backpack3d.server;
 import static org.junit.jupiter.api.Assertions.*;
 
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 
 import org.junit.jupiter.api.Test;
@@ -22,10 +23,9 @@ class GroundJournalTest {
         journal.commit(player, value("hand", "empty"), value("ground", "bag"));
         assertEquals(
                 "empty",
-                NbtIo.readCompressed(root.resolve("players/" + player + ".dat").toFile())
-                        .getString("hand"));
+                read(root.resolve("players/" + player + ".dat"), "hand"));
         assertEquals(
-                "bag", NbtIo.readCompressed(journal.inventoryFile().toFile()).getString("ground"));
+                "bag", read(journal.inventoryFile(), "ground"));
         assertFalse(Files.exists(root.resolve("ground/pending.dat")));
     }
 
@@ -46,11 +46,10 @@ class GroundJournalTest {
         restarted.recover();
         assertEquals(
                 "bag",
-                NbtIo.readCompressed(root.resolve("players/" + player + ".dat").toFile())
-                        .getString("hand"));
+                read(root.resolve("players/" + player + ".dat"), "hand"));
         assertEquals(
                 "empty",
-                NbtIo.readCompressed(journal.inventoryFile().toFile()).getString("ground"));
+                read(journal.inventoryFile(), "ground"));
     }
 
     @Test
@@ -64,7 +63,11 @@ class GroundJournalTest {
         assertThrows(
                 java.io.IOException.class,
                 () -> journal.commit(player, value("hand", "changed"), value("ground", "bag")));
-        assertEquals("original", NbtIo.readCompressed(playerFile.toFile()).getString("hand"));
+        assertEquals("original", read(playerFile, "hand"));
+    }
+
+    private static String read(Path file, String key) throws java.io.IOException {
+        return NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap()).getString(key).orElseThrow();
     }
 
     private static CompoundTag value(String key, String value) {

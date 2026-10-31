@@ -18,11 +18,12 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.Tag;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -76,7 +77,7 @@ public final class GroundInventory implements GroundBags.Actions {
                         server.getWorldPath(LevelResource.PLAYER_DATA_DIR));
         journal.recover();
         if (Files.exists(journal.inventoryFile())) {
-            read(NbtIo.readCompressed(journal.inventoryFile().toFile()));
+            read(NbtIo.readCompressed(journal.inventoryFile(), NbtAccounter.unlimitedHeap()));
         }
     }
 
@@ -105,7 +106,7 @@ public final class GroundInventory implements GroundBags.Actions {
                 });
         ServerLifecycleEvents.SERVER_STOPPED.register(SERVERS::remove);
         ServerChunkEvents.CHUNK_LOAD.register(
-                (world, chunk) -> {
+                (world, chunk, generated) -> {
                     var inventory = SERVERS.get(world.getServer());
                     if (inventory != null) {
                         // 此回调位于区块加载 future 内，不能调用 world.setBlockState 再次等待自己。
@@ -133,7 +134,7 @@ public final class GroundInventory implements GroundBags.Actions {
                     @Override
                     public InteractionResult use(
                             Player player, InteractionHand hand, GroundBagBlockEntity bag) {
-                        return get(player.getServer()).use(player, hand, bag);
+                        return get(player.level().getServer()).use(player, hand, bag);
                     }
                 });
     }
@@ -154,7 +155,7 @@ public final class GroundInventory implements GroundBags.Actions {
         }
         try {
             requireActor(player);
-            var world = player.serverLevel();
+            var world = player.level();
             var placement = new BlockPlaceContext(context);
             BlockPos pos = placement.getClickedPos();
             // 只在有支撑的上表面落地，不替换实体方块，也不允许隔墙或超距放置。
@@ -200,13 +201,13 @@ public final class GroundInventory implements GroundBags.Actions {
             if (type == null || stack.getCount() != 1) {
                 throw new IllegalArgumentException("请手持一件背包");
             }
-            new ContainerTree(account.data(), new ArrayList<>(vanilla));
+            new ContainerTree(account.registries(), account.data(), new ArrayList<>(vanilla));
             String id = ContainerItems.identity(stack);
-            StackCodec.encode(stack);
+            StackCodec.encode(stack, account.registries());
             if (entries.containsKey(id)) {
                 throw new IllegalArgumentException("该背包身份已在地面存在");
             }
-            String dimension = world.dimension().location().toString();
+            String dimension = world.dimension().identifier().toString();
             for (Entry existing : entries.values()) {
                 if (existing.dimension().equals(dimension) && existing.pos().equals(pos)) {
                     throw new IllegalArgumentException("这里已有地面背包");
@@ -229,7 +230,7 @@ public final class GroundInventory implements GroundBags.Actions {
                     SOUND_PITCH);
             return InteractionResult.CONSUME;
         } catch (IOException | IllegalArgumentException invalid) {
-            player.displayClientMessage(Component.literal(invalid.getMessage()), true);
+            player.sendOverlayMessage(Component.literal(invalid.getMessage()));
             return InteractionResult.FAIL;
         }
     }
@@ -250,7 +251,7 @@ public final class GroundInventory implements GroundBags.Actions {
             }
             return InteractionResult.CONSUME;
         } catch (IOException | IllegalArgumentException invalid) {
-            player.displayClientMessage(Component.literal(invalid.getMessage()), true);
+            player.sendOverlayMessage(Component.literal(invalid.getMessage()));
             return InteractionResult.FAIL;
         }
     }
@@ -263,13 +264,13 @@ public final class GroundInventory implements GroundBags.Actions {
         var vanilla = account.inventory();
         vanilla.set(handSlot(player, hand), entry.stack().copy());
         var data = nextRevision(account.data());
-        new ContainerTree(data, vanilla);
+        new ContainerTree(account.registries(), data, vanilla);
         var next = new LinkedHashMap<>(entries);
         next.remove(entry.id());
         commit(player, data, vanilla, next);
-        player.serverLevel()
+        player.level()
                 .setBlock(entry.pos(), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
-        player.serverLevel()
+        player.level()
                 .playSound(
                         null,
                         entry.pos(),
@@ -284,8 +285,8 @@ public final class GroundInventory implements GroundBags.Actions {
         Entry entry = entries.get(id);
         if (entry == null
                 || !entry.dimension()
-                        .equals(player.level().dimension().location().toString())
-                || !player.serverLevel().hasChunkAt(entry.pos())
+                        .equals(player.level().dimension().identifier().toString())
+                || !player.level().hasChunkAt(entry.pos())
                 || player.getEyePosition().distanceToSqr(Vec3.atCenterOf(entry.pos()))
                         > REACH_BLOCKS * REACH_BLOCKS
                 || !player.level().mayInteract(player, entry.pos())
@@ -366,7 +367,7 @@ public final class GroundInventory implements GroundBags.Actions {
         var next = new LinkedHashMap<>(entries);
         for (var candidate : ground.entrySet()) {
             Entry old = leased(player, candidate.getKey());
-            StackCodec.encode(candidate.getValue());
+            StackCodec.encode(candidate.getValue(), player.registryAccess());
             if (!ContainerItems.identity(candidate.getValue()).equals(old.id())) {
                 throw new IllegalArgumentException("不能通过转移替换地面背包身份");
             }
@@ -414,7 +415,7 @@ public final class GroundInventory implements GroundBags.Actions {
 
     private static int handSlot(ServerPlayer player, InteractionHand hand) {
         return hand == InteractionHand.MAIN_HAND
-                ? player.getInventory().selected
+                ? player.getInventory().getSelectedSlot()
                 : Inventory.SLOT_OFFHAND;
     }
 
@@ -424,7 +425,7 @@ public final class GroundInventory implements GroundBags.Actions {
 
     private ServerLevel world(Entry entry) {
         return server.getLevel(
-                ResourceKey.create(Registries.DIMENSION, new ResourceLocation(entry.dimension())));
+                ResourceKey.create(Registries.DIMENSION, Identifier.parse(entry.dimension())));
     }
 
     private void show(Entry entry, ServerLevel world) {
@@ -445,15 +446,15 @@ public final class GroundInventory implements GroundBags.Actions {
                 if (entry == null
                         || !entry.pos().equals(bag.getBlockPos())
                         || !entry.dimension()
-                                .equals(world.dimension().location().toString())) {
+                                .equals(world.dimension().identifier().toString())) {
                     world.setBlock(
                             bag.getBlockPos(), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
                 }
             }
         }
         for (Entry entry : entries.values()) {
-            if (entry.dimension().equals(world.dimension().location().toString())
-                    && new net.minecraft.world.level.ChunkPos(entry.pos()).equals(chunk.getPos())) {
+            if (entry.dimension().equals(world.dimension().identifier().toString())
+                    && ChunkPos.containing(entry.pos()).equals(chunk.getPos())) {
                 show(entry, world);
             }
         }
@@ -466,14 +467,16 @@ public final class GroundInventory implements GroundBags.Actions {
         for (var entry : pending.entrySet()) {
             ServerLevel world = entry.getKey();
             for (ChunkPos pos : entry.getValue()) {
-                if (world.hasChunk(pos.x, pos.z)) {
-                    reconcile(world, world.getChunk(pos.x, pos.z));
+                if (world.hasChunk(pos.x(), pos.z())) {
+                    reconcile(world, world.getChunk(pos.x(), pos.z()));
                 }
             }
         }
     }
 
     private CompoundTag write(Map<String, Entry> values) {
+        // 物品组件可能引用附魔等数据驱动注册表，必须带服务器注册表上下文编码。
+        var ops = server.registryAccess().createSerializationContext(NbtOps.INSTANCE);
         var root = new CompoundTag();
         root.putInt("version", SAVE_VERSION);
         var list = new ListTag();
@@ -484,7 +487,7 @@ public final class GroundInventory implements GroundBags.Actions {
             nbt.putLong("pos", entry.pos().asLong());
             nbt.putFloat("yaw", entry.yaw());
             nbt.putLong("revision", entry.revision());
-            nbt.put("stack", entry.stack().save(new CompoundTag()));
+            nbt.store("stack", ItemStack.CODEC, ops, entry.stack());
             list.add(nbt);
         }
         root.put("bags", list);
@@ -492,26 +495,35 @@ public final class GroundInventory implements GroundBags.Actions {
     }
 
     private void read(CompoundTag root) throws IOException {
-        if (root.getInt("version") != SAVE_VERSION
-                || !root.contains("bags", Tag.TAG_LIST)) {
+        var registries = server.registryAccess();
+        var ops = registries.createSerializationContext(NbtOps.INSTANCE);
+        var bags = root.getList("bags");
+        if (root.getIntOr("version", 0) != SAVE_VERSION || bags.isEmpty()) {
             throw new IOException("不支持或损坏的地面背包存档");
         }
-        for (var value : root.getList("bags", Tag.TAG_COMPOUND)) {
-            var nbt = (CompoundTag) value;
-            ItemStack stack = ItemStack.of(nbt.getCompound("stack"));
+        for (var value : bags.get()) {
+            // 26.2 的列表可混合类型，逐项要求复合标签，不能跳过损坏项。
+            if (!(value instanceof CompoundTag nbt)) {
+                throw new IOException("地面背包记录类型错误");
+            }
+            ItemStack stack = nbt.read("stack", ItemStack.CODEC, ops)
+                    .orElseThrow(() -> new IOException("地面背包物品损坏"));
             String id = ContainerItems.identity(stack);
             // 完整解析内容再接受存档，禁止用损坏项覆盖为一个空包。
-            StackCodec.encode(stack);
+            StackCodec.encode(stack, registries);
             new ContainerTree(
+                    registries,
                     dev.kizuna.backpack3d.service.TransferService.empty(),
                     new ArrayList<>(List.of(stack)));
-            String dimension = nbt.getString("dimension");
-            BlockPos pos = BlockPos.of(nbt.getLong("pos"));
-            if (!id.equals(nbt.getString("id"))
+            String dimension = nbt.getStringOr("dimension", "");
+            BlockPos pos = BlockPos.of(nbt.getLongOr("pos", 0));
+            float yaw = nbt.getFloatOr("yaw", 0);
+            long revision = nbt.getLongOr("revision", 0);
+            if (!id.equals(nbt.getStringOr("id", ""))
                     || entries.containsKey(id)
-                    || ResourceLocation.tryParse(dimension) == null
-                    || !Float.isFinite(nbt.getFloat("yaw"))
-                    || nbt.getLong("revision") < 0) {
+                    || Identifier.tryParse(dimension) == null
+                    || !Float.isFinite(yaw)
+                    || revision < 0) {
                 throw new IOException("地面背包身份或位置记录无效");
             }
             for (Entry existing : entries.values()) {
@@ -525,8 +537,8 @@ public final class GroundInventory implements GroundBags.Actions {
                             id,
                             dimension,
                             pos,
-                            nbt.getFloat("yaw"),
-                            nbt.getLong("revision"),
+                            yaw,
+                            revision,
                             stack));
         }
     }

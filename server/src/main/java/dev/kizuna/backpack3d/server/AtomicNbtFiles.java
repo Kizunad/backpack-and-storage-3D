@@ -18,7 +18,7 @@ final class AtomicNbtFiles {
         Files.createDirectories(target.getParent());
         Path temporary = Files.createTempFile(target.getParent(), "bs3d-", ".tmp");
         try {
-            NbtIo.writeCompressed(nbt, temporary.toFile());
+            NbtIo.writeCompressed(nbt, temporary);
             try (var channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
                 channel.force(true);
             }

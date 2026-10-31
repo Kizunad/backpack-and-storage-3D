@@ -1,22 +1,25 @@
 package dev.kizuna.backpack3d.client;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
 import dev.kizuna.backpack3d.client.BbModel.Cube;
 import dev.kizuna.backpack3d.client.BbModel.Face;
 import org.joml.Vector3f;
 
+import java.util.LinkedHashSet;
 import java.util.List;
-import net.minecraft.client.renderer.LightTexture;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.texture.OverlayTexture;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.util.FastColor;
+import net.minecraft.resources.Identifier;
+import net.minecraft.util.ARGB;
+import net.minecraft.util.LightCoordsUtil;
 
 /** 逐面 UV 的原始立方体渲染器，保留 Blockbench 的旋转与分组。 */
 public final class ModelAsset {
-    public static final ResourceLocation WHITE = new ResourceLocation("bs3d", "textures/white.png");
+    public static final Identifier WHITE = Identifier.fromNamespaceAndPath("bs3d", "textures/white.png");
     private static final float OPAQUE = 1;
     private static final int COLOR_CHANNEL_MASK = 255;
     private static final float MODEL_CENTER_XZ = 8;
@@ -32,6 +35,7 @@ public final class ModelAsset {
     };
     private final BbModel model;
     private final List<Cube> cubes;
+    private final List<Identifier> textures;
     private final float centerY;
     private final float groundOffset;
 
@@ -39,6 +43,16 @@ public final class ModelAsset {
         // 只接收已校验的登记资源，构造及逐帧渲染均不再按模型名隐式读文件。
         this.model = model;
         cubes = model.cubes();
+        // 每张贴图对应一次几何提交，按首次出现顺序收集，避免逐帧遍历去重。
+        var used = new LinkedHashSet<Identifier>();
+        for (Cube cube : cubes) {
+            for (Face face : cube.faces()) {
+                if (face != null) {
+                    used.add(face.texture());
+                }
+            }
+        }
+        textures = List.copyOf(used);
         float top = Float.NEGATIVE_INFINITY;
         for (Cube cube : cubes) {
             top = Math.max(top, cube.to().y);
@@ -79,103 +93,117 @@ public final class ModelAsset {
     }
 
     public void render(
-            PoseStack matrices, MultiBufferSource buffers, float lid, Integer tint) {
+            PoseStack matrices, SubmitNodeCollector collector, float lid, Integer tint) {
         // GUI 使用固定光照；世界和原版物品通过重载传入环境光。
         render(
                 matrices,
-                buffers,
+                collector,
                 lid,
                 tint,
-                LightTexture.FULL_BRIGHT,
+                LightCoordsUtil.FULL_BRIGHT,
                 OverlayTexture.NO_OVERLAY);
     }
 
     public void render(
             PoseStack matrices,
-            MultiBufferSource buffers,
+            SubmitNodeCollector collector,
             float lid,
             Integer tint,
             int light,
             int overlay) {
         // 环境光与覆盖纹理作为同一组渲染参数传递。
-        render(matrices, buffers, new BagAnimation.Sample(false /* closing */, lid), tint,
+        render(matrices, collector, new BagAnimation.Sample(false /* closing */, lid), tint,
                 new Lighting(light, overlay));
     }
 
     public void render(
             PoseStack matrices,
-            MultiBufferSource buffers,
+            SubmitNodeCollector collector,
             BagAnimation.Sample pose,
             Integer tint) {
         // GUI 固定光照与世界渲染共用同一几何路径。
         render(
                 matrices,
-                buffers,
+                collector,
                 pose,
                 tint,
-                new Lighting(LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY));
+                new Lighting(LightCoordsUtil.FULL_BRIGHT, OverlayTexture.NO_OVERLAY));
     }
 
     private void render(
             PoseStack matrices,
-            MultiBufferSource buffers,
+            SubmitNodeCollector collector,
             BagAnimation.Sample pose,
             Integer tint,
             Lighting lighting) {
-        // 高亮轮廓使用同一几何，普通绘制保留模型原有贴图和逐面光照。
-        var context = new RenderContext(matrices, buffers, Paint.from(tint), lighting);
-        for (var cube : cubes) {
-            matrices.pushPose();
-            try {
-                transform(matrices, cube, pose);
-                var vertices = vertices(cube.from(), cube.to());
-                for (int face = 0; face < FACE_VERTICES.length; face++) {
-                    Face uv = cube.faces().get(face);
-                    if (uv == null) {
-                        continue;
-                    }
-                    renderFace(context, vertices, face, uv);
-                }
-            } finally {
-                matrices.popPose();
+        // 26.2 的几何先进提交队列、在绘制阶段才写顶点；同一贴图的面合成一次提交，
+        // 回调从提交时的矩阵重建各立方体变换。染色轮廓统一用白色贴图，只提交一次。
+        var paint = Paint.from(tint);
+        List<Identifier> passes = textures;
+        if (paint.tint() != null) {
+            passes = List.of(WHITE);
+        }
+        for (Identifier texture : passes) {
+            RenderType layer = RenderTypes.entityCutout(texture);
+            if (paint.alpha() < OPAQUE) {
+                layer = RenderTypes.entityTranslucent(texture);
             }
+            collector.submitCustomGeometry(matrices, layer,
+                    (entry, consumer) -> emit(entry, consumer, texture, pose, paint, lighting));
         }
     }
 
-    private static void renderFace(RenderContext context, Vector3f[] vertices, int face, Face uv) {
+    private void emit(
+            PoseStack.Pose base,
+            VertexConsumer consumer,
+            Identifier texture,
+            BagAnimation.Sample pose,
+            Paint paint,
+            Lighting lighting) {
+        // 高亮轮廓使用同一几何，普通绘制只写出属于本次贴图的面。
+        var matrices = new PoseStack();
+        matrices.last().set(base);
+        for (var cube : cubes) {
+            matrices.pushPose();
+            transform(matrices, cube, pose);
+            var vertices = vertices(cube.from(), cube.to());
+            for (int face = 0; face < FACE_VERTICES.length; face++) {
+                Face uv = cube.faces().get(face);
+                if (uv == null || (paint.tint() == null && !uv.texture().equals(texture))) {
+                    continue;
+                }
+                emitFace(matrices.last(), consumer, vertices, face, uv, paint, lighting);
+            }
+            matrices.popPose();
+        }
+    }
+
+    private static void emitFace(
+            PoseStack.Pose entry,
+            VertexConsumer consumer,
+            Vector3f[] vertices,
+            int face,
+            Face uv,
+            Paint paint,
+            Lighting lighting) {
         // 半透明占位保留原模型几何，UV 旋转仅改变贴图四角的对应关系。
-        var paint = context.paint();
-        ResourceLocation texture = WHITE;
-        if (paint.tint() == null) {
-            texture = uv.texture();
-        }
-        RenderType layer = RenderType.entityCutoutNoCull(texture);
-        if (paint.alpha() < OPAQUE) {
-            layer = RenderType.entityTranslucent(texture);
-        }
-        var consumer = context.buffers().getBuffer(layer);
         float[][] coords = {
             {uv.u0(), uv.v1()}, {uv.u1(), uv.v1()}, {uv.u1(), uv.v0()}, {uv.u0(), uv.v0()}
         };
         var normal = NORMALS[face];
-        var entry = context.matrices().last();
         for (int vertex = 0; vertex < VERTICES_PER_FACE; vertex++) {
             var point = vertices[FACE_VERTICES[face][vertex]];
             int uvCorner = Math.floorMod(vertex - uv.rotation(), VERTICES_PER_FACE);
-            consumer.vertex(entry.pose(), point.x, point.y, point.z)
-                    .color(paint.red(), paint.green(), paint.blue(), paint.alpha())
-                    .uv(coords[uvCorner][0], coords[uvCorner][1])
-                    .overlayCoords(context.lighting().overlay())
-                    .uv2(context.lighting().light())
-                    .normal(entry.normal(), normal.x, normal.y, normal.z)
-                    .endVertex();
+            consumer.addVertex(entry, point.x, point.y, point.z)
+                    .setColor(paint.red(), paint.green(), paint.blue(), paint.alpha())
+                    .setUv(coords[uvCorner][0], coords[uvCorner][1])
+                    .setOverlay(lighting.overlay())
+                    .setLight(lighting.light())
+                    .setNormal(entry, normal.x, normal.y, normal.z);
         }
     }
 
     private record Lighting(int light, int overlay) {}
-
-    private record RenderContext(PoseStack matrices, MultiBufferSource buffers,
-                                 Paint paint, Lighting lighting) {}
 
     private record Paint(Integer tint, float red, float green, float blue, float alpha) {
         private static Paint from(Integer tint) {
@@ -184,10 +212,10 @@ public final class ModelAsset {
                 return new Paint(null, OPAQUE, OPAQUE, OPAQUE, OPAQUE);
             }
             return new Paint(tint,
-                    FastColor.ARGB32.red(tint) / (float) COLOR_CHANNEL_MASK,
-                    FastColor.ARGB32.green(tint) / (float) COLOR_CHANNEL_MASK,
-                    FastColor.ARGB32.blue(tint) / (float) COLOR_CHANNEL_MASK,
-                    FastColor.ARGB32.alpha(tint) / (float) COLOR_CHANNEL_MASK);
+                    ARGB.red(tint) / (float) COLOR_CHANNEL_MASK,
+                    ARGB.green(tint) / (float) COLOR_CHANNEL_MASK,
+                    ARGB.blue(tint) / (float) COLOR_CHANNEL_MASK,
+                    ARGB.alpha(tint) / (float) COLOR_CHANNEL_MASK);
         }
     }
 
@@ -269,6 +297,14 @@ public final class ModelAsset {
         copy.last().pose().set(source.last().pose());
         copy.last().normal().set(source.last().normal());
         return copy;
+    }
+
+    /** 复制变换并在最外层叠加等比缩放，用于画中画贴图像素与 GUI 坐标互换；等比缩放不改变法线方向。 */
+    static PoseStack scaled(PoseStack source, float factor) {
+        var scaled = new PoseStack();
+        scaled.last().pose().scaling(factor).mul(source.last().pose());
+        scaled.last().normal().set(source.last().normal());
+        return scaled;
     }
 
     /** 模型中心到顶部挂带的距离，单位为模型像素，与 transform 的居中方式一致。 */

@@ -16,7 +16,7 @@ import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelAsset;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelSounds;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.OptionalField;
 
-import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+import net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.fabricmc.loader.api.metadata.CustomValue;
@@ -24,7 +24,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.Item;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,7 +54,7 @@ public final class ItemRegistrations {
     private static final String TEXT_SUFFIX = ".txtpb";
     private static final String BINARY_SUFFIX = ".binpb";
     private static final Logger LOG = LoggerFactory.getLogger("bs3d/item-registry");
-    private static final Map<ResourceLocation, BundledModel> BUNDLED = new LinkedHashMap<>();
+    private static final Map<Identifier, BundledModel> BUNDLED = new LinkedHashMap<>();
 
     private ItemRegistrations() {}
 
@@ -62,20 +62,20 @@ public final class ItemRegistrations {
      * 附属在自己的 main 入口调用；返回按清单顺序注册的物品。source 仅用于错误定位。
      * 不带清单目录，因此不能声明 container.asset，随 JAR 分发模型请使用 registerResource。
      */
-    public static Map<ResourceLocation, Item> register(String source, ItemRegistry registry) {
+    public static Map<Identifier, Item> register(String source, ItemRegistry registry) {
         return register(source, registry, null);
     }
 
-    public static Map<ResourceLocation, Item> registerBinary(String source, byte[] bytes) {
+    public static Map<Identifier, Item> registerBinary(String source, byte[] bytes) {
         return register(source, parseBinary(source, bytes), null);
     }
 
-    public static Map<ResourceLocation, Item> registerText(String source, String text) {
+    public static Map<Identifier, Item> registerText(String source, String text) {
         return register(source, parseText(source, text), null);
     }
 
     /** 读取模组 JAR 内的清单；.txtpb 为文本格式，.binpb 为二进制格式。 */
-    public static Map<ResourceLocation, Item> registerResource(ModContainer mod, String path) {
+    public static Map<Identifier, Item> registerResource(ModContainer mod, String path) {
         String source = mod.getMetadata().getId() + ":" + path;
         requireResourcePath(source, path);
         Path file = mod.findPath(path)
@@ -88,7 +88,7 @@ public final class ItemRegistrations {
         return List.copyOf(BUNDLED.values());
     }
 
-    static Map<ResourceLocation, Item> registerManifest(String source, Path file) {
+    static Map<Identifier, Item> registerManifest(String source, Path file) {
         // 模型资产路径相对于清单所在目录，与 config.toml 相对于 config/bs3d 相同。
         try {
             requireLength(source, Files.size(file));
@@ -102,11 +102,11 @@ public final class ItemRegistrations {
         }
     }
 
-    private static Map<ResourceLocation, Item> register(String source, ItemRegistry registry, Path assetRoot) {
+    private static Map<Identifier, Item> register(String source, ItemRegistry registry, Path assetRoot) {
         // 先校验整份清单；任一条目失败都不注册任何物品，避免加载顺序留下半份目录。
         requireKnownFields(registry, source);
         List<Prepared> prepared = prepare(source, registry, assetRoot);
-        var items = new LinkedHashMap<ResourceLocation, Item>();
+        var items = new LinkedHashMap<Identifier, Item>();
         for (Prepared entry : prepared) {
             items.put(entry.id(), registerEntry(entry));
             if (entry.bundled() != null) {
@@ -178,8 +178,8 @@ public final class ItemRegistrations {
             throw new IllegalArgumentException(source + "：version 必须为 " + FORMAT_VERSION);
         }
         var prepared = new ArrayList<Prepared>();
-        var identities = new HashSet<ResourceLocation>();
-        var models = new HashSet<ResourceLocation>();
+        var identities = new HashSet<Identifier>();
+        var models = new HashSet<Identifier>();
         for (int index = 0; index < registry.getItemsCount(); index++) {
             String location = source + " items[" + index + "]";
             Prepared entry = prepareEntry(location, registry.getItems(index), assetRoot);
@@ -198,14 +198,14 @@ public final class ItemRegistrations {
     }
 
     private static Prepared prepareEntry(String location, ItemEntry entry, Path assetRoot) {
-        ResourceLocation id = identifier(location, "id", entry.getId());
-        if (id.getNamespace().equals(ResourceLocation.DEFAULT_NAMESPACE)) {
+        Identifier id = identifier(location, "id", entry.getId());
+        if (id.getNamespace().equals(Identifier.DEFAULT_NAMESPACE)) {
             throw new IllegalArgumentException(location + "：id 不能使用 minecraft 命名空间");
         }
         if (BuiltInRegistries.ITEM.containsKey(id)) {
             throw new IllegalArgumentException(location + "：物品 ID 已被注册：" + id);
         }
-        ResourceLocation tab = entry.getCreativeTab().isEmpty()
+        Identifier tab = entry.getCreativeTab().isEmpty()
                 ? null
                 : identifier(location, "creative_tab", entry.getCreativeTab());
         var optional = optionalFields(location, entry.getOptionalFieldsList());
@@ -305,12 +305,12 @@ public final class ItemRegistrations {
         }
     }
 
-    private static Map<ResourceLocation, JsonObject> optionalFields(
+    private static Map<Identifier, JsonObject> optionalFields(
             String location, List<OptionalField> fields) {
         // JSON 只检查为对象；字段含义、单位与回退由对应附属负责。
-        var optional = new LinkedHashMap<ResourceLocation, JsonObject>();
+        var optional = new LinkedHashMap<Identifier, JsonObject>();
         for (OptionalField field : fields) {
-            ResourceLocation id = identifier(location, "optional_fields.id", field.getId());
+            Identifier id = identifier(location, "optional_fields.id", field.getId());
             JsonObject value;
             try {
                 var parsed = JsonParser.parseString(field.getJson());
@@ -344,21 +344,22 @@ public final class ItemRegistrations {
                     prepared.optional());
         } else {
             int maxCount = entry.getPlain().getMaxCount();
-            var settings = new Item.Properties().stacksTo(maxCount == 0 ? MAX_STACK_COUNT : maxCount);
-            item = Registry.register(BuiltInRegistries.ITEM, prepared.id(), new Item(settings));
+            ResourceKey<Item> key = ResourceKey.create(Registries.ITEM, prepared.id());
+            var settings = new Item.Properties().setId(key).stacksTo(maxCount == 0 ? MAX_STACK_COUNT : maxCount);
+            item = Registry.register(BuiltInRegistries.ITEM, key, new Item(settings));
             ItemMetadata.register(item, entry.getDescriptionTranslationKey(), prepared.optional());
         }
         if (prepared.tab() != null) {
             Item registered = item;
-            ItemGroupEvents.modifyEntriesEvent(ResourceKey.create(Registries.CREATIVE_MODE_TAB, prepared.tab()))
+            CreativeModeTabEvents.modifyOutputEvent(ResourceKey.create(Registries.CREATIVE_MODE_TAB, prepared.tab()))
                     .register(entries -> entries.accept(registered));
         }
         return item;
     }
 
-    private static ResourceLocation identifier(String location, String field, String value) {
+    private static Identifier identifier(String location, String field, String value) {
         // 与 config.toml 相同，必须写完整命名空间，不接受旧短名称。
-        ResourceLocation id = value.contains(":") ? ResourceLocation.tryParse(value) : null;
+        Identifier id = value.contains(":") ? Identifier.tryParse(value) : null;
         if (id == null) {
             throw new IllegalArgumentException(location + "：" + field + " 必须为 namespace:path：" + value);
         }
@@ -405,18 +406,18 @@ public final class ItemRegistrations {
     }
 
     record Prepared(
-            ResourceLocation id,
+            Identifier id,
             ItemEntry entry,
-            Map<ResourceLocation, JsonObject> optional,
+            Map<Identifier, JsonObject> optional,
             // null 表示不额外加入创造模式物品栏。
-            ResourceLocation tab,
+            Identifier tab,
             // null 表示没有随 JAR 分发的模型资产。
             BundledModel bundled) {}
 
     /** 随附属 JAR 分发的模型，路径已校验并解析为清单所在文件系统内的绝对路径。 */
     public record BundledModel(
             // 对应 ContainerItem.model，与 config.toml 的模型 ID 同一命名空间。
-            ResourceLocation model,
+            Identifier model,
             // 声明位置，用于日志定位。
             String source,
             // 清单所在目录；外部贴图的 relative_path 也不能越过它。

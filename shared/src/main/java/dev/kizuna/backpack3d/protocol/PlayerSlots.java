@@ -4,6 +4,7 @@ import java.util.List;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.enchantment.EnchantmentEffectComponents;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 
 /** 玩家展示槽位与原版装备部位的映射，统一使用 Inventory 槽号。 */
@@ -26,12 +27,13 @@ public final class PlayerSlots {
     }
 
     public static boolean bindingLocked(int slot, ItemStack stack, boolean creative) {
-        return isArmor(slot) && !creative && EnchantmentHelper.hasBindingCurse(stack);
+        // 26.2 的绑定诅咒是附魔效果组件，判断方式与原版盔甲槽相同。
+        return isArmor(slot) && !creative && EnchantmentHelper.has(stack, EnchantmentEffectComponents.PREVENT_ARMOR_CHANGE);
     }
 
     public static int armorSlot(EquipmentSlot equipment) {
         // 手持装备的实体索引与盔甲重叠，必须先区分类型再换算原版槽号。
-        if (equipment.getType() != EquipmentSlot.Type.ARMOR) {
+        if (equipment.getType() != EquipmentSlot.Type.HUMANOID_ARMOR) {
             throw new IllegalArgumentException("不是盔甲部位：" + equipment);
         }
         return equipment.getIndex(Inventory.INVENTORY_SIZE);
@@ -42,7 +44,7 @@ public final class PlayerSlots {
         if (!isArmor(slot)) {
             throw new IllegalArgumentException("不是盔甲槽位：" + slot);
         }
-        return EquipmentSlot.byTypeAndIndex(
-                EquipmentSlot.Type.ARMOR, slot - Inventory.INVENTORY_SIZE);
+        // 26.2 去掉了按类型和索引查部位的方法，用同一换算反查四个盔甲部位。
+        return ARMOR.stream().filter(equipment -> armorSlot(equipment) == slot).findFirst().orElseThrow();
     }
 }

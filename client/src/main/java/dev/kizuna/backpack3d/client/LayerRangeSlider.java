@@ -4,7 +4,7 @@ import dev.kizuna.backpack3d.client.InteriorRenderer.Rect;
 import dev.kizuna.inventoryui.client.InventoryUiClient;
 import dev.kizuna.inventoryui.theme.ThemeTokens;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 /** 内景上方的双滑块范围条；只修改本窗口的显示范围，不提交库存操作。 */
 public final class LayerRangeSlider {
@@ -50,7 +50,7 @@ public final class LayerRangeSlider {
         }
     }
 
-    public void draw(GuiGraphics context, Font font) {
+    public void draw(GuiGraphicsExtractor context, Font font) {
         int center = centerY();
         int lowerX = position(range.lower());
         int upperX = position(range.upper());
@@ -66,7 +66,7 @@ public final class LayerRangeSlider {
         handle(context, lowerX, center + TRACK_HEIGHT, color(ThemeTokens.ACCENT));
         handle(context, upperX, center - HANDLE_HEIGHT, color(ThemeTokens.ACCENT));
         String label = (range.lower() + 1) + "–" + range.upper();
-        context.drawString(
+        context.text(
                 font,
                 label,
                 bounds.right() - LABEL_WIDTH,
@@ -75,7 +75,7 @@ public final class LayerRangeSlider {
                 false);
     }
 
-    private void handle(GuiGraphics context, int x, int y, int color) {
+    private void handle(GuiGraphicsExtractor context, int x, int y, int color) {
         context.fill(x - HANDLE_HALF_WIDTH, y, x + HANDLE_HALF_WIDTH + 1, y + HANDLE_HEIGHT, color);
     }
 

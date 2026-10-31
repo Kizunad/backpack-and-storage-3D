@@ -1,8 +1,7 @@
 {
   "required": true,
   "package": "dev.kizuna.backpack3d.client.mixin",
-  "compatibilityLevel": "JAVA_17",
-  "refmap": "bs3d-client.refmap.json",
-  "client": ["ImportedPackProviderMixin"],
+  "compatibilityLevel": "JAVA_25",
+  "client": ["ImportedPackProviderMixin", "SpecialModelRenderersAccess"],
   "injectors": {"defaultRequire": 1}
 }

@@ -3,7 +3,9 @@ package dev.kizuna.backpack3d.world;
 import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
@@ -16,12 +18,13 @@ import net.minecraft.world.level.material.PushReaction;
 
 /** 两端只共享方块与外观注册，权威物品操作由服务端注入。 */
 public final class GroundBags {
-    public static final ResourceLocation ID = new ResourceLocation("bs3d", "placed_bag");
+    public static final Identifier ID = Identifier.fromNamespaceAndPath("bs3d", "placed_bag");
     private static final float UNBREAKABLE_HARDNESS = -1;
     private static final float EXPLOSION_RESISTANCE = 3_600_000;
     public static final Block BLOCK =
             new GroundBagBlock(
                     BlockBehaviour.Properties.of()
+                            .setId(ResourceKey.create(Registries.BLOCK, ID))
                             .strength(UNBREAKABLE_HARDNESS, EXPLOSION_RESISTANCE)
                             .noOcclusion()
                             .dynamicShape()
@@ -49,14 +52,14 @@ public final class GroundBags {
 
     public static InteractionResult place(UseOnContext context) {
         // 客户端只挥手，不能扣物品或创建容器身份。
-        if (context.getLevel().isClientSide) {
+        if (context.getLevel().isClientSide()) {
             return InteractionResult.SUCCESS;
         }
         return actions == null ? InteractionResult.FAIL : actions.place(context);
     }
 
     static InteractionResult use(Player player, InteractionHand hand, GroundBagBlockEntity bag) {
-        if (player.level().isClientSide) {
+        if (player.level().isClientSide()) {
             return InteractionResult.SUCCESS;
         }
         return actions == null ? InteractionResult.FAIL : actions.use(player, hand, bag);

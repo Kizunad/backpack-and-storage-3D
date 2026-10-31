@@ -14,7 +14,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 /** 用真实导入资产覆盖归档读取、贴图、人体尺度与静态开包，而不是简化几何夹具。 */
 class BongGearModelsTest {
@@ -34,7 +34,7 @@ class BongGearModelsTest {
                 Files.createDirectories(file.getParent());
                 Files.copy(SOURCE.resolve(type.getAsset().getFile()), file);
                 BbModel model = BbModel.read(root,
-                        new ModelConfig.Entry(new ResourceLocation(type.getModel()), file, null, null, Map.of()));
+                        new ModelConfig.Entry(Identifier.parse(type.getModel()), file, null, null, Map.of()));
                 assertTrue(model.cubes().size() > 100, item.getId());
                 assertEquals(1, model.textures().size(), item.getId());
                 assertNull(model.open());

@@ -2,12 +2,12 @@
 
 服务端产物 `backpack_storage_3d` 使用 common 环境，在专服与单机整合服务器执行同一注册、库存与协议逻辑。客户端产物 ID 为 `backpack_storage_3d_client`，强制依赖该 common 产物；两者一起安装到客户端，专服只安装 common。客户端不再复制服务端 Java、服务端入口或 mixin，避免重复注册。Inventory UI 的 client/server 同样分别安装，完整客户端须提供服务端声明的 BS3D 必需消息模块。
 
-适用：未发布的 `0.1.0-SNAPSHOT`。Java 17、Minecraft 1.20.1、Fabric Loader 0.16.10、Fabric API 0.92.3+1.20.1、owo 0.11.2+1.20。
+适用：未发布的 `0.1.0-SNAPSHOT`。Java 25、Minecraft 26.2、Fabric Loader 0.20.1、Fabric API 0.161.0+26.2、owo 0.13.1+26.2。
 
-构建需要同级的 Inventory UI Framework 与 Kizuna-Meridian-Mod-Framework 源码。`settings.gradle` 应用后者的 `scripts/workspace.gradle`，上述版本与 Gradle 8.14.6、Fabric Loom 1.13.6 都取自其版本目录 `scripts/libs.versions.toml`。Inventory UI Framework 没有已发布的 Maven 坐标，以组合构建接入，其两端工程随本仓构建先行编译。Gradle 须在 Java 21 上运行（Loom 1.13 的要求），产物仍以 Java 17 为目标：
+构建需要同级的 Inventory UI Framework 与 Kizuna-Meridian-Mod-Framework 源码。`settings.gradle` 应用后者的 `scripts/workspace.gradle`，上述版本与 Gradle 9.8.0、Fabric Loom 1.19.3 都取自其版本目录 `scripts/libs.versions.toml`。Inventory UI Framework 没有已发布的 Maven 坐标，以组合构建接入，其两端工程随本仓构建先行编译。Gradle 须在 Java 25 上运行，产物以 Java 25 为目标（Minecraft 26.2 的要求）：
 
 ```sh
-./gradlew -Dorg.gradle.java.home="/path/to/jdk21" test build
+./gradlew -Dorg.gradle.java.home="/path/to/jdk25" test build
 ```
 
 Windows 可改用 `gradlew.bat`，参数含路径时保留双引号。
@@ -25,7 +25,7 @@ Inventory UI Framework 不在同级目录时加 `-Pkizuna.dir.inventory-ui="/pat
 
 Framework 提供公共生成类和 Protobuf 运行库，业务 JAR 不重复打包它们。客户端和服务端需要使用同一次构建的协议版本。
 
-单机使用上表完整客户端组合，逻辑服务器和事务保存仅由 common 服务端 JAR 提供。房主业务库存以标准 playerdata 为准，避免较旧 level.dat 覆盖已经提交的库存；首次安装且文件没有业务字段时保留原版加载。
+单机使用上表完整客户端组合，逻辑服务器和事务保存仅由 common 服务端 JAR 提供。房主与其他玩家相同，业务库存随标准 playerdata 一并读写；文件没有业务字段时（首次安装）身体容器从空开始，原版槽位照常加载。
 
 客户端首次启动生成 `config/bs3d/config.toml` 和默认 `.bbmodel`，后续不覆盖。自定义模型、开合片段和 OGG 须按[模型资源导入](Model-Resources.md)登记；F3+T 重载。资源仅安装在客户端，服务端通过稳定声音事件触发地面放置、收回音效，因此这一版本仍需同时更新两端 JAR。TOML 解析依赖已嵌入客户端 JAR，无需额外安装。
 

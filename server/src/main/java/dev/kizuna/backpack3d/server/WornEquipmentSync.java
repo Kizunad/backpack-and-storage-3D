@@ -9,6 +9,7 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornModel;
 import dev.kizuna.inventoryui.server.ServerConnection;
 
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.server.level.ServerPlayer;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -31,7 +32,7 @@ final class WornEquipmentSync {
         }
         ServerPlayer viewer = connection.context();
         var visible = new HashSet<UUID>();
-        for (ServerPlayer player : PlayerLookup.world(viewer.serverLevel())) {
+        for (ServerPlayer player : PlayerLookup.level(viewer.level())) {
             if (player != viewer && !PlayerLookup.tracking(player).contains(viewer)) {
                 continue;
             }
@@ -58,7 +59,7 @@ final class WornEquipmentSync {
     private void update(ServerPlayer player) {
         SavedInventory saved = ((PlayerStorage) player).bs3d$getInventory();
         Observed previous = known.get(player.getUUID());
-        String dimension = player.level().dimension().location().toString();
+        String dimension = player.level().dimension().identifier().toString();
         // protobuf 存档不可变；未变更时不反复解码 NBT，重生实体仍会触发完整同步。
         if (previous != null
                 && previous.saved() == saved
@@ -66,7 +67,8 @@ final class WornEquipmentSync {
                 && previous.appearance().getDimension().equals(dimension)) {
             return;
         }
-        EquipmentAppearance next = appearance(player.getUUID(), player.getId(), dimension, saved);
+        EquipmentAppearance next =
+                appearance(player.getUUID(), player.getId(), dimension, saved, player.registryAccess());
         if (previous == null || !previous.appearance().equals(next)) {
             connection.send(Messages.APPEARANCE, next);
         }
@@ -74,7 +76,7 @@ final class WornEquipmentSync {
     }
 
     static EquipmentAppearance appearance(
-            UUID player, int entityId, String dimension, SavedInventory saved) {
+            UUID player, int entityId, String dimension, SavedInventory saved, HolderLookup.Provider registries) {
         var appearance =
                 EquipmentAppearance.newBuilder()
                         .setPlayerUuid(player.toString())
@@ -82,7 +84,7 @@ final class WornEquipmentSync {
                         .setDimension(dimension);
         for (var worn : saved.getWornList()) {
             // 只投影身体上的根容器；收纳在其中的草包、背篓不能重复穿到身上。
-            var type = ContainerItems.definition(StackCodec.decode(worn.getStackNbt()));
+            var type = ContainerItems.definition(StackCodec.decode(worn.getStackNbt(), registries));
             if (type != null && !type.mounts().isEmpty()) {
                 appearance.addModels(
                         WornModel.newBuilder()

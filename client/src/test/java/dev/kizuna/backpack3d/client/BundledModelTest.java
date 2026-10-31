@@ -10,7 +10,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 class BundledModelTest {
     @TempDir Path directory;
@@ -29,7 +29,7 @@ class BundledModelTest {
             Files.copy(source, file);
             var bundled =
                     new BundledModel(
-                            new ResourceLocation("example", "pouch"),
+                            Identifier.fromNamespaceAndPath("example", "pouch"),
                             "test",
                             root,
                             file,
@@ -41,7 +41,7 @@ class BundledModelTest {
             assertEquals(1, model.textures().size());
             assertTrue(
                     model.textures()
-                            .containsKey(new ResourceLocation("bs3d", "imports/example/pouch/0.png")));
+                            .containsKey(Identifier.fromNamespaceAndPath("bs3d", "imports/example/pouch/0.png")));
             assertNotNull(model.open());
             assertNotNull(model.close());
         }

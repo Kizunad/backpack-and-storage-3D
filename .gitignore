@@ -1,6 +1,7 @@
 .gradle/
 .dependencies/
 **/build/
+**/.fabric/
 **/run/
 **/logs/
 **/crash-reports/

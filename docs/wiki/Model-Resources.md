@@ -66,7 +66,15 @@ place = "sounds/travel_place.ogg"
 
 几何文件最大 16 MiB、4096 个元素、32 层分组；每张 PNG 最大 8 MiB、4096×4096。`mesh`、box UV、`rescale`、`inflate` 和 Blockbench 5.x 当前不支持，会明确报告错误；不要把这类资源当成已支持模型导出格式。
 
-作为物品渲染时，扩展模组还需提供 `assets/<物品命名空间>/models/item/<物品路径>.json`，其中 `parent` 为 `builtin/entity`，可通过标准 `display` 字段调整原版物品展示变换。未改用内置实体渲染的普通收纳箱保留标准物品模型。地面容器优先使用已登记的导入模型。
+作为物品渲染时，扩展模组还需提供物品定义 `assets/<物品命名空间>/items/<物品路径>.json`：
+
+```json
+{"model": {"type": "minecraft:special", "base": "<物品命名空间>:item/<物品路径>", "model": {"type": "bs3d:container"}}}
+```
+
+`base` 指向的 `models/item/<物品路径>.json` 不声明 `parent`，仍通过标准 `display` 字段调整原版物品展示变换。未改用三维渲染的普通收纳箱保留标准物品模型。地面容器优先使用已登记的导入模型。
+
+`bs3d:container` 类型经访问器 mixin 加入原版 `SpecialModelRenderers.ID_MAPPER`：Fabric API 0.161 无公开入口，有了就换。
 
 ## 可选开合动画
 

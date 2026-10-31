@@ -43,7 +43,7 @@ public final class CursorTransfer {
         inventory.add(cursor.copy());
         var candidateGround = new LinkedHashMap<String, ItemStack>();
         ground.forEach((id, stack) -> candidateGround.put(id, stack.copy()));
-        var tree = new ContainerTree(previous, inventory, candidateGround);
+        var tree = new ContainerTree(account.registries(), previous, inventory, candidateGround);
         var context = new CursorContext(tree, inventory, cursorIndex, cursor);
         ItemStack moved;
         if (taking) {
@@ -58,9 +58,9 @@ public final class CursorTransfer {
                         .addAllWorn(tree.worn())
                         .build();
         // 再解析候选，特别检查从光标存入的整个嵌套子树；失败不产生任何真实写入。
-        TransferService.validate(next);
+        TransferService.validate(next, account.registries());
         // 重建整树校验唯一身份、容量和嵌套；非法候选在此抛出，不写入真实库存。
-        new ContainerTree(next, inventory, candidateGround);
+        new ContainerTree(account.registries(), next, inventory, candidateGround);
         ItemStack nextCursor = inventory.remove(cursorIndex);
         return new Candidate(next, List.copyOf(inventory), nextCursor, moved, Map.copyOf(candidateGround));
     }

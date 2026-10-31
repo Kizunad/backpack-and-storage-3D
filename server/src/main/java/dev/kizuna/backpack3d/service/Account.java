@@ -4,6 +4,7 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.world.item.ItemStack;
 
 /** 一次提交同时保存业务与原版库存，不能分开持久化。 */
@@ -14,6 +15,9 @@ public interface Account {
     List<ItemStack> inventory();
 
     int selectedSlot();
+
+    /** 物品栈编解码所用的注册表；真实玩家取所在服务器，测试账户取原版内置注册表。 */
+    HolderLookup.Provider registries();
 
     /** 创造模式允许取下绑定诅咒装备；由真实玩家状态提供，客户端不能声明。 */
     boolean creative();

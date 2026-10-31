@@ -1,6 +1,6 @@
 {
   "key.bs3d.open": "打开 3D 背包",
-  "category.bs3d": "Backpack and Storage 3D",
+  "key.category.bs3d.general": "Backpack and Storage 3D",
   "item.bs3d.grass_pouch": "草包",
   "item.bs3d.back_basket": "背篓",
   "item.bs3d.storage_box": "收纳箱",

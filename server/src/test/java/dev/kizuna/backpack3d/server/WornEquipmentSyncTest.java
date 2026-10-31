@@ -2,13 +2,13 @@ package dev.kizuna.backpack3d.server;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import dev.kizuna.backpack3d.TestRegistries;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.StackCodec;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
 import dev.kizuna.backpack3d.service.TransferService;
-import net.minecraft.SharedConstants;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.Bootstrap;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import org.junit.jupiter.api.BeforeAll;
@@ -20,9 +20,7 @@ import java.util.UUID;
 class WornEquipmentSyncTest {
     @BeforeAll
     static void bootstrap() {
-        SharedConstants.tryDetectVersion();
-        Bootstrap.bootStrap();
-        ContainerItems.initialize();
+        TestRegistries.bootstrap();
     }
 
     @Test
@@ -30,27 +28,27 @@ class WornEquipmentSyncTest {
         var basket = ContainerItems.create(ContainerItems.BASKET);
         var pouch = ContainerItems.create(ContainerItems.POUCH);
         var privateItem = new ItemStack(Items.DIAMOND);
-        privateItem.setHoverName(Component.literal("private-name-must-not-be-broadcast"));
+        privateItem.set(DataComponents.CUSTOM_NAME, Component.literal("private-name-must-not-be-broadcast"));
         ContainerItems.setContents(
                 basket,
                 List.of(
                         Item.newBuilder()
                                 .setId(UUID.randomUUID().toString())
-                                .setStackNbt(StackCodec.encode(pouch))
+                                .setStackNbt(StackCodec.encode(pouch, TestRegistries.VANILLA))
                                 .build(),
                         Item.newBuilder()
                                 .setId(UUID.randomUUID().toString())
-                                .setStackNbt(StackCodec.encode(privateItem))
+                                .setStackNbt(StackCodec.encode(privateItem, TestRegistries.VANILLA))
                                 .build()));
         var saved =
                 TransferService.empty().toBuilder()
                         .addWorn(
                                 WornContainer.newBuilder()
-                                        .setStackNbt(StackCodec.encode(basket))
+                                        .setStackNbt(StackCodec.encode(basket, TestRegistries.VANILLA))
                                         .setMount(Mount.TORSO_BACK))
                         .build();
         var player = UUID.randomUUID();
-        var appearance = WornEquipmentSync.appearance(player, 12, "minecraft:overworld", saved);
+        var appearance = WornEquipmentSync.appearance(player, 12, "minecraft:overworld", saved, TestRegistries.VANILLA);
         assertEquals(1, appearance.getModelsCount());
         assertEquals("bs3d:back_basket", appearance.getModels(0).getItemType());
         assertEquals(Mount.TORSO_BACK, appearance.getModels(0).getMount());
@@ -62,11 +60,11 @@ class WornEquipmentSyncTest {
                 saved.toBuilder()
                         .setWorn(
                                 0,
-                                saved.getWorn(0).toBuilder().setStackNbt(StackCodec.encode(basket)))
+                                saved.getWorn(0).toBuilder().setStackNbt(StackCodec.encode(basket, TestRegistries.VANILLA)))
                         .build();
         assertEquals(
                 appearance,
-                WornEquipmentSync.appearance(player, 12, "minecraft:overworld", emptied));
+                WornEquipmentSync.appearance(player, 12, "minecraft:overworld", emptied, TestRegistries.VANILLA));
     }
 
     @Test
@@ -78,12 +76,12 @@ class WornEquipmentSyncTest {
                                         .setStackNbt(
                                                 StackCodec.encode(
                                                         ContainerItems.create(
-                                                                ContainerItems.POUCH)))
+                                                                ContainerItems.POUCH), TestRegistries.VANILLA))
                                         .setMount(Mount.WAIST_LEFT_FRONT)
                                         .setWaistAngleDegrees(117.5f))
                         .build();
         var player = UUID.randomUUID();
-        var appearance = WornEquipmentSync.appearance(player, 1, "minecraft:overworld", saved);
+        var appearance = WornEquipmentSync.appearance(player, 1, "minecraft:overworld", saved, TestRegistries.VANILLA);
         assertEquals(117.5f, appearance.getModels(0).getWaistAngleDegrees());
         assertEquals(
                 0,
@@ -91,7 +89,7 @@ class WornEquipmentSyncTest {
                                 player,
                                 1,
                                 "minecraft:overworld",
-                                saved.toBuilder().clearWorn().build())
+                                saved.toBuilder().clearWorn().build(), TestRegistries.VANILLA)
                         .getModelsCount());
     }
 }

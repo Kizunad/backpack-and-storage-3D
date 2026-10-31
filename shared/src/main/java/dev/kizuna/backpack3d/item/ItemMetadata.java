@@ -7,7 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
@@ -19,16 +19,16 @@ public final class ItemMetadata {
     // 空字符串表示没有补充简介；非空值由客户端语言文件翻译。
     private final String descriptionTranslationKey;
     // 键为附属定义的完整资源 ID，值的结构与校验由对应附属负责。
-    private final Map<ResourceLocation, JsonObject> optional;
+    private final Map<Identifier, JsonObject> optional;
 
-    public ItemMetadata(String descriptionTranslationKey, Map<ResourceLocation, JsonObject> optional) {
+    public ItemMetadata(String descriptionTranslationKey, Map<Identifier, JsonObject> optional) {
         // optional 必须显式提供，允许空表；复制 JSON，防止注册方之后改写服务端配置。
         this.descriptionTranslationKey = Objects.requireNonNull(
                 descriptionTranslationKey, "descriptionTranslationKey 不能为 null");
         Objects.requireNonNull(optional, "optional 必须显式提供；无附属字段时传 Map.of()");
-        var fields = new LinkedHashMap<ResourceLocation, JsonObject>();
+        var fields = new LinkedHashMap<Identifier, JsonObject>();
         for (var entry : optional.entrySet()) {
-            ResourceLocation key = Objects.requireNonNull(entry.getKey(), "optional 字段 ID 不能为 null");
+            Identifier key = Objects.requireNonNull(entry.getKey(), "optional 字段 ID 不能为 null");
             JsonObject value = Objects.requireNonNull(entry.getValue(), "optional 字段值不能为 null");
             fields.put(key, value.deepCopy());
         }
@@ -36,7 +36,7 @@ public final class ItemMetadata {
     }
 
     public static void register(
-            Item item, String descriptionTranslationKey, Map<ResourceLocation, JsonObject> optional) {
+            Item item, String descriptionTranslationKey, Map<Identifier, JsonObject> optional) {
         // 原版与第三方物品复用同一入口；只补充元数据，不重新注册或替换真实物品。
         register(item, new ItemMetadata(descriptionTranslationKey, optional));
     }
@@ -57,7 +57,7 @@ public final class ItemMetadata {
         return descriptionTranslationKey;
     }
 
-    public Optional<JsonObject> optional(ResourceLocation field) {
+    public Optional<JsonObject> optional(Identifier field) {
         // 附属只能拿到副本；校验或解析字段不能改写其他调用者看到的注册信息。
         JsonObject value = optional.get(field);
         return value == null ? Optional.empty() : Optional.of(value.deepCopy());

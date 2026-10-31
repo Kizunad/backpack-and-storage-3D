@@ -25,9 +25,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
-import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.equipment.Equippable;
 
 /** 先构造完整候选，再在同一调用内核对来源并原子提交。 */
 public final class TransferService {
@@ -44,7 +48,7 @@ public final class TransferService {
         return SavedInventory.newBuilder().setFormatVersion(SAVE_VERSION).build();
     }
 
-    public static void validate(SavedInventory data) {
+    public static void validate(SavedInventory data, HolderLookup.Provider registries) {
         // 先拒绝不支持或过大的存档，再逐类检查身份、装备和物品内容。
         int version = data.getFormatVersion();
         if (version != SAVE_VERSION
@@ -61,13 +65,13 @@ public final class TransferService {
         validateReceipts(data.getReceiptsList());
         if (version < SAVE_VERSION) {
             validatePlacements(data.getPlacementsList());
-            validateItems(data.getItemsList());
+            validateItems(data.getItemsList(), registries);
             return;
         }
         if (data.getItemsCount() != 0 || data.getPlacementsCount() != 0) {
             throw new IllegalArgumentException("新版存档不能同时包含旧固定库存");
         }
-        new ContainerTree(data, new ArrayList<>());
+        new ContainerTree(registries, data, new ArrayList<>());
     }
 
     private static void validatePlacements(List<Placement> placements) {
@@ -101,7 +105,7 @@ public final class TransferService {
         }
     }
 
-    private static void validateItems(List<Item> items) {
+    private static void validateItems(List<Item> items, HolderLookup.Provider registries) {
         // 先验证实例身份和占格，再解码真实栈，不能把损坏项静默当成空物品。
         Set<String> ids = new HashSet<>();
         for (Item item : items) {
@@ -121,7 +125,7 @@ public final class TransferService {
             if (!expectedSize.equals(item.getSize())) {
                 throw new IllegalArgumentException("物品朝向与占格不一致：" + id);
             }
-            StackCodec.decode(item.getStackNbt());
+            StackCodec.decode(item.getStackNbt(), registries);
         }
     }
 
@@ -162,15 +166,15 @@ public final class TransferService {
         }
         Map<String, ItemStack> ground = new LinkedHashMap<>();
         account.ground().forEach((id, stack) -> ground.put(id, stack.copy()));
-        ContainerTree tree = new ContainerTree(previous, vanilla, ground);
+        ContainerTree tree = new ContainerTree(account.registries(), previous, vanilla, ground);
         ContainerTree.Entry source = takeSource(account, request, tree, vanilla);
         ItemStack moved = tree.stack(source);
         String sourceContainer = source.item().getContainer();
         placeTarget(account, request, tree, new PlayerDestination(vanilla, moved, source));
         SavedInventory next = withReceipt(previous, tree.worn(), request);
         // 重新解析候选同时验证嵌套深度、唯一身份和原版槽位里的整个子树。
-        validate(next);
-        new ContainerTree(next, vanilla, ground);
+        validate(next, account.registries());
+        new ContainerTree(account.registries(), next, vanilla, ground);
         return new Candidate(next, vanilla, moved, sourceContainer, ground);
     }
 
@@ -265,7 +269,7 @@ public final class TransferService {
         if (PlayerSlots.bindingLocked(slot, stack, account.creative())) {
             throw new IllegalArgumentException("绑定诅咒装备无法取下");
         }
-        var fingerprint = StackCodec.fingerprint(StackCodec.encode(stack));
+        var fingerprint = StackCodec.fingerprint(StackCodec.encode(stack, account.registries()));
         if (!fingerprint.equals(request.getStackFingerprint())) {
             throw new IllegalArgumentException("来源物品已变化，转移已取消");
         }
@@ -297,7 +301,7 @@ public final class TransferService {
     public void equip(Account account, EquipRequest request) throws IOException {
         // 程序接入的绝对挂点调整也使用物品树校验，不允许修改已被收纳的容器。
         List<ItemStack> vanilla = new ArrayList<>(account.inventory());
-        ContainerTree tree = new ContainerTree(account.data(), vanilla);
+        ContainerTree tree = new ContainerTree(account.registries(), account.data(), vanilla);
         var placement = request.getPlacement();
         for (Container current : tree.containers()) {
             if (current.getWorn()
@@ -319,13 +323,13 @@ public final class TransferService {
                         .addAllWorn(tree.worn())
                         .setRevision(Math.addExact(account.data().getRevision(), 1))
                         .build();
-        validate(next);
+        validate(next, account.registries());
         account.commit(next, vanilla);
     }
 
-    public static SavedInventory upgrade(SavedInventory previous) {
+    public static SavedInventory upgrade(SavedInventory previous, HolderLookup.Provider registries) {
         // 旧固定容器各转换为一个真实物品，原有内容、朝向和挂点随物品保存。
-        validate(previous);
+        validate(previous, registries);
         if (previous.getFormatVersion() == SAVE_VERSION) {
             return previous;
         }
@@ -352,12 +356,12 @@ public final class TransferService {
             Mount mount = Volumes.mount(previous, legacy.getId());
             next.addWorn(
                     WornContainer.newBuilder()
-                            .setStackNbt(StackCodec.encode(stack))
+                            .setStackNbt(StackCodec.encode(stack, registries))
                             .setMount(mount)
                             .setWaistAngleDegrees(ContainerTree.defaultAngle(mount)));
         }
         SavedInventory upgraded = next.build();
-        validate(upgraded);
+        validate(upgraded, registries);
         return upgraded;
     }
 
@@ -376,7 +380,7 @@ public final class TransferService {
             inventory.set(slot, source.copy());
             return;
         }
-        if (!ItemStack.isSameItemSameTags(held, source)) {
+        if (!ItemStack.isSameItemSameComponents(held, source)) {
             throw new IllegalArgumentException("这只手已有其他物品，请先存入或换另一只手");
         }
         if (held.getCount() + source.getCount() > held.getMaxStackSize()) {
@@ -391,7 +395,11 @@ public final class TransferService {
             insertInHand(inventory, slot, source);
             return;
         }
-        if (LivingEntity.getEquipmentSlotForItem(source) != PlayerSlots.armorType(slot)) {
+        // 26.2 的可穿戴部位来自 equippable 组件，与原版盔甲槽一样同时检查部位和允许穿戴的实体类型。
+        Equippable equippable = source.get(DataComponents.EQUIPPABLE);
+        if (equippable == null
+                || equippable.slot() != PlayerSlots.armorType(slot)
+                || !equippable.canBeEquippedBy(BuiltInRegistries.ENTITY_TYPE.wrapAsHolder(EntityTypes.PLAYER))) {
             throw new IllegalArgumentException("物品不适合这个装备部位");
         }
         if (source.getCount() != 1) {
@@ -404,10 +412,10 @@ public final class TransferService {
     }
 
     static int insert(List<ItemStack> vanilla, ItemStack remaining) {
-        // 先合并同 NBT 栈，再找空槽；全部容纳不下就丢弃候选，不进行部分转移。
+        // 先合并同组件栈，再找空槽；全部容纳不下就丢弃候选，不进行部分转移。
         List<ItemStack> inventory = vanilla.subList(0, Inventory.INVENTORY_SIZE);
         for (var stack : inventory) {
-            if (!stack.isEmpty() && ItemStack.isSameItemSameTags(stack, remaining)) {
+            if (!stack.isEmpty() && ItemStack.isSameItemSameComponents(stack, remaining)) {
                 int count = Math.min(stack.getMaxStackSize() - stack.getCount(), remaining.getCount());
                 stack.grow(count);
                 remaining.shrink(count);

@@ -88,7 +88,7 @@ bs3d:equip 继续按当前修订号原子调整已穿戴容器的绝对挂点。
 
 ## 保存与嵌套
 
-真实容器 NBT 子字段 `bs3d_container` 包含 `id`（UUID）和 `contents`（`ContainerContents` 的 protobuf 字节数组）。子容器内容递归存在对应物品 NBT 中，因此取回手中、换装和再次收纳均携带完整内容。
+真实容器数据存于物品 `minecraft:custom_data` 组件的 `bs3d_container` 子标签，包含 `id`（UUID）和 `contents`（`ContainerContents` 的 protobuf 字节数组）。子容器内容递归存在对应物品的同一组件中，因此取回手中、换装和再次收纳均携带完整内容。
 
 禁止容器放进自身或子孙，同一玩家树中不得出现重复容器身份。根深度为 0，最大嵌套深度 4，整棵树最多 32 个容器；每层均校验几何。30 格收纳箱可以放草包，但背篓 3×3×4 在全部 24 朝向均放不下。
 

@@ -12,7 +12,9 @@ import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.entity.Entity;
 import java.io.IOException;
@@ -78,7 +80,7 @@ final class WorldEquipmentFixture {
                 case 4 -> subject.setPos(homeX + 1024, homeY, homeZ);
                 case 5 -> subject.setPos(homeX, homeY, homeZ);
                 case 6 ->
-                        subject.serverLevel()
+                        subject.level()
                                 .removePlayerImmediately(subject, Entity.RemovalReason.DISCARDED);
                 default -> throw new IllegalArgumentException("未知世界外观验收步骤");
             }
@@ -92,19 +94,28 @@ final class WorldEquipmentFixture {
         // 观察者仍是实际联网客户端；假玩家只作为被观察的服务器实体，没有额外游戏窗口。
         subject =
                 new ServerPlayer(
-                        server, viewer.serverLevel(), new GameProfile(SUBJECT, "WornSubject"));
+                        server,
+                        viewer.level(),
+                        new GameProfile(SUBJECT, "WornSubject"),
+                        ClientInformation.createDefault());
         subject.connection =
                 new ServerGamePacketListenerImpl(
-                        server, new Connection(PacketFlow.SERVERBOUND), subject);
-        equipped = TransferService.upgrade(SavedInventory.newBuilder().setFormatVersion(2).build());
+                        server,
+                        new Connection(PacketFlow.SERVERBOUND),
+                        subject,
+                        CommonListenerCookie.createInitial(subject.getGameProfile(), false));
+        equipped =
+                TransferService.upgrade(
+                        SavedInventory.newBuilder().setFormatVersion(2).build(),
+                        subject.registryAccess());
         ((PlayerStorage) subject).bs3d$setInventory(equipped);
         homeX = viewer.getX() + 2;
         homeY = viewer.getY();
         homeZ = viewer.getZ() + 2;
-        subject.moveTo(homeX, homeY, homeZ, 0, 0);
+        subject.snapTo(homeX, homeY, homeZ, 0, 0);
         subject.setNoGravity(true);
         viewer.connection.send(
                 new ClientboundPlayerInfoUpdatePacket(ClientboundPlayerInfoUpdatePacket.Action.ADD_PLAYER, subject));
-        subject.serverLevel().addNewPlayer(subject);
+        subject.level().addNewPlayer(subject);
     }
 }

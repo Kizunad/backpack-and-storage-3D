@@ -5,17 +5,18 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.kizuna.backpack3d.TestRegistries;
 import dev.kizuna.backpack3d.protocol.Volumes;
-import net.minecraft.SharedConstants;
 import net.minecraft.core.Holder;
+import net.minecraft.core.MappedRegistry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.Bootstrap;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.PackResources;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.tags.TagKey;
+import net.minecraft.tags.TagLoader;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -43,29 +44,34 @@ class HandlingRulesTest {
 
     @BeforeAll
     static void bootstrap() {
-        SharedConstants.tryDetectVersion();
-        Bootstrap.bootStrap();
+        TestRegistries.bootstrap();
+        // 26.2 只有冻结后的注册表能按数据包流程绑定标签；按原版冻结顺序先把登记期标签绑为空。
+        // 冻结后本 JVM 不能再登记物品，构建脚本让每个测试类独占 JVM。
+        ((MappedRegistry<Item>) BuiltInRegistries.ITEM).bindAllTagsToEmpty();
+        BuiltInRegistries.ITEM.freeze();
     }
 
     @BeforeEach
     void bindTestTag() {
         // 测试通过真实 ItemStack tag 匹配规则，结束时恢复注册表，避免污染其他测试。
-        testTag = TagKey.create(Registries.ITEM, new ResourceLocation("test", "handling"));
+        testTag = TagKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath("test", "handling"));
         originalTags = new HashMap<>();
         BuiltInRegistries.ITEM
                 .getTags()
-                .forEach(
-                        entry ->
-                                originalTags.put(
-                                        entry.getFirst(), entry.getSecond().stream().toList()));
+                .forEach(named -> originalTags.put(named.key(), named.stream().toList()));
         var tags = new HashMap<>(originalTags);
         tags.put(testTag, List.of(BuiltInRegistries.ITEM.wrapAsHolder(Items.APPLE)));
-        BuiltInRegistries.ITEM.bindTags(tags);
+        bindTags(tags);
     }
 
     @AfterEach
     void restoreTags() {
-        BuiltInRegistries.ITEM.bindTags(originalTags);
+        bindTags(originalTags);
+    }
+
+    private static void bindTags(Map<TagKey<Item>, List<Holder<Item>>> tags) {
+        // 冻结后的注册表只能走与数据包重载相同的待定标签流程替换整套标签。
+        BuiltInRegistries.ITEM.prepareTagReload(new TagLoader.LoadResult<>(Registries.ITEM, tags)).apply();
     }
 
     @Test
@@ -167,7 +173,7 @@ class HandlingRulesTest {
                         .defaultBlockState()
                         .getSoundType()
                         .getPlaceSound()
-                        .getLocation()
+                        .location()
                         .toString();
         assertEquals(vanillaSound, block.sound());
         assertEquals(
@@ -194,13 +200,13 @@ class HandlingRulesTest {
                 + "}";
     }
 
-    private static ResourceLocation resourceId(String name) {
-        return new ResourceLocation("test", "bs3d/handling/" + name + ".json");
+    private static Identifier resourceId(String name) {
+        return Identifier.fromNamespaceAndPath("test", "bs3d/handling/" + name + ".json");
     }
 
     private static ResourceManager resources(Map<String, String> files) {
         // 使用内存资源走公开 reload 入口，测试不依赖私有解析方法。
-        var resources = new LinkedHashMap<ResourceLocation, Resource>();
+        var resources = new LinkedHashMap<Identifier, Resource>();
         files.forEach(
                 (name, json) ->
                         resources.put(
@@ -213,11 +219,11 @@ class HandlingRulesTest {
         return new TestResources(resources);
     }
 
-    private record TestResources(Map<ResourceLocation, Resource> files) implements ResourceManager {
+    private record TestResources(Map<Identifier, Resource> files) implements ResourceManager {
         @Override
-        public Map<ResourceLocation, Resource> listResources(
-                String prefix, Predicate<ResourceLocation> filter) {
-            var found = new LinkedHashMap<ResourceLocation, Resource>();
+        public Map<Identifier, Resource> listResources(
+                String prefix, Predicate<Identifier> filter) {
+            var found = new LinkedHashMap<Identifier, Resource>();
             files.forEach(
                     (id, resource) -> {
                         if (id.getPath().startsWith(prefix + "/") && filter.test(id)) {
@@ -228,7 +234,7 @@ class HandlingRulesTest {
         }
 
         @Override
-        public Optional<Resource> getResource(ResourceLocation id) {
+        public Optional<Resource> getResource(Identifier id) {
             return Optional.ofNullable(files.get(id));
         }
 
@@ -238,7 +244,7 @@ class HandlingRulesTest {
         }
 
         @Override
-        public List<Resource> getResourceStack(ResourceLocation id) {
+        public List<Resource> getResourceStack(Identifier id) {
             return getResource(id).stream().toList();
         }
 
@@ -248,8 +254,8 @@ class HandlingRulesTest {
         }
 
         @Override
-        public Map<ResourceLocation, List<Resource>> listResourceStacks(
-                String prefix, Predicate<ResourceLocation> filter) {
+        public Map<Identifier, List<Resource>> listResourceStacks(
+                String prefix, Predicate<Identifier> filter) {
             throw new UnsupportedOperationException("规则加载不使用资源包堆叠");
         }
     }

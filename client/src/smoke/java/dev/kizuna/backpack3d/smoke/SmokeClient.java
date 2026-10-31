@@ -23,8 +23,11 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.screens.AccessibilityOnboardingScreen;
 import net.minecraft.client.gui.screens.ConnectScreen;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.input.MouseButtonInfo;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.multiplayer.resolver.ServerAddress;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
@@ -127,19 +130,20 @@ public final class SmokeClient implements ClientModInitializer {
                                         + ", protocol="
                                         + InventoryUiClient.runtime().protocolError());
                     }
-                    if (client.screen instanceof AccessibilityOnboardingScreen) {
-                        client.setScreen(new TitleScreen());
+                    if (client.gui.screen() instanceof AccessibilityOnboardingScreen) {
+                        client.gui.setScreen(new TitleScreen());
                     }
                     if (!connecting
-                            && client.screen instanceof TitleScreen
-                            && client.getOverlay() == null) {
+                            && client.gui.screen() instanceof TitleScreen
+                            && client.gui.overlay() == null) {
                         connecting = true;
                         ConnectScreen.startConnecting(
                                 new TitleScreen(),
                                 client,
                                 ServerAddress.parseString(ADDRESS),
-                                new ServerData("3D smoke", ADDRESS, false),
-                                false);
+                                new ServerData("3D smoke", ADDRESS, ServerData.Type.OTHER),
+                                false,
+                                null);
                     }
                     var module =
                             FabricLoader.getInstance()
@@ -188,7 +192,7 @@ public final class SmokeClient implements ClientModInitializer {
                                         + module.status());
                     }
                     // 隐藏验收物品触发的成就浮层，让截图只记录实际背包界面。
-                    client.getToasts().clear();
+                    client.gui.toastManager().clear();
                     try {
                         if (phase == null) {
                             phase =
@@ -225,18 +229,18 @@ public final class SmokeClient implements ClientModInitializer {
                         || !client.player.getMainHandItem().is(Items.IRON_SWORD)) {
                     return;
                 }
-                client.setScreen(new WorldEquipmentProbe(module));
+                client.gui.setScreen(new WorldEquipmentProbe(module));
                 next(Step.VERIFY_WORLD_EQUIPMENT);
             }
             case VERIFY_WORLD_EQUIPMENT -> {
-                if (!((WorldEquipmentProbe) client.screen).done()) {
+                if (!((WorldEquipmentProbe) client.gui.screen()).done()) {
                     return;
                 }
-                client.setScreen(new PreviewDepthProbe(module));
+                client.gui.setScreen(new PreviewDepthProbe(module));
                 next(Step.VERIFY_PREVIEW_DEPTH);
             }
             case VERIFY_PREVIEW_DEPTH -> {
-                if (((PreviewDepthProbe) client.screen).done()) {
+                if (((PreviewDepthProbe) client.gui.screen()).done()) {
                     // 工作台入口先通过真实菜单和三维命中，随后继续原有完整库存流程。
                     next(Step.VERIFY_WORKSPACE);
                 }
@@ -248,20 +252,20 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case ROTATE_PLAYER -> {
-                var screen = (VolumeScreen) client.screen;
+                var screen = (VolumeScreen) client.gui.screen();
                 if (screen.bagBounds(pouch) == null) {
                     return;
                 }
                 if (!rotatedScene) {
                     require(screen.selectedItem().isEmpty(), "未选物品验收前已有选中物品");
-                    require(!screen.keyPressed(GLFW.GLFW_KEY_R, 0, 0), "未选物品时背包仍消费 R 键");
-                    require(!screen.keyPressed(GLFW.GLFW_KEY_T, 0, 0), "未选物品时背包仍消费 T 键");
+                    require(!screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_R, 0, 0)), "未选物品时背包仍消费 R 键");
+                    require(!screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_T, 0, 0)), "未选物品时背包仍消费 T 键");
                     initialBagBounds = screen.bagBounds(pouch);
                     rotatedScene = true;
                     ticks = 0;
-                    screen.mouseClicked(20, 100, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
-                    screen.mouseDragged(75, 108, GLFW.GLFW_MOUSE_BUTTON_RIGHT, 55, 8);
-                    screen.mouseReleased(75, 108, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+                    screen.mouseClicked(mouse(20, 100, GLFW.GLFW_MOUSE_BUTTON_RIGHT), false);
+                    screen.mouseDragged(mouse(75, 108, GLFW.GLFW_MOUSE_BUTTON_RIGHT), 55, 8);
+                    screen.mouseReleased(mouse(75, 108, GLFW.GLFW_MOUSE_BUTTON_RIGHT));
                 }
                 if (ticks >= 20) {
                     // 连续腰环的默认角度可能被手臂遮挡，先转到可见侧再验证开盖不改变视角。
@@ -284,12 +288,12 @@ public final class SmokeClient implements ClientModInitializer {
                 if (ticks % 3 == 0 && ticks <= 36) {
                     shot(client, String.format("open-%02d", ticks));
                 }
-                if (((VolumeScreen) client.screen).openContainers().contains(pouch)
+                if (((VolumeScreen) client.gui.screen()).openContainers().contains(pouch)
                         && ticks > 25) {
                     require(
                             java.util.Arrays.equals(
                                     basketBeforeOpening,
-                                    ((VolumeScreen) client.screen).bagBounds(basket)),
+                                    ((VolumeScreen) client.gui.screen()).bagBounds(basket)),
                             "打开草包改变了人物取景或缩放");
                     shot(client, "02-open-pouch");
                     module.move(UUID.randomUUID().toString(), pouch, Cell.getDefaultInstance(),
@@ -301,23 +305,23 @@ public final class SmokeClient implements ClientModInitializer {
                 if (transfer.getPhase() == Phase.REJECTED && !module.busy()) {
                     require(state.getRevision() == 2 && storedItems(state).isEmpty(), "拒绝改变了库存");
                     require(client.player.getMainHandItem().is(Items.IRON_SWORD), "拒绝未恢复来源");
-                    client.screen.keyPressed(GLFW.GLFW_KEY_ESCAPE, 0, 0);
+                    client.gui.screen().keyPressed(new KeyEvent(GLFW.GLFW_KEY_ESCAPE, 0, 0));
                     next(Step.VERIFY_ESCAPE_CANCEL);
                 }
             }
             case VERIFY_ESCAPE_CANCEL -> {
-                if (ticks > 25 && client.screen == null) {
+                if (ticks > 25 && client.gui.screen() == null) {
                     require(state.getRevision() == 2, "关闭页面改变了被拒绝的操作");
                     module.open();
-                    ((VolumeScreen) client.screen).openContainer(pouch);
+                    ((VolumeScreen) client.gui.screen()).openContainer(pouch);
                     next(Step.DEPOSIT_SWORD);
                 }
             }
             case DEPOSIT_SWORD -> {
-                if (((VolumeScreen) client.screen).openContainers().contains(pouch)
+                if (((VolumeScreen) client.gui.screen()).openContainers().contains(pouch)
                         && ticks > 30) {
                     if (dragHandIntoContainer(
-                            client, module, client.player.getInventory().selected, pouch)) {
+                            client, module, client.player.getInventory().getSelectedSlot(), pouch)) {
                         next(Step.VERIFY_SWORD);
                     }
                 }
@@ -351,20 +355,20 @@ public final class SmokeClient implements ClientModInitializer {
             }
             case OPEN_BASKET -> {
                 if (state.getRevision() == 5 && !module.busy()) {
-                    ((VolumeScreen) client.screen).openContainer(basket);
+                    ((VolumeScreen) client.gui.screen()).openContainer(basket);
                     next(Step.DRAG_WINDOW);
                 }
             }
             case DRAG_WINDOW -> {
-                var screen = (VolumeScreen) client.screen;
+                var screen = (VolumeScreen) client.gui.screen();
                 if (screen.openContainers().size() == 2 && ticks > 30) {
                     var bounds = screen.window(pouch).bounds();
-                    screen.mouseClicked(
-                            bounds.x() + 8, bounds.y() + 8, GLFW.GLFW_MOUSE_BUTTON_LEFT);
-                    screen.mouseDragged(
-                            bounds.x() + 8, bounds.y() + 24, GLFW.GLFW_MOUSE_BUTTON_LEFT, 0, 16);
-                    screen.mouseReleased(
-                            bounds.x() + 8, bounds.y() + 24, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseClicked(mouse(
+                            bounds.x() + 8, bounds.y() + 8, GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
+                    screen.mouseDragged(mouse(
+                            bounds.x() + 8, bounds.y() + 24, GLFW.GLFW_MOUSE_BUTTON_LEFT), 0, 16);
+                    screen.mouseReleased(mouse(
+                            bounds.x() + 8, bounds.y() + 24, GLFW.GLFW_MOUSE_BUTTON_LEFT));
                     require(screen.window(pouch).bounds().y() == bounds.y() + 16, "拖窗失效");
                     dragLayerHandle(screen, basket, true, 0, 1);
                     dragLayerHandle(screen, basket, false, 3, 2);
@@ -373,7 +377,7 @@ public final class SmokeClient implements ClientModInitializer {
             }
             case VERIFY_LAYER_RANGE -> {
                 if (ticks > 3) {
-                    var screen = (VolumeScreen) client.screen;
+                    var screen = (VolumeScreen) client.gui.screen();
                     require(
                             java.util.Arrays.equals(screen.visibleLayers(basket), new int[] {1, 2}),
                             "范围条没有选中中间层");
@@ -396,7 +400,7 @@ public final class SmokeClient implements ClientModInitializer {
             }
             case RESTORE_LAYER_RANGE -> {
                 if (ticks > 3) {
-                    var screen = (VolumeScreen) client.screen;
+                    var screen = (VolumeScreen) client.gui.screen();
                     require(
                             java.util.Arrays.equals(screen.visibleLayers(basket), new int[] {0, 3}),
                             "范围条无法恢复全部格层");
@@ -411,22 +415,22 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
             case DRAG_ROTATED_ITEM -> {
-                var screen = (VolumeScreen) client.screen;
+                var screen = (VolumeScreen) client.gui.screen();
                 if (ticks == 5) {
                     var b = screen.window(pouch).bounds();
-                    screen.mouseClicked(
-                            b.x() + b.width() - 27, b.y() + 8, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseClicked(mouse(
+                            b.x() + b.width() - 27, b.y() + 8, GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
                     require(screen.window(pouch).minimized(), "最小化失效");
                 }
                 if (ticks == 8) {
                     // 恢复按钮与标题分开，点击小卡片右侧的独立恢复区域。
-                    screen.mouseClicked(90, screen.height - 42, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseClicked(mouse(90, screen.height - 42, GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
                     require(!screen.window(pouch).minimized(), "恢复窗口失效");
                 }
                 if (ticks > 12) {
                     shot(client, "04-two-windows-interior");
                     selectSword(screen);
-                    screen.mouseReleased(0, 0, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseReleased(mouse(0, 0, GLFW.GLFW_MOUSE_BUTTON_LEFT));
                     cellsBeforeDrag = sampleCells(screen, basket);
                     dragEmptySpace(screen, basket);
                     require(!module.busy(), "拖动空白处意外启动物品转移");
@@ -435,26 +439,26 @@ public final class SmokeClient implements ClientModInitializer {
             }
             case VERIFY_EMPTY_DRAG -> {
                 if (ticks > 3) {
-                    var screen = (VolumeScreen) client.screen;
+                    var screen = (VolumeScreen) client.gui.screen();
                     require(!cellsBeforeDrag.equals(sampleCells(screen, basket)), "左拖空白处没有旋转内景");
                     require(
                             screen.selectedItem().equals(sword) && !module.busy(),
                             "旋转场景改变了选中物品或库存");
-                    screen.mouseClicked(screen.width - 22, 22, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseClicked(mouse(screen.width - 22, 22, GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
                     next(Step.VERIFY_HELP);
                 }
             }
             case VERIFY_HELP -> {
                 if (ticks > 3) {
-                    var screen = (VolumeScreen) client.screen;
+                    var screen = (VolumeScreen) client.gui.screen();
                     int previousOrientation = screen.selectedOrientation();
-                    screen.keyPressed(GLFW.GLFW_KEY_T, 0, 0);
+                    screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_T, 0, 0));
                     require(screen.selectedOrientation() == previousOrientation, "帮助面板没有拦截旋转输入");
-                    screen.mouseClicked(screen.width - 100, 100, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseClicked(mouse(screen.width - 100, 100, GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
                     require(!module.busy(), "帮助面板点击穿透到了物品");
                     shot(client, "08-controls-help");
-                    screen.keyPressed(GLFW.GLFW_KEY_ESCAPE, 0, 0);
-                    require(client.screen == screen, "ESC 关闭帮助时意外关闭背包");
+                    screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_ESCAPE, 0, 0));
+                    require(client.gui.screen() == screen, "ESC 关闭帮助时意外关闭背包");
                     selectSword(screen);
                     int orientation = rotateWithReboundKey(screen, module);
                     dropSwordIntoBasket(client, screen, module, orientation);
@@ -505,7 +509,7 @@ public final class SmokeClient implements ClientModInitializer {
                 if (state.getRevision() == 8 && ticks > 10) {
                     require(module.mount(basket) == Mount.TORSO_FRONT, "背篓前后挂点未同步");
                     shot(client, "07-equipment-front");
-                    ((VolumeScreen) client.screen).onClose();
+                    ((VolumeScreen) client.gui.screen()).onClose();
                     next(Step.FINISH_FIRST);
                 }
             }
@@ -554,7 +558,7 @@ public final class SmokeClient implements ClientModInitializer {
                                 .equals(Volumes.size(2, 1, 1)),
                         "朝向重启丢失");
                 module.open();
-                ((VolumeScreen) client.screen).openContainer(basket);
+                ((VolumeScreen) client.gui.screen()).openContainer(basket);
                 next(Step.WITHDRAW_SWORD);
             }
             case WITHDRAW_SWORD -> {
@@ -598,7 +602,7 @@ public final class SmokeClient implements ClientModInitializer {
                                     .orElseThrow()
                                     .getId();
                     if (dragItemToHand(
-                            client, sword, basket, client.player.getInventory().selected)) {
+                            client, sword, basket, client.player.getInventory().getSelectedSlot())) {
                         next(Step.HAND_TO_OFFHAND);
                     }
                 }
@@ -608,7 +612,7 @@ public final class SmokeClient implements ClientModInitializer {
                         && !module.busy()
                         && dragPlayerSlot(
                                 client,
-                                client.player.getInventory().selected,
+                                client.player.getInventory().getSelectedSlot(),
                                 Inventory.SLOT_OFFHAND)) {
                     next(Step.HAND_TO_MAINHAND);
                 }
@@ -622,7 +626,7 @@ public final class SmokeClient implements ClientModInitializer {
                     if (dragPlayerSlot(
                             client,
                             Inventory.SLOT_OFFHAND,
-                            client.player.getInventory().selected)) {
+                            client.player.getInventory().getSelectedSlot())) {
                         next(Step.ARMOR_TO_OFFHAND);
                     }
                 }
@@ -690,7 +694,7 @@ public final class SmokeClient implements ClientModInitializer {
             case CANCEL_BEFORE_ACK -> {
                 if (state.getRevision() == 18 && !module.busy()) {
                     require(
-                            client.player.getInventory().items.stream()
+                            client.player.getInventory().getNonEquipmentItems().stream()
                                     .anyMatch(
                                             stack ->
                                                     stack.is(Items.IRON_SWORD)
@@ -703,7 +707,7 @@ public final class SmokeClient implements ClientModInitializer {
                                     .orElseThrow();
                     module.move(block.getId(), pouch, Cell.getDefaultInstance(), true);
                     // 发送后立即关窗，验证已发送请求仍即时完成。
-                    client.screen.onClose();
+                    client.gui.screen().onClose();
                     next(Step.VERIFY_EARLY_CANCEL);
                 }
             }
@@ -737,7 +741,7 @@ public final class SmokeClient implements ClientModInitializer {
         if (module.busy()) {
             return false;
         }
-        var screen = (VolumeScreen) client.screen;
+        var screen = (VolumeScreen) client.gui.screen();
         instantTicks++;
         try {
             boolean progressed;
@@ -776,16 +780,16 @@ public final class SmokeClient implements ClientModInitializer {
                 SmokeShift.press();
             }
             case 1 -> {
-                if (!Screen.hasShiftDown()) {
+                if (!client.hasShiftDown()) {
                     return false;
                 }
-                int[] source = visibleSlot(screen, client.player.getInventory().selected);
+                int[] source = visibleSlot(screen, client.player.getInventory().getSelectedSlot());
                 if (source == null) {
                     rotatePreview(screen);
                     return false;
                 }
-                screen.mouseClicked(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
-                screen.mouseReleased(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                screen.mouseClicked(mouse(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
+                screen.mouseReleased(mouse(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT));
                 SmokeShift.release();
             }
             case 2 -> {
@@ -806,7 +810,7 @@ public final class SmokeClient implements ClientModInitializer {
                 SmokeShift.press();
             }
             case 4 -> {
-                if (!Screen.hasShiftDown()) {
+                if (!client.hasShiftDown()) {
                     return false;
                 }
                 selectSword(screen);
@@ -840,17 +844,17 @@ public final class SmokeClient implements ClientModInitializer {
                 if (instantTicks < 30) {
                     return false;
                 }
-                int[] source = visibleSlot(screen, client.player.getInventory().selected);
+                int[] source = visibleSlot(screen, client.player.getInventory().getSelectedSlot());
                 int[] target = visibleBag(screen, basket);
                 if (source == null || target == null) {
                     rotatePreview(screen);
                     return false;
                 }
                 require(!screen.openContainers().contains(basket), "模型自动放置验收要求合盖");
-                screen.mouseClicked(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
-                screen.mouseDragged(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT,
+                screen.mouseClicked(mouse(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
+                screen.mouseDragged(mouse(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT),
                         target[0] - source[0], target[1] - source[1]);
-                screen.mouseReleased(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                screen.mouseReleased(mouse(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT));
             }
             default -> throw new IllegalStateException("未知即时输入验收步骤");
         }
@@ -887,24 +891,24 @@ public final class SmokeClient implements ClientModInitializer {
     }
 
     private static boolean dragPlayerSlot(Minecraft client, int sourceSlot, int targetSlot) {
-        var screen = (VolumeScreen) client.screen;
+        var screen = (VolumeScreen) client.gui.screen();
         int[] source = visibleSlot(screen, sourceSlot);
         int[] target = visibleSlot(screen, targetSlot);
         if (source == null || target == null) {
             rotatePreview(screen);
             return false;
         }
-        screen.mouseClicked(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
+        screen.mouseClicked(mouse(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
         require(
                 screen.selectedItem().equals(VolumeModule.playerSlotPreviewId(sourceSlot)),
                 "身体部位没有捕获来源：" + sourceSlot);
-        screen.mouseDragged(
+        screen.mouseDragged(mouse(
                 target[0],
                 target[1],
-                GLFW.GLFW_MOUSE_BUTTON_LEFT,
+                GLFW.GLFW_MOUSE_BUTTON_LEFT),
                 target[0] - source[0],
                 target[1] - source[1]);
-        screen.mouseReleased(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
+        screen.mouseReleased(mouse(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT));
         return true;
     }
 
@@ -923,20 +927,20 @@ public final class SmokeClient implements ClientModInitializer {
     }
 
     private static void rotatePreview(VolumeScreen screen) {
-        screen.mouseClicked(20, 40, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
-        screen.mouseDragged(60, 40, GLFW.GLFW_MOUSE_BUTTON_RIGHT, 40, 0);
-        screen.mouseReleased(60, 40, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+        screen.mouseClicked(mouse(20, 40, GLFW.GLFW_MOUSE_BUTTON_RIGHT), false);
+        screen.mouseDragged(mouse(60, 40, GLFW.GLFW_MOUSE_BUTTON_RIGHT), 40, 0);
+        screen.mouseReleased(mouse(60, 40, GLFW.GLFW_MOUSE_BUTTON_RIGHT));
     }
 
     private static void drag(VolumeScreen screen, int[] source, int[] target) {
-        screen.mouseClicked(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
-        screen.mouseDragged(
+        screen.mouseClicked(mouse(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
+        screen.mouseDragged(mouse(
                 target[0],
                 target[1],
-                GLFW.GLFW_MOUSE_BUTTON_LEFT,
+                GLFW.GLFW_MOUSE_BUTTON_LEFT),
                 target[0] - source[0],
                 target[1] - source[1]);
-        screen.mouseReleased(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
+        screen.mouseReleased(mouse(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT));
     }
 
     private static int[] visibleBag(VolumeScreen screen, String item) {
@@ -955,14 +959,14 @@ public final class SmokeClient implements ClientModInitializer {
 
     private static boolean dragWornToContainer(
             Minecraft client, VolumeModule module, String item, String target) {
-        var screen = (VolumeScreen) client.screen;
+        var screen = (VolumeScreen) client.gui.screen();
         int[] source = visibleBag(screen, item);
         if (source == null) {
             rotatePreview(screen);
             return false;
         }
-        screen.mouseClicked(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
-        screen.mouseDragged(source[0] + 5, source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT, 5, 0);
+        screen.mouseClicked(mouse(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
+        screen.mouseDragged(mouse(source[0] + 5, source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT), 5, 0);
         require(screen.selectedItem().equals(item), "身上容器未捕获物品拖动");
         var view = screen.viewport(target);
         for (int y = view.y(); y < view.bottom(); y += 2) {
@@ -976,9 +980,9 @@ public final class SmokeClient implements ClientModInitializer {
                                 cell,
                                 module.container(item).getOuterSize(),
                                 item)) {
-                    screen.mouseDragged(
-                            x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT, x - source[0], y - source[1]);
-                    screen.mouseReleased(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseDragged(mouse(
+                            x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT), x - source[0], y - source[1]);
+                    screen.mouseReleased(mouse(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT));
                     require(module.busy(), "身上容器拖入另一容器未提交");
                     return true;
                 }
@@ -989,7 +993,7 @@ public final class SmokeClient implements ClientModInitializer {
 
     private static boolean dragContainerToBody(
             Minecraft client, String item, String sourceContainer, Mount mount) {
-        var screen = (VolumeScreen) client.screen;
+        var screen = (VolumeScreen) client.gui.screen();
         int[] source = null;
         if (sourceContainer == null) {
             source = visibleBag(screen, item);
@@ -1038,15 +1042,15 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
         }
-        screen.mouseClicked(20, 40, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
-        screen.mouseDragged(60, 40, GLFW.GLFW_MOUSE_BUTTON_RIGHT, 40, 0);
-        screen.mouseReleased(60, 40, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+        screen.mouseClicked(mouse(20, 40, GLFW.GLFW_MOUSE_BUTTON_RIGHT), false);
+        screen.mouseDragged(mouse(60, 40, GLFW.GLFW_MOUSE_BUTTON_RIGHT), 40, 0);
+        screen.mouseReleased(mouse(60, 40, GLFW.GLFW_MOUSE_BUTTON_RIGHT));
         return null;
     }
 
     private boolean dragItemToHand(
             Minecraft client, String item, String container, int slot) {
-        var screen = (VolumeScreen) client.screen;
+        var screen = (VolumeScreen) client.gui.screen();
         var target = visibleHand(screen, slot);
         if (target == null) {
             return false;
@@ -1055,16 +1059,16 @@ public final class SmokeClient implements ClientModInitializer {
         for (int y = view.y(); y < view.bottom(); y += 2) {
             for (int x = view.x(); x < view.right(); x += 2) {
                 if (screen.itemAt(container, x, y).equals(item)) {
-                    screen.mouseClicked(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseClicked(mouse(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
                     require(screen.selectedItem().equals(item), "手部拖放没有选中来源物品");
                     cursor(client, target[0], target[1]);
-                    screen.mouseDragged(
+                    screen.mouseDragged(mouse(
                             target[0],
                             target[1],
-                            GLFW.GLFW_MOUSE_BUTTON_LEFT,
+                            GLFW.GLFW_MOUSE_BUTTON_LEFT),
                             target[0] - x,
                             target[1] - y);
-                    screen.mouseReleased(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseReleased(mouse(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT));
                     return true;
                 }
             }
@@ -1077,23 +1081,23 @@ public final class SmokeClient implements ClientModInitializer {
         if (itemPickAttempts > 1) {
             int x = view.x() + view.width() / 2;
             int y = view.y() + view.height() / 2;
-            screen.mouseClicked(x, y, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
-            screen.mouseDragged(x + 30, y, GLFW.GLFW_MOUSE_BUTTON_RIGHT, 30, 0);
-            screen.mouseReleased(x + 30, y, GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+            screen.mouseClicked(mouse(x, y, GLFW.GLFW_MOUSE_BUTTON_RIGHT), false);
+            screen.mouseDragged(mouse(x + 30, y, GLFW.GLFW_MOUSE_BUTTON_RIGHT), 30, 0);
+            screen.mouseReleased(mouse(x + 30, y, GLFW.GLFW_MOUSE_BUTTON_RIGHT));
         }
         return false;
     }
 
     private static boolean dragHandIntoContainer(
             Minecraft client, VolumeModule module, int slot, String container) {
-        var screen = (VolumeScreen) client.screen;
+        var screen = (VolumeScreen) client.gui.screen();
         var source = visibleHand(screen, slot);
         if (source == null) {
             return false;
         }
         var hand = module.playerSlot(slot);
         require(hand != null && !hand.getStackNbt().isEmpty(), "手持快照缺失");
-        screen.mouseClicked(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT);
+        screen.mouseClicked(mouse(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
         require(screen.selectedItem().equals(VolumeModule.playerSlotPreviewId(slot)), "手掌未捕获拖动");
         var view = screen.viewport(container);
         for (int y = view.y(); y < view.bottom(); y += 2) {
@@ -1108,9 +1112,9 @@ public final class SmokeClient implements ClientModInitializer {
                                 hand.getBaseSize(),
                                 "")) {
                     cursor(client, x, y);
-                    screen.mouseDragged(
-                            x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT, x - source[0], y - source[1]);
-                    screen.mouseReleased(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseDragged(mouse(
+                            x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT), x - source[0], y - source[1]);
+                    screen.mouseReleased(mouse(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT));
                     require(module.busy(), "从手掌拖到内景没有开始转移");
                     return true;
                 }
@@ -1127,13 +1131,13 @@ public final class SmokeClient implements ClientModInitializer {
         for (int y = source.y(); y < source.bottom(); y += 2) {
             for (int x = source.x(); x < source.right(); x += 2) {
                 if (screen.itemAt(pouch, x, y).equals(sword)) {
-                    screen.mouseClicked(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseClicked(mouse(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
                     picked = true;
                     break outer;
                 }
             }
         }
-        require(picked && (Screen.hasShiftDown()
+        require(picked && (Minecraft.getInstance().hasShiftDown()
                 || screen.selectedItem().equals(sword)), "三维物品命中失败");
     }
 
@@ -1158,9 +1162,9 @@ public final class SmokeClient implements ClientModInitializer {
         int y = bounds.y() + bounds.height() / 2 + (lower ? 5 : -4);
         int start = left + Math.round(width * from / 3f);
         int end = left + Math.round(width * to / 3f);
-        screen.mouseClicked(start, y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
-        screen.mouseDragged(end, y, GLFW.GLFW_MOUSE_BUTTON_LEFT, end - start, 0);
-        screen.mouseReleased(end, y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+        screen.mouseClicked(mouse(start, y, GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
+        screen.mouseDragged(mouse(end, y, GLFW.GLFW_MOUSE_BUTTON_LEFT), end - start, 0);
+        screen.mouseReleased(mouse(end, y, GLFW.GLFW_MOUSE_BUTTON_LEFT));
     }
 
     private static void dragEmptySpace(VolumeScreen screen, String container) {
@@ -1169,9 +1173,9 @@ public final class SmokeClient implements ClientModInitializer {
         for (int y = bounds.y(); y < bounds.bottom() - 20; y += 2) {
             for (int x = bounds.x(); x < bounds.right() - 40; x += 2) {
                 if (screen.itemAt(container, x, y).isEmpty()) {
-                    screen.mouseClicked(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
-                    screen.mouseDragged(x + 40, y + 20, GLFW.GLFW_MOUSE_BUTTON_LEFT, 40, 20);
-                    screen.mouseReleased(x + 40, y + 20, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseClicked(mouse(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
+                    screen.mouseDragged(mouse(x + 40, y + 20, GLFW.GLFW_MOUSE_BUTTON_LEFT), 40, 20);
+                    screen.mouseReleased(mouse(x + 40, y + 20, GLFW.GLFW_MOUSE_BUTTON_LEFT));
                     return;
                 }
             }
@@ -1188,7 +1192,7 @@ public final class SmokeClient implements ClientModInitializer {
             require(!id.equals("key.bs3d.rotate_pitch"), "上下旋转仍注册为全局按键");
         }
         require(java.util.Arrays.asList(client.options.keyMappings).contains(module.openKey()), "全局背包键丢失");
-        screen.keyPressed(GLFW.GLFW_KEY_T, 0, 0);
+        screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_T, 0, 0));
         verifyConfiguredRotation(screen);
         int orientation =
                 OrthogonalRotation.turn(OrthogonalRotation.turn(0, true, false), false, false);
@@ -1206,9 +1210,9 @@ public final class SmokeClient implements ClientModInitializer {
             Files.writeString(config, rebound);
             ModelResources.registerPack(ignored -> {});
             int before = screen.selectedOrientation();
-            screen.keyPressed(GLFW.GLFW_KEY_R, 0, 0);
+            screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_R, 0, 0));
             require(screen.selectedOrientation() == before, "改键后旧 R 键仍旋转物品");
-            screen.keyPressed(GLFW.GLFW_KEY_Y, 0, 0);
+            screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_Y, 0, 0));
             require(screen.selectedOrientation() != before, "TOML 新旋转键未生效");
         } finally {
             Files.writeString(config, original);
@@ -1241,8 +1245,8 @@ public final class SmokeClient implements ClientModInitializer {
                                 size,
                                 sword)) {
                     cursor(client, x, y);
-                    screen.mouseDragged(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT, 100, 0);
-                    screen.mouseReleased(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseDragged(mouse(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT), 100, 0);
+                    screen.mouseReleased(mouse(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT));
                     dropped = true;
                     break outer;
                 }
@@ -1259,8 +1263,8 @@ public final class SmokeClient implements ClientModInitializer {
             for (int x = (int) bounds[0]; x < bounds[2]; x++) {
                 if (screen.bagHit(id, x, y)) {
                     cursor(client, x, y);
-                    screen.mouseClicked(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
-                    screen.mouseReleased(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                    screen.mouseClicked(mouse(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
+                    screen.mouseReleased(mouse(x, y, GLFW.GLFW_MOUSE_BUTTON_LEFT));
                     return;
                 }
             }
@@ -1283,25 +1287,29 @@ public final class SmokeClient implements ClientModInitializer {
     }
 
     private static void slot(Minecraft client, int index) {
-        client.player.getInventory().selected = index;
+        client.player.getInventory().setSelectedSlot(index);
         client.getConnection().send(new ServerboundSetCarriedItemPacket(index));
     }
 
     private static void cursor(Minecraft client, double x, double y) {
         double scale = client.getWindow().getGuiScale();
-        GLFW.glfwSetCursorPos(client.getWindow().getWindow(), x * scale, y * scale);
+        GLFW.glfwSetCursorPos(client.getWindow().handle(), x * scale, y * scale);
     }
 
     private static void shot(Minecraft client, String name) {
         Screenshot.grab(
-                client.gameDirectory, name + ".png", client.getMainRenderTarget(), message -> {});
+                client.gameDirectory, name + ".png", client.gameRenderer.mainRenderTarget(), 1, message -> {});
     }
 
     private void finish(Minecraft client, String text) throws java.io.IOException {
         Files.writeString(client.gameDirectory.toPath().resolve(phase + "-ok.txt"), text);
         step = Step.FINISHED;
-        client.level.disconnect();
-        client.clearLevel();
+        client.disconnectFromWorld(ClientLevel.DEFAULT_QUIT_MESSAGE);
         client.stop();
+    }
+
+    private static MouseButtonEvent mouse(double x, double y, int button) {
+        // 合成输入不带修饰键，坐标为 GUI 逻辑像素。
+        return new MouseButtonEvent(x, y, new MouseButtonInfo(button, 0));
     }
 }

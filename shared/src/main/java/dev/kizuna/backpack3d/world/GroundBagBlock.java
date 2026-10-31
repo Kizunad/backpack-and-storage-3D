@@ -1,9 +1,10 @@
 package dev.kizuna.backpack3d.world;
 
+import com.mojang.serialization.MapCodec;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
@@ -42,9 +43,15 @@ final class GroundBagBlock extends BaseEntityBlock {
                     BLOCK_PIXELS - POUCH_INSET_PIXELS,
                     POUCH_TOP_PIXELS,
                     BLOCK_PIXELS - POUCH_INSET_PIXELS);
+    private static final MapCodec<GroundBagBlock> CODEC = simpleCodec(GroundBagBlock::new);
 
     GroundBagBlock(Properties settings) {
         super(settings);
+    }
+
+    @Override
+    protected MapCodec<GroundBagBlock> codec() {
+        return CODEC;
     }
 
     @Override
@@ -62,9 +69,9 @@ final class GroundBagBlock extends BaseEntityBlock {
             BlockState state, BlockGetter world, BlockPos pos, CollisionContext context) {
         // 草包使用更小的碰撞与命中体积，不能在小模型上方留下不可见的大障碍。
         if (world.getBlockEntity(pos) instanceof GroundBagBlockEntity bag) {
-            ResourceLocation id = ResourceLocation.tryParse(bag.itemType());
+            Identifier id = Identifier.tryParse(bag.itemType());
             if (id != null && BuiltInRegistries.ITEM.containsKey(id)) {
-                var type = ContainerItems.definition(new ItemStack(BuiltInRegistries.ITEM.get(id)));
+                var type = ContainerItems.definition(new ItemStack(BuiltInRegistries.ITEM.getValue(id)));
                 if (type != null && type.waist()) {
                     return POUCH_SHAPE;
                 }
@@ -74,7 +81,8 @@ final class GroundBagBlock extends BaseEntityBlock {
     }
 
     @Override
-    public InteractionResult use(
+    protected InteractionResult useItemOn(
+            ItemStack stack,
             BlockState state,
             Level world,
             BlockPos pos,
@@ -82,6 +90,7 @@ final class GroundBagBlock extends BaseEntityBlock {
             InteractionHand hand,
             BlockHitResult hit) {
         // 原版交互包提供位置与手，真正的身份、距离和访问权由业务服务器复核。
+        // 26.2 的 useItemOn 按手调用、手里为空也调用，与 1.20.1 的 use 时机相同，所以不另覆盖 useWithoutItem。
         if (world.getBlockEntity(pos) instanceof GroundBagBlockEntity bag) {
             return GroundBags.use(player, hand, bag);
         }

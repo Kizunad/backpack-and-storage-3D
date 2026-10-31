@@ -29,8 +29,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
 /** 人物装备预览与多个轻量容器窗口；窗口管理能力复用 Framework。 */
@@ -92,12 +94,10 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     private double pressY;
     private long frameTime;
     private final Runnable exit;
-    private int scissorX;
-    private int scissorY;
 
     public VolumeScreen(VolumeModule module) {
         // 独立快捷键入口沿用 Minecraft 屏幕生命周期。
-        this(module, () -> net.minecraft.client.Minecraft.getInstance().setScreen(null));
+        this(module, () -> net.minecraft.client.Minecraft.getInstance().gui.setScreen(null));
     }
 
     VolumeScreen(VolumeModule module, Runnable exit) {
@@ -107,12 +107,6 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         this.exit = exit;
         player = new WornPreview(module);
         help = new ControlsHelp(module);
-    }
-
-    void scissorOrigin(int x, int y) {
-        // 顶点与命中采用局部坐标，OpenGL 裁剪仍需要屏幕绝对坐标。
-        scissorX = x;
-        scissorY = y;
     }
 
     void cancelInput() {
@@ -152,7 +146,13 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void extractBackground(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
+        // 背包页面直接透出已绘制的世界，不叠加 26.2 原版的模糊和暗幕；字幕仍按原版排在背景层。
+        minecraft.gui.hud.extractDeferredSubtitles();
+    }
+
+    @Override
+    public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
         // 动画按时间推进；合盖不影响已经完成的即时转移。
         long now = System.nanoTime();
         float seconds = 0;
@@ -169,7 +169,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         refreshSelection();
         drawScene(context, mouseX, mouseY);
         help.draw(context, font, width, mouseX, mouseY, status());
-        super.render(context, mouseX, mouseY, delta);
+        super.extractRenderState(context, mouseX, mouseY, delta);
         drawItemTooltip(context, mouseX, mouseY);
     }
 
@@ -180,7 +180,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         }
     }
 
-    private void drawScene(GuiGraphics context, int mouseX, int mouseY) {
+    private void drawScene(GuiGraphicsExtractor context, int mouseX, int mouseY) {
         // 人物、容器窗口及落点提示沿同一场景顺序绘制。
         if (selectedPlayerStack != null
                 && !selectedPlayerStack.equals(
@@ -194,6 +194,8 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         player.dropSource(selected);
         player.draw(
                 context,
+                width,
+                height,
                 (int) (width * PLAYER_CENTER_RATIO),
                 (int) (height * PLAYER_BASELINE_RATIO),
                 (int) (height * PLAYER_SCALE_RATIO),
@@ -211,11 +213,11 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         drawRestores(context, mouseX, mouseY);
         player.drawDropTarget(context, font, mouseX, mouseY);
         // 附属只提供文本，不接管场景、窗口输入或原版 HUD。
-        context.drawString(font, ContainerDetails.summary(), MARGIN, MARGIN,
+        context.text(font, ContainerDetails.summary(), MARGIN, MARGIN,
                 color(ThemeTokens.MUTED_TEXT));
         if (dragging) {
             // 鼠标只携带名称，三维候选绘制在目标窗口的真实格位，避免图标遮住落点。
-            context.drawString(
+            context.text(
                     font,
                     module.stack(selected).getHoverName(),
                     mouseX + GAP,
@@ -224,7 +226,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         }
     }
 
-    private void drawItemTooltip(GuiGraphics context, int mouseX, int mouseY) {
+    private void drawItemTooltip(GuiGraphicsExtractor context, int mouseX, int mouseY) {
         // 操作期间不遮挡落点；只查询最上层窗口，不能透过窗口命中人物或被遮住的物品。
         if (closing || dragging || scenePressed || !camera.isEmpty() || !layerDrag.isEmpty()
                 || !pressedItem.isEmpty() || help.captures(mouseX, mouseY)) {
@@ -248,7 +250,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         }
         var stack = module.stack(itemId);
         if (!stack.isEmpty()) {
-            context.renderTooltip(font, stack, mouseX, mouseY);
+            context.setTooltipForNextFrame(font, stack, mouseX, mouseY);
         }
     }
 
@@ -303,17 +305,17 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     }
 
     private void drawWindow(
-            GuiGraphics context, UiWindowManager.WindowState window, int mx, int my) {
+            GuiGraphicsExtractor context, UiWindowManager.WindowState window, int mx, int my) {
         String id = window.key().identity();
         var bounds = window.bounds();
         int right = bounds.x() + bounds.width();
         int bottom = bounds.y() + bounds.height();
         context.fill(bounds.x(), bounds.y(), right, bottom, color(ThemeTokens.PANEL));
-        context.renderOutline(
+        context.outline(
                 bounds.x(), bounds.y(), bounds.width(), bounds.height(), color(ThemeTokens.BORDER));
         var container = module.container(id);
         // 顶部只有细标题、最小化和关闭按钮，不再绘制容器页签条。
-        context.drawString(
+        context.text(
                 font,
                 font.plainSubstrByWidth(
                         container.getTitle() + " " + ContainerDetails.container(id).getString(),
@@ -364,10 +366,10 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
                         top ? my : -1,
                         selected,
                         top && !module.busy() ? selectedModel() : null,
-                        orientation, scissorX, scissorY);
+                        orientation);
     }
 
-    private void drawRestores(GuiGraphics context, int mx, int my) {
+    private void drawRestores(GuiGraphicsExtractor context, int mx, int my) {
         // 仅最小化容器留下小卡片，恢复和关闭使用独立命中区；关闭仍走合盖与地面访问释放流程。
         int x = MARGIN;
         int y = height - FOOTER_HEIGHT;
@@ -376,8 +378,8 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             if (window.minimized()) {
                 String id = window.key().identity();
                 context.fill(x, y, x + cardWidth, y + CONTROL_HEIGHT, color(ThemeTokens.PANEL));
-                context.renderOutline(x, y, cardWidth, CONTROL_HEIGHT, color(ThemeTokens.BORDER));
-                context.drawString(
+                context.outline(x, y, cardWidth, CONTROL_HEIGHT, color(ThemeTokens.BORDER));
+                context.text(
                         font,
                         font.plainSubstrByWidth(
                                 module.container(id).getTitle(), RESTORE_WIDTH - GAP * 2),
@@ -421,7 +423,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     }
 
     private void button(
-            GuiGraphics context,
+            GuiGraphicsExtractor context,
             String owner,
             Rect rect,
             String label,
@@ -438,7 +440,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
                     rect.bottom(),
                     color(ThemeTokens.CONTROL_HOVER));
         }
-        context.drawString(
+        context.text(
                 font,
                 font.plainSubstrByWidth(label, Math.max(1, rect.width() - GAP * 2)),
                 rect.x() + GAP,
@@ -512,7 +514,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         if (item == null || module.busy()) {
             return;
         }
-        orientation = OrthogonalRotation.turn(orientation, vertical, hasShiftDown());
+        orientation = OrthogonalRotation.turn(orientation, vertical, minecraft.hasShiftDown());
         Size size = OrthogonalRotation.size(Volumes.baseSize(item), orientation);
         hint =
                 "待放置 "
@@ -555,7 +557,10 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     }
 
     @Override
-    public boolean mouseClicked(double x, double y, int button) {
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        double x = event.x();
+        double y = event.y();
+        int button = event.button();
         // 帮助与顶层窗口先消费输入，其后才允许身体栈或人物旋转捕获。
         if (closing) {
             return true;
@@ -601,7 +606,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
                 return true;
             }
         }
-        return pressScene(x, y, button);
+        return pressScene(event, doubleClick);
     }
 
     private boolean selectPlayerStack(double x, double y) {
@@ -618,7 +623,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             if (snapshot != null && !snapshot.getUnavailableReason().isEmpty()) {
                 hint = snapshot.getUnavailableReason();
             } else if (snapshot != null && !snapshot.getStackNbt().isEmpty()) {
-                if (hasShiftDown()) {
+                if (minecraft.hasShiftDown()) {
                     module.quickStore(snapshot);
                     return true;
                 }
@@ -635,20 +640,21 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         return false;
     }
 
-    private boolean pressScene(double x, double y, int button) {
+    private boolean pressScene(MouseButtonEvent event, boolean doubleClick) {
         // 记录人物模型的按下位置，释放时区分点击开盖和拖动旋转。
+        int button = event.button();
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
             scenePressed = true;
             sceneDragged = false;
-            pressX = x;
-            pressY = y;
+            pressX = event.x();
+            pressY = event.y();
             pressedBag = "";
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                pressedBag = player.pick(x, y);
+                pressedBag = player.pick(event.x(), event.y());
             }
             return true;
         }
-        return super.mouseClicked(x, y, button);
+        return super.mouseClicked(event, doubleClick);
     }
 
     private void clickWindow(UiWindowManager.WindowState window, double x, double y, int button) {
@@ -714,7 +720,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         pressedItem = hitItem;
         pressX = x;
         pressY = y;
-        if (hasShiftDown()) {
+        if (minecraft.hasShiftDown()) {
             // 内景快捷取出只进入原版随身槽位，不依赖其他窗口是否打开。
             module.move(selected, Volumes.PLAYER, Cell.getDefaultInstance(), true /* automatic */, orientation);
             clearSelection();
@@ -722,7 +728,10 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     }
 
     @Override
-    public boolean mouseDragged(double x, double y, int button, double dx, double dy) {
+    public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
+        double x = event.x();
+        double y = event.y();
+        int button = event.button();
         // 每次按下只捕获一个动作；跨越其他窗口不会从拖物品变为旋转或拖窗。
         if (help.visible()) {
             return true;
@@ -768,11 +777,14 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             }
             return true;
         }
-        return super.mouseDragged(x, y, button, dx, dy);
+        return super.mouseDragged(event, dx, dy);
     }
 
     @Override
-    public boolean mouseReleased(double x, double y, int button) {
+    public boolean mouseReleased(MouseButtonEvent event) {
+        double x = event.x();
+        double y = event.y();
+        int button = event.button();
         // 范围条释放后只结束捕获，即使光标跨到另一个容器也不会提交物品转移。
         if (!layerDrag.isEmpty()) {
             releaseCapture();
@@ -888,7 +900,9 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     }
 
     @Override
-    public boolean mouseScrolled(double x, double y, double amount) {
+    public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
+        // 与 1.20.1 一致只按纵向滚动量处理。
+        double amount = scrollY;
         if (help.captures(x, y)) {
             help.scroll(amount, font);
             return true;
@@ -903,11 +917,12 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             }
             return true;
         }
-        return super.mouseScrolled(x, y, amount);
+        return super.mouseScrolled(x, y, scrollX, scrollY);
     }
 
     @Override
-    public boolean keyPressed(int key, int scan, int modifiers) {
+    public boolean keyPressed(KeyEvent event) {
+        int key = event.key();
         // ESC 始终保留关闭语义，即使用户把旋转动作绑定到同一个键。
         if (key == GLFW.GLFW_KEY_ESCAPE) {
             if (help.visible()) {
@@ -919,14 +934,14 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             return true;
         }
         if (help.visible()) {
-            if (module.openKey().matches(key, scan)
-                    || minecraft.options.keyInventory.matches(key, scan)) {
+            if (module.openKey().matches(event)
+                    || minecraft.options.keyInventory.matches(event)) {
                 onClose();
             }
             return true;
         }
         // 旋转使用配置后的按键；只在选中物品时消耗，支持 Shift 反向。
-        var pressedKey = InputConstants.getKey(key, scan);
+        var pressedKey = InputConstants.getKey(event);
         if (!selected.isEmpty() && module.rotateYaw().equals(pressedKey)) {
             turn(false);
             return true;
@@ -935,16 +950,16 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             turn(true);
             return true;
         }
-        if (module.openKey().matches(key, scan)
-                || minecraft.options.keyInventory.matches(key, scan)) {
+        if (module.openKey().matches(event)
+                || minecraft.options.keyInventory.matches(event)) {
             onClose();
             return true;
         }
-        if (key == GLFW.GLFW_KEY_W && hasControlDown() && !active.isEmpty()) {
+        if (key == GLFW.GLFW_KEY_W && event.hasControlDown() && !active.isEmpty()) {
             closeContainer(active);
             return true;
         }
-        return super.keyPressed(key, scan, modifiers);
+        return super.keyPressed(event);
     }
 
     @Override

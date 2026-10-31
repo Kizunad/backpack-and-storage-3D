@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.kizuna.backpack3d.TestRegistries;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.server.ImmediateTransfer;
 import dev.kizuna.backpack3d.server.HandlingRules;
@@ -21,9 +22,9 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Phase;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Receipt;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
-import net.minecraft.SharedConstants;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.Bootstrap;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -47,9 +48,7 @@ class TransferServiceTest {
 
     @BeforeAll
     static void bootstrap() {
-        SharedConstants.tryDetectVersion();
-        Bootstrap.bootStrap();
-        ContainerItems.initialize();
+        TestRegistries.bootstrap();
     }
 
     @Test
@@ -102,7 +101,7 @@ class TransferServiceTest {
                 .build();
         service.commit(account, request);
         var sword = stored(account.data).stream()
-                .filter(item -> StackCodec.decode(item.getStackNbt()).is(Items.IRON_SWORD))
+                .filter(item -> StackCodec.decode(item.getStackNbt(), TestRegistries.VANILLA).is(Items.IRON_SWORD))
                 .findFirst().orElseThrow();
         assertEquals(bag(Volumes.BASKET), sword.getContainer());
         assertEquals(orientation, sword.getOrientation());
@@ -141,7 +140,7 @@ class TransferServiceTest {
     @Test
     void completionPreservesNbtAndReplayDoesNotDuplicate() throws IOException {
         var sword = new ItemStack(Items.IRON_SWORD);
-        sword.setHoverName(Component.literal("带名字的剑"));
+        sword.set(DataComponents.CUSTOM_NAME, Component.literal("带名字的剑"));
         sword.setDamageValue(17);
         account.inventory.set(0, sword);
         var request = deposit(Volumes.POUCH);
@@ -152,7 +151,7 @@ class TransferServiceTest {
         assertTrue(account.inventory.get(0).isEmpty());
         assertTrue(
                 ItemStack.matches(
-                        sword, StackCodec.decode(stored(account.data).get(0).getStackNbt())));
+                        sword, StackCodec.decode(stored(account.data).get(0).getStackNbt(), TestRegistries.VANILLA)));
     }
 
     @Test
@@ -266,7 +265,7 @@ class TransferServiceTest {
                 TransferService.empty().toBuilder()
                         .addReceipts(Receipt.newBuilder().setOperation("x"))
                         .build();
-        assertThrows(IllegalArgumentException.class, () -> TransferService.validate(invalid));
+        assertThrows(IllegalArgumentException.class, () -> TransferService.validate(invalid, TestRegistries.VANILLA));
     }
 
     @Test
@@ -351,7 +350,7 @@ class TransferServiceTest {
                         .setContainer(Volumes.POUCH)
                         .build();
         var legacy = SavedInventory.newBuilder().setFormatVersion(1).addItems(old).build();
-        account.data = TransferService.upgrade(legacy);
+        account.data = TransferService.upgrade(legacy, TestRegistries.VANILLA);
         service.commit(
                 account,
                 move(old.getId(), Volumes.POUCH).toBuilder()
@@ -359,7 +358,7 @@ class TransferServiceTest {
                         .build());
         assertEquals(TransferService.SAVE_VERSION, account.data.getFormatVersion());
         var bad = legacy.toBuilder().setItems(0, old.toBuilder().setOrientation(1)).build();
-        assertThrows(IllegalArgumentException.class, () -> TransferService.validate(bad));
+        assertThrows(IllegalArgumentException.class, () -> TransferService.validate(bad, TestRegistries.VANILLA));
     }
 
     @Test
@@ -381,7 +380,7 @@ class TransferServiceTest {
         assertEquals(items, stored(account.data));
         assertEquals(
                 Mount.TORSO_FRONT,
-                new ContainerTree(account.data, new ArrayList<>())
+                new ContainerTree(TestRegistries.VANILLA, account.data, new ArrayList<>())
                         .containers().stream()
                                 .filter(value -> value.getId().equals(bag(Volumes.BASKET)))
                                 .findFirst()
@@ -413,7 +412,7 @@ class TransferServiceTest {
     void offhandRoundTripPreservesNbtAndOtherEquipment() throws IOException {
         var sword = new ItemStack(Items.IRON_SWORD);
         sword.setDamageValue(23);
-        sword.setHoverName(Component.literal("左手的剑"));
+        sword.set(DataComponents.CUSTOM_NAME, Component.literal("左手的剑"));
         account.inventory.set(Inventory.SLOT_OFFHAND, sword);
         account.inventory.set(Inventory.INVENTORY_SIZE, new ItemStack(Items.IRON_BOOTS));
         account.inventory.set(2, new ItemStack(Items.APPLE, 5));
@@ -571,7 +570,7 @@ class TransferServiceTest {
         return move("", target).toBuilder()
                 .setPlayerSlot(slot)
                 .setStackFingerprint(
-                        StackCodec.fingerprint(StackCodec.encode(account.inventory.get(slot))))
+                        StackCodec.fingerprint(StackCodec.encode(account.inventory.get(slot), TestRegistries.VANILLA)))
                 .build();
     }
 
@@ -589,7 +588,7 @@ class TransferServiceTest {
     }
 
     private static List<Item> stored(SavedInventory data) {
-        return new ContainerTree(data, new ArrayList<>())
+        return new ContainerTree(TestRegistries.VANILLA, data, new ArrayList<>())
                 .items().stream()
                         .filter(item -> !item.getContainer().equals(Volumes.WORN))
                         .toList();
@@ -597,7 +596,7 @@ class TransferServiceTest {
 
     private String bag(String type) {
         String model = type.equals(Volumes.POUCH) ? "grass_pouch" : "back_basket";
-        return new ContainerTree(account.data, new ArrayList<>())
+        return new ContainerTree(TestRegistries.VANILLA, account.data, new ArrayList<>())
                 .containers().stream()
                         .filter(container -> container.getModel().equals(model))
                         .findFirst()
@@ -606,8 +605,13 @@ class TransferServiceTest {
     }
 
     private static class MemoryAccount implements Account {
+        @Override
+        public HolderLookup.Provider registries() {
+            return TestRegistries.VANILLA;
+        }
+
         SavedInventory data =
-                TransferService.upgrade(SavedInventory.newBuilder().setFormatVersion(2).build());
+                TransferService.upgrade(SavedInventory.newBuilder().setFormatVersion(2).build(), TestRegistries.VANILLA);
         List<ItemStack> inventory =
                 new ArrayList<>(
                         Collections.nCopies(Inventory.SLOT_OFFHAND + 1, ItemStack.EMPTY));

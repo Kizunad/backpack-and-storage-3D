@@ -11,11 +11,14 @@ import java.io.IOException;
 import java.nio.file.Files;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.input.MouseButtonInfo;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerInputPacket;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.BlockHitResult;
@@ -61,11 +64,11 @@ final class GroundSmokeClient {
                                 .getInventory()
                                 .getItem(0)
                                 .is(
-                                        net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
+                                        net.minecraft.core.registries.BuiltInRegistries.ITEM.getValue(
                                                 ContainerItems.POUCH))) {
                     return null;
                 }
-                client.player.getInventory().selected = 0;
+                client.player.getInventory().setSelectedSlot(0);
                 client.getConnection().send(new ServerboundSetCarriedItemPacket(0));
                 pos = client.player.blockPosition().east(2);
                 Files.writeString(
@@ -94,7 +97,7 @@ final class GroundSmokeClient {
                 }
             }
             case 2 -> {
-                if (!(client.screen instanceof VolumeScreen screen)
+                if (!(client.gui.screen() instanceof VolumeScreen screen)
                         || !module.state().containsGroundRevisions(id)) {
                     return null;
                 }
@@ -126,7 +129,8 @@ final class GroundSmokeClient {
                 Screenshot.grab(
                         client.gameDirectory,
                         "ground-open.png",
-                        client.getMainRenderTarget(),
+                        client.gameRenderer.mainRenderTarget(),
+                        1,
                         text -> {});
                 module.withdraw(stone, Inventory.SLOT_OFFHAND);
                 next();
@@ -134,7 +138,7 @@ final class GroundSmokeClient {
             case 3 -> {
                 if (module.state().getRevision() == 26 && !module.busy()) {
                     require(client.player.getOffhandItem().getCount() == 8, "地面取出数量错误");
-                    var screen = (VolumeScreen) client.screen;
+                    var screen = (VolumeScreen) client.gui.screen();
                     screen.closeContainer(id);
                     if (!dropOnGroundModel(screen)) {
                         return null;
@@ -160,12 +164,12 @@ final class GroundSmokeClient {
             }
             case 5 -> {
                 if (module.state().getTransfer().getPhase() == Phase.REJECTED) {
-                    ((VolumeScreen) client.screen).onClose();
+                    ((VolumeScreen) client.gui.screen()).onClose();
                     next();
                 }
             }
             case 6 -> {
-                if (client.screen == null
+                if (client.gui.screen() == null
                         && module.state().getGroundRevisionsCount() == 0
                         && !module.busy()) {
                     require(module.state().getRevision() == 27, "拒绝地面落点后仍提交取物");
@@ -196,9 +200,9 @@ final class GroundSmokeClient {
         if (source == null || target == null) {
             return false;
         }
-        screen.mouseClicked(source[0], source[1], 0);
-        screen.mouseDragged(target[0], target[1], 0, target[0] - source[0], target[1] - source[1]);
-        screen.mouseReleased(target[0], target[1], 0);
+        screen.mouseClicked(mouse(source[0], source[1], 0), false);
+        screen.mouseDragged(mouse(target[0], target[1], 0), target[0] - source[0], target[1] - source[1]);
+        screen.mouseReleased(mouse(target[0], target[1], 0));
         return true;
     }
 
@@ -207,8 +211,8 @@ final class GroundSmokeClient {
         for (int y = 0; y < screen.height; y++) {
             for (int x = 0; x < screen.width; x++) {
                 if (screen.bagHit(id, x, y)) {
-                    screen.mouseClicked(x, y, 0);
-                    screen.mouseReleased(x, y, 0);
+                    screen.mouseClicked(mouse(x, y, 0), false);
+                    screen.mouseReleased(mouse(x, y, 0));
                     return true;
                 }
             }
@@ -229,7 +233,7 @@ final class GroundSmokeClient {
                 next();
             }
             case 1 -> {
-                if (!(client.screen instanceof VolumeScreen screen)
+                if (!(client.gui.screen() instanceof VolumeScreen screen)
                         || !screen.openContainers().contains(id)) {
                     return null;
                 }
@@ -254,7 +258,7 @@ final class GroundSmokeClient {
                 next();
             }
             case 2 -> {
-                if (client.screen == null && module.state().getGroundRevisionsCount() == 0) {
+                if (client.gui.screen() == null && module.state().getGroundRevisionsCount() == 0) {
                     sneak(client, true);
                     use(client);
                     next();
@@ -286,13 +290,9 @@ final class GroundSmokeClient {
     private static void sneak(Minecraft client, boolean pressed) {
         client.options.keyShift.setDown(pressed);
         client.player.setShiftKeyDown(pressed);
+        // 26.2 的潜行随整组移动输入上报；立即补发一次，不等下一 tick 的输入比较。
         client.getConnection()
-                .send(
-                        new ServerboundPlayerCommandPacket(
-                                client.player,
-                                pressed
-                                        ? ServerboundPlayerCommandPacket.Action.PRESS_SHIFT_KEY
-                                        : ServerboundPlayerCommandPacket.Action.RELEASE_SHIFT_KEY));
+                .send(new ServerboundPlayerInputPacket(new Input(false, false, false, false, false, pressed, false)));
     }
 
     private void next() {
@@ -305,5 +305,10 @@ final class GroundSmokeClient {
         if (!condition) {
             throw new IllegalStateException(detail);
         }
+    }
+
+    private static MouseButtonEvent mouse(double x, double y, int button) {
+        // 合成输入不带修饰键，坐标为 GUI 逻辑像素。
+        return new MouseButtonEvent(x, y, new MouseButtonInfo(button, 0));
     }
 }

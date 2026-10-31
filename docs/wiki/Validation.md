@@ -2,6 +2,16 @@
 
 适用：`0.1.0-SNAPSHOT`，业务协议 **v7**，玩家保存格式 **3**、地面保存格式 **1**，尚未发布。
 
+## 2026-11-01：迁移到 Minecraft 26.2 / Java 25
+
+运行环境改为 Minecraft 26.2、Fabric Loader 0.20.1、Fabric API 0.161.0+26.2、owo 0.13.1+26.2、Java 25，构建使用 Gradle 9.8.0、Fabric Loom 1.19.3。功能、业务协议与保存格式不变；容器数据改存于物品 `minecraft:custom_data` 组件的 `bs3d_container` 子标签，三维物品渲染改用 `items/` 物品定义与 `bs3d:container` 特殊模型。
+
+Java 25 `test build :server:compileSmokeJava :client:compileSmokeJava` 通过：客户端 **37 项**、服务端 **93 项**，共 **130 项测试**，与迁移前相同，无失败或跳过。服务端测试设 `forkEvery = 1`：物品登记须在注册表冻结前、标签绑定须在冻结后，各测试类独占 JVM，服务端测试耗时由约 12 秒增至约 1 分钟。
+
+真实 Fabric 专服与 Xvfb（llvmpipe 软件渲染）客户端四阶段 smoke 在 `build/smoke/bd9dbf7123e0/` 全部通过，修订号依次为 **8、24、27、28**，各阶段覆盖项与 2026-10-30 记录逐项相同。资源验收通过 `registered-only; invalid-file-isolation; five-custom-ogg-actions; decode; revoke; malformed-config; restore; bundled-addon-model; nine-bong-containers`。人物预览遮挡探针改为同一帧并排绘制无遮挡与有遮挡两份预览再比较，三个姿态均通过；26.2 界面先提取后绘制，探针截图改为下一帧截取。
+
+截图与 2026-10-30 对比：世界、人物、内景物品亮度与轮廓线宽一致。`05-cross-container`、`06-basket-filled`、`09-offhand-withdraw`、`workspace-transfer` 截到的是回执到达前的一帧（仍显示待确认占位），断言按状态判断不受影响，完成状态见后续截图。工作台内嵌页面右上角显示操作帮助按钮，此前截图中没有。未在 Windows 实例上验证。
+
 ## 2026-10-30：即时转移、双向快捷搬运与模型投放
 
 Java 17 离线 `test build :client:compileSmokeJava :server:compileSmokeJava` 通过：客户端 **37 项**、服务端 **93 项**，共 **130 项测试**，无失败或跳过。覆盖同调用提交、幂等重试、失败不修改库存、旧计时字段非零拒绝、带 `duration_ticks` 的规则整次重载失败并保留旧目录，以及自动寻位、朝向和容量约束。

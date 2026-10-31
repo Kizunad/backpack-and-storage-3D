@@ -1,6 +1,6 @@
 {
   "key.bs3d.open": "Open 3D backpack",
-  "category.bs3d": "Backpack and Storage 3D",
+  "key.category.bs3d.general": "Backpack and Storage 3D",
   "item.bs3d.grass_pouch": "Grass Pouch",
   "item.bs3d.back_basket": "Back Basket",
   "item.bs3d.storage_box": "Storage Box",

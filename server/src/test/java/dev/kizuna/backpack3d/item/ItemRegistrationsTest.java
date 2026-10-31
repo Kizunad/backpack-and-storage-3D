@@ -1,5 +1,6 @@
 package dev.kizuna.backpack3d.item;
 
+import dev.kizuna.backpack3d.TestRegistries;
 import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ContainerItem;
@@ -7,10 +8,8 @@ import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ItemEntry;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ItemRegistry;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.PlainItem;
 import com.google.protobuf.UnknownFieldSet;
-import net.minecraft.SharedConstants;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.Bootstrap;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -27,14 +26,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ItemRegistrationsTest {
     @TempDir Path directory;
-    private static final ResourceLocation WEIGHT = new ResourceLocation("bs3d_weights", "weight");
+    private static final Identifier WEIGHT = Identifier.fromNamespaceAndPath("bs3d_weights", "weight");
 
     @BeforeAll
     static void bootstrap() {
         // 与附属一样在注册表冻结前登记，使用真实物品注册表验证两种条目。
-        SharedConstants.tryDetectVersion();
-        Bootstrap.bootStrap();
-        ContainerItems.initialize();
+        TestRegistries.bootstrap();
     }
 
     @Test
@@ -61,15 +58,16 @@ class ItemRegistrationsTest {
                 }
                 """);
         assertEquals(2, items.size());
+        TestRegistries.bindComponents();
 
-        var seed = new ItemStack(BuiltInRegistries.ITEM.get(new ResourceLocation("test_botany", "end_seed")));
+        var seed = new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.fromNamespaceAndPath("test_botany", "end_seed")));
         assertEquals(16, seed.getMaxStackSize());
         assertNull(ContainerItems.definition(seed));
         var metadata = ItemMetadata.of(seed);
         assertEquals("item.test_botany.end_seed.description", metadata.descriptionTranslationKey());
         assertEquals(3, metadata.optional(WEIGHT).orElseThrow().get("grams").getAsInt());
 
-        var pouch = ContainerItems.create(new ResourceLocation("test_botany", "seed_pouch"));
+        var pouch = ContainerItems.create(Identifier.fromNamespaceAndPath("test_botany", "seed_pouch"));
         var definition = ContainerItems.definition(pouch);
         assertEquals(Volumes.size(1, 1, 2), definition.inside());
         assertEquals(List.of(Mount.WAIST_RIGHT_FRONT, Mount.WAIST_LEFT_FRONT), definition.mounts());
@@ -85,7 +83,8 @@ class ItemRegistrationsTest {
                         .setPlain(PlainItem.getDefaultInstance()))
                 .build();
         ItemRegistrations.registerBinary("test:binary", registry.toByteArray());
-        var stack = new ItemStack(BuiltInRegistries.ITEM.get(new ResourceLocation("test_binary", "end_soil")));
+        TestRegistries.bindComponents();
+        var stack = new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.fromNamespaceAndPath("test_binary", "end_soil")));
         assertEquals(ItemRegistrations.MAX_STACK_COUNT, stack.getMaxStackSize());
         assertEquals("", ItemMetadata.of(stack).descriptionTranslationKey());
     }
@@ -107,7 +106,7 @@ class ItemRegistrationsTest {
         var error = assertThrows(IllegalArgumentException.class,
                 () -> ItemRegistrations.register("test:atomic", registry));
         assertTrue(error.getMessage().contains("items[1]"));
-        assertFalse(BuiltInRegistries.ITEM.containsKey(new ResourceLocation("test_atomic", "valid")));
+        assertFalse(BuiltInRegistries.ITEM.containsKey(Identifier.fromNamespaceAndPath("test_atomic", "valid")));
     }
 
     @Test
@@ -152,7 +151,7 @@ class ItemRegistrationsTest {
                   }
                 }
                 """));
-        assertFalse(BuiltInRegistries.ITEM.containsKey(new ResourceLocation("test_json", "a")));
+        assertFalse(BuiltInRegistries.ITEM.containsKey(Identifier.fromNamespaceAndPath("test_json", "a")));
     }
 
     @Test
@@ -170,14 +169,14 @@ class ItemRegistrationsTest {
             ItemRegistrations.registerManifest("test:zip", zip.getPath("bs3d/items.txtpb"));
         }
         var bundled = ItemRegistrations.bundledModels().stream()
-                .filter(model -> model.model().equals(new ResourceLocation("test_zip", "pouch")))
+                .filter(model -> model.model().equals(Identifier.fromNamespaceAndPath("test_zip", "pouch")))
                 .findFirst()
                 .orElseThrow();
         assertEquals("/bs3d/models/pouch.bbmodel", bundled.file().toString());
         assertNull(bundled.openAnimation());
         assertEquals("", bundled.closeAnimation());
         assertEquals("/bs3d/sounds/open.ogg", bundled.sounds().get(ContainerSounds.Action.OPEN).toString());
-        assertTrue(BuiltInRegistries.ITEM.containsKey(new ResourceLocation("test_zip", "pouch")));
+        assertTrue(BuiltInRegistries.ITEM.containsKey(Identifier.fromNamespaceAndPath("test_zip", "pouch")));
     }
 
     @Test
@@ -197,7 +196,7 @@ class ItemRegistrationsTest {
         // 不带清单目录的 Java 消息入口不能声明资产。
         assertThrows(IllegalArgumentException.class, () -> ItemRegistrations.registerText(
                 "test:asset_text", containerManifest("test_asset:bad", "file: \"a.bbmodel\"")));
-        assertFalse(BuiltInRegistries.ITEM.containsKey(new ResourceLocation("test_asset", "bad")));
+        assertFalse(BuiltInRegistries.ITEM.containsKey(Identifier.fromNamespaceAndPath("test_asset", "bad")));
     }
 
     @Test
@@ -210,7 +209,7 @@ class ItemRegistrationsTest {
         Files.writeString(manifest, containerManifest("test_twice:b", "file: \"m.bbmodel\"", "test_twice:shared"));
         assertThrows(IllegalArgumentException.class,
                 () -> ItemRegistrations.registerManifest("test:twice_b", manifest));
-        assertFalse(BuiltInRegistries.ITEM.containsKey(new ResourceLocation("test_twice", "b")));
+        assertFalse(BuiltInRegistries.ITEM.containsKey(Identifier.fromNamespaceAndPath("test_twice", "b")));
     }
 
     private static String containerManifest(String id, String asset) {

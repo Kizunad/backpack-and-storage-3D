@@ -2,7 +2,7 @@ package dev.kizuna.backpack3d.client;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.mojang.blaze3d.audio.OggAudioStream;
+import net.minecraft.client.sounds.JOrbisAudioStream;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.item.ContainerSounds;
 import dev.kizuna.backpack3d.item.ContainerSounds.Action;
@@ -15,7 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 /** 为导入资源包生成声音目录，校验可选 OGG 并保留失败动作的默认声音。 */
 final class ModelSounds {
@@ -43,15 +43,15 @@ final class ModelSounds {
     }
 
     static void addOverrides(
-            ModelConfig.Entry entry, JsonObject sounds, Map<ResourceLocation, byte[]> files) {
+            ModelConfig.Entry entry, JsonObject sounds, Map<Identifier, byte[]> files) {
         for (var configured : entry.sounds().entrySet()) {
             Path path = configured.getValue();
             try {
                 byte[] bytes = readOgg(path);
-                ResourceLocation event = ContainerSounds.id(entry.id().toString(), configured.getKey());
-                ResourceLocation sound = new ResourceLocation("bs3d", "imports/" + event.getPath());
+                Identifier event = ContainerSounds.id(entry.id().toString(), configured.getKey());
+                Identifier sound = Identifier.fromNamespaceAndPath("bs3d", "imports/" + event.getPath());
                 files.put(
-                        new ResourceLocation(sound.getNamespace(), "sounds/" + sound.getPath() + ".ogg"),
+                        Identifier.fromNamespaceAndPath(sound.getNamespace(), "sounds/" + sound.getPath() + ".ogg"),
                         bytes);
                 putSound(sounds, event, sound.toString(), false);
             } catch (IOException | IllegalArgumentException invalid) {
@@ -82,7 +82,7 @@ final class ModelSounds {
             throw new IllegalArgumentException("需要 Ogg Vorbis 音频");
         }
         // 用游戏的解码器验证整段音频，坏文件在导入时回退，而非点击背包时才报错。
-        try (var audio = new OggAudioStream(new ByteArrayInputStream(bytes))) {
+        try (var audio = new JOrbisAudioStream(new ByteArrayInputStream(bytes))) {
             var format = audio.getFormat();
             long limit = (long) (format.getFrameRate() * format.getFrameSize() * MAX_SOUND_SECONDS);
             long decoded = 0;
@@ -101,7 +101,7 @@ final class ModelSounds {
     }
 
     private static void putSound(
-            JsonObject catalog, ResourceLocation event, String sound, boolean reference) {
+            JsonObject catalog, Identifier event, String sound, boolean reference) {
         var definition = new JsonObject();
         definition.addProperty("replace", true);
         var source = new JsonObject();

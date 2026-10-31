@@ -2,6 +2,7 @@ package dev.kizuna.backpack3d.client;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
+import org.joml.Matrix3f;
 import org.joml.Vector3f;
 
 /** 绘制和命中使用相同投影，避免鼠标热区与旋转后的模型分离。 */
@@ -25,6 +26,14 @@ public record SceneTransform(
         matrices.mulPose(Axis.XP.rotationDegrees(pitch));
         matrices.mulPose(Axis.YP.rotationDegrees(yaw));
         return matrices;
+    }
+
+    public Matrix3f normal() {
+        // 法线只取场景旋转与 GUI 的 y 翻转；深度压缩若进入法线，各面会几乎都朝 ±Z，物品亮度趋同发灰。
+        return new Matrix3f()
+                .scaling(1, -1, 1)
+                .rotateX((float) Math.toRadians(pitch))
+                .rotateY((float) Math.toRadians(yaw));
     }
 
     public Vector3f project(float px, float py, float pz) {

@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
@@ -20,7 +21,7 @@ final class GroundAccount implements Account {
     GroundAccount(ServerPlayer player, Set<String> accessible) {
         this.player = player;
         personal = new PlayerAccount(player);
-        storage = GroundInventory.get(player.getServer());
+        storage = GroundInventory.get(player.level().getServer());
         this.accessible = Set.copyOf(accessible);
     }
 
@@ -37,6 +38,11 @@ final class GroundAccount implements Account {
     @Override
     public int selectedSlot() {
         return personal.selectedSlot();
+    }
+
+    @Override
+    public HolderLookup.Provider registries() {
+        return personal.registries();
     }
 
     @Override

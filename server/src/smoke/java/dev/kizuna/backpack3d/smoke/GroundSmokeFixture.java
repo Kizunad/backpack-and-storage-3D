@@ -9,7 +9,9 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
 import dev.kizuna.backpack3d.server.GroundInventory;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
@@ -42,8 +44,9 @@ final class GroundSmokeFixture {
                         var other =
                                 new ServerPlayer(
                                         server,
-                                        viewer.serverLevel(),
-                                        new GameProfile(UUID.randomUUID(), "GroundObserver"));
+                                        viewer.level(),
+                                        new GameProfile(UUID.randomUUID(), "GroundObserver"),
+                                        ClientInformation.createDefault());
                         other.setPos(viewer.position());
                         var ground = GroundInventory.get(server);
                         try {
@@ -76,13 +79,13 @@ final class GroundSmokeFixture {
             String id = ContainerItems.identity(bag);
             var sword = new ItemStack(Items.IRON_SWORD);
             sword.setDamageValue(17);
-            sword.setHoverName(Component.literal("地面测试铁剑"));
+            sword.set(DataComponents.CUSTOM_NAME, Component.literal("地面测试铁剑"));
             ContainerItems.setContents(
                     bag,
                     List.of(
-                            stored(id, sword, 0, 0, 0, 1, 2, 1),
-                            stored(id, new ItemStack(Items.STONE, 8), 0, 0, 1, 1, 1, 1)));
-            player.getInventory().selected = 0;
+                            stored(player, id, sword, 0, 0, 0, 1, 2, 1),
+                            stored(player, id, new ItemStack(Items.STONE, 8), 0, 0, 1, 1, 1, 1)));
+            player.getInventory().setSelectedSlot(0);
             player.getInventory().setItem(0, bag);
             player.getInventory().setItem(Inventory.SLOT_OFFHAND, ItemStack.EMPTY);
             player.inventoryMenu.broadcastChanges();
@@ -93,6 +96,7 @@ final class GroundSmokeFixture {
     }
 
     private static Item stored(
+            ServerPlayer player,
             String container,
             ItemStack stack,
             int x,
@@ -107,7 +111,7 @@ final class GroundSmokeFixture {
                 .setCell(Volumes.cell(x, y, z))
                 .setSize(Volumes.size(width, height, depth))
                 .setBaseSize(Volumes.size(width, height, depth))
-                .setStackNbt(StackCodec.encode(stack))
+                .setStackNbt(StackCodec.encode(stack, player.registryAccess()))
                 .build();
     }
 }

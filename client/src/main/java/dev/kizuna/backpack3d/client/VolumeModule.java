@@ -36,12 +36,12 @@ import dev.kizuna.inventoryui.registry.FrameworkCatalog;
 import dev.kizuna.inventoryui.window.UiWindowDefinition;
 
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
 
@@ -121,6 +121,7 @@ public final class VolumeModule implements ClientModule {
                 UiMessageRouter.Direction.SERVER_TO_CLIENT,
                 appearances::accept);
         WornPreview.register(appearances);
+        InteriorRenderer.register();
         ModelResources.initialize();
         ContainerItemModels.register();
         ItemDescriptions.register();
@@ -150,16 +151,16 @@ public final class VolumeModule implements ClientModule {
     private void registerOpenKey() {
         // 世界快捷键和工作台场景推进共享客户端 tick，不引入转移计时。
         openKey =
-                KeyBindingHelper.registerKeyBinding(
+                KeyMappingHelper.registerKeyMapping(
                         new KeyMapping(
                                 "key.bs3d.open",
                                 InputConstants.Type.KEYSYM,
                                 GLFW.GLFW_KEY_B,
-                                "category.bs3d"));
+                                KeyMapping.Category.register(Identifier.fromNamespaceAndPath("bs3d", "general"))));
         ClientTickEvents.END_CLIENT_TICK.register(
                 client -> {
                     // 工作台退出时结束背包访问；仅最小化窗口仍保留原有转移语义。
-                    boolean visible = client.screen instanceof WorkspaceScreen;
+                    boolean visible = client.gui.screen() instanceof WorkspaceScreen;
                     if (embedded != null) {
                         if (workspaceVisible && !visible) {
                             embedded.scene().removed();
@@ -169,7 +170,7 @@ public final class VolumeModule implements ClientModule {
                     }
                     workspaceVisible = visible;
                     while (openKey.consumeClick()) {
-                        if (client.player != null && client.screen == null) {
+                        if (client.player != null && client.gui.screen() == null) {
                             open();
                         }
                     }
@@ -201,7 +202,7 @@ public final class VolumeModule implements ClientModule {
             InventoryUiClient.runtime().open("bs3d:open", "");
             InventoryUiClient.runtime().openWorkspace();
         } else {
-            Minecraft.getInstance().setScreen(new VolumeScreen(this));
+            Minecraft.getInstance().gui.setScreen(new VolumeScreen(this));
         }
     }
 
@@ -218,16 +219,16 @@ public final class VolumeModule implements ClientModule {
         var client = Minecraft.getInstance();
         if (embedded != null) {
             InventoryUiClient.runtime().open("bs3d:open", "");
-            if (!(client.screen instanceof WorkspaceScreen)) {
+            if (!(client.gui.screen() instanceof WorkspaceScreen)) {
                 InventoryUiClient.runtime().openWorkspace();
             }
             embedded.scene().openContainer(opened.getContainer());
             return;
         }
-        if (!(client.screen instanceof VolumeScreen)) {
-            client.setScreen(new VolumeScreen(this));
+        if (!(client.gui.screen() instanceof VolumeScreen)) {
+            client.gui.setScreen(new VolumeScreen(this));
         }
-        ((VolumeScreen) client.screen).openContainer(opened.getContainer());
+        ((VolumeScreen) client.gui.screen()).openContainer(opened.getContainer());
     }
 
     public void closeGround(String id) {
@@ -281,15 +282,17 @@ public final class VolumeModule implements ClientModule {
                 && next.getSession().equals(state.getSession())) {
             return;
         }
+        // 物品数据组件按当前连接的注册表解码。
+        var registries = Minecraft.getInstance().getConnection().registryAccess();
         var decoded = new HashMap<String, ItemStack>();
         for (var item : next.getItemsList()) {
-            decoded.put(item.getId(), StackCodec.decode(item.getStackNbt()));
+            decoded.put(item.getId(), StackCodec.decode(item.getStackNbt(), registries));
         }
         for (PlayerSlotStack hand : next.getPlayerSlotsList()) {
             if (!hand.getStackNbt().isEmpty()) {
                 decoded.put(
                         playerSlotPreviewId(hand.getPlayerSlot()),
-                        StackCodec.decode(hand.getStackNbt()));
+                        StackCodec.decode(hand.getStackNbt(), registries));
             }
         }
         stacks = Map.copyOf(decoded);
@@ -432,7 +435,7 @@ public final class VolumeModule implements ClientModule {
         var player = Minecraft.getInstance().player;
         if (player != null) {
             deposit(
-                    playerSlot(player.getInventory().selected),
+                    playerSlot(player.getInventory().getSelectedSlot()),
                     target,
                     Cell.getDefaultInstance(),
                     true,
@@ -599,13 +602,13 @@ public final class VolumeModule implements ClientModule {
 
     private static void sound(String id, float volume, float pitch) {
         // 音效 ID 来自已注册 SoundEvent，允许数据包选择已有模组音效。
-        var identifier = ResourceLocation.tryParse(id);
+        var identifier = Identifier.tryParse(id);
         if (identifier != null && BuiltInRegistries.SOUND_EVENT.containsKey(identifier)) {
             Minecraft.getInstance()
                     .getSoundManager()
                     .play(
                             SimpleSoundInstance.forUI(
-                                    BuiltInRegistries.SOUND_EVENT.get(identifier), pitch, volume));
+                                    BuiltInRegistries.SOUND_EVENT.getValue(identifier), pitch, volume));
         }
     }
 }

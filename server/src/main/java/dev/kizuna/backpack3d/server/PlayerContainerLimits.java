@@ -17,8 +17,6 @@ import java.io.IOException;
 
 /** 服务端管理玩家腰部上限；普通客户端协议没有改写入口。 */
 public final class PlayerContainerLimits {
-    private static final int ADMIN_PERMISSION_LEVEL = 2;
-
     private PlayerContainerLimits() {}
 
     public static void register() {
@@ -35,10 +33,8 @@ public final class PlayerContainerLimits {
                     playersArgument.then(limitArgument);
                     var command =
                             Commands.literal("bs3d")
-                                    .requires(
-                                            source ->
-                                                    source.hasPermission(
-                                                            ADMIN_PERMISSION_LEVEL));
+                                    // 1.20.1 的权限等级 2 对应 26.2 的游戏管理员权限。
+                                    .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS));
                     command.then(Commands.literal("waist-limit").then(playersArgument));
                     dispatcher.register(command);
                 });
@@ -76,7 +72,7 @@ public final class PlayerContainerLimits {
                         .setWaistLimit(limit)
                         .setRevision(Math.addExact(account.data().getRevision(), 1))
                         .build();
-        TransferService.validate(next);
+        TransferService.validate(next, account.registries());
         account.commit(next, account.inventory());
     }
 }

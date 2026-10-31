@@ -17,7 +17,7 @@
 - 附属模组可在 `fabric.mod.json` 中声明 protobuf 物品清单（或调用 `ItemRegistrations`），启动时注册普通物品与容器，规则与 TOML 一致；容器可随 JAR 自带 `.bbmodel`、动画与音效。
 - 真实物品与原版背包原子保存于同一玩家存档，客户端不能提交 NBT 创建物品。
 
-当前为 **0.1.0-SNAPSHOT，未发布正式版本，API 尚未冻结**。目标环境为 Java 17、Fabric 1.20.1，支持单机内置服务器和专用服务器。新玩家通过物品获得容器，旧存档保留并迁移已有草包、背篓。业务协议 **v7** 要求客户端和服务端同步升级，玩家保存格式仍为 3，地面库存格式为 1。地面背包允许附近玩家依次使用，同一个包一次只接受一位玩家操作；库存、转移校验和持久化均由逻辑服务器负责。
+当前为 **0.1.0-SNAPSHOT，未发布正式版本，API 尚未冻结**。目标环境为 Java 25、Minecraft 26.2、Fabric，支持单机内置服务器和专用服务器。新玩家通过物品获得容器，旧存档保留并迁移已有草包、背篓。业务协议 **v7** 要求客户端和服务端同步升级，玩家保存格式仍为 3，地面库存格式为 1。地面背包允许附近玩家依次使用，同一个包一次只接受一位玩家操作；库存、转移校验和持久化均由逻辑服务器负责。
 
 ## 效果预览
 
@@ -36,11 +36,11 @@
 先准备同级的 Inventory UI Framework 与 Kizuna-Meridian-Mod-Framework 源码（后者提供工作区脚本与版本目录），再执行：
 
 ```sh
-./gradlew -Dorg.gradle.java.home="/path/to/jdk21" test build
+./gradlew -Dorg.gradle.java.home="/path/to/jdk25" test build
 python3 scripts/wiki.py check
 ```
 
-Inventory UI Framework 以组合构建接入，随本仓构建先行编译；不在同级目录时加 `-Pkizuna.dir.inventory-ui="/path/to/Kizuna-Inventory-UI-Framework"`。Gradle 须在 Java 21 上运行（Fabric Loom 1.13 的要求），产物仍以 Java 17 为目标。
+Inventory UI Framework 以组合构建接入，随本仓构建先行编译；不在同级目录时加 `-Pkizuna.dir.inventory-ui="/path/to/Kizuna-Inventory-UI-Framework"`。Gradle 须在 Java 25 上运行，产物以 Java 25 为目标（Minecraft 26.2 的要求）。
 
 客户端安装 Framework client/server、Fabric API、owo 与 BS3D client/server 两个 JAR；专用服务器只安装 Framework server、Fabric API 和 BS3D server。具体产物及单机装配见[安装与构建](docs/wiki/Getting-Started.md)。
 

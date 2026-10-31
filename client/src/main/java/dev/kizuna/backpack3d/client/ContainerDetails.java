@@ -4,15 +4,15 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 /** 附属为总览和容器补充短文本；布局与主题仍由 BS3D 控制。 */
 public final class ContainerDetails {
-    private static final Map<ResourceLocation, Provider> PROVIDERS = new LinkedHashMap<>();
+    private static final Map<Identifier, Provider> PROVIDERS = new LinkedHashMap<>();
 
     private ContainerDetails() {}
 
-    public static void register(ResourceLocation id, Provider provider) {
+    public static void register(Identifier id, Provider provider) {
         // 注册发生在客户端初始化阶段，重复身份明确失败，避免一个附属覆盖另一个。
         Objects.requireNonNull(id);
         Objects.requireNonNull(provider);

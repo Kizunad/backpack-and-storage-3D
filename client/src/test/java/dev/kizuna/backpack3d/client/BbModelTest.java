@@ -11,7 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 class BbModelTest {
     @TempDir Path directory;
@@ -137,7 +137,7 @@ class BbModelTest {
         return BbModel.read(
                 directory,
                 new ModelConfig.Entry(
-                        new ResourceLocation("example", "bag"), file, open, close, Map.of()));
+                        Identifier.fromNamespaceAndPath("example", "bag"), file, open, close, Map.of()));
     }
 
     private static JsonObject bundled(String name) throws Exception {

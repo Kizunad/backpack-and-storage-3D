@@ -2,7 +2,7 @@ package dev.kizuna.backpack3d.item;
 
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.sounds.SoundEvent;
 
 /** 两端按容器模型身份注册事件；客户端配置只替换声音资源，不改变事件身份。 */
@@ -37,14 +37,14 @@ public final class ContainerSounds {
 
     private ContainerSounds() {}
 
-    public static ResourceLocation modelId(String model) {
+    public static Identifier modelId(String model) {
         // 保留早期无命名空间模型名的兼容性，新接入方应使用完整 ID。
-        return model.contains(":") ? new ResourceLocation(model) : new ResourceLocation("bs3d", model);
+        return model.contains(":") ? Identifier.parse(model) : Identifier.fromNamespaceAndPath("bs3d", model);
     }
 
-    public static ResourceLocation id(String model, Action action) {
-        ResourceLocation asset = modelId(model);
-        return new ResourceLocation(
+    public static Identifier id(String model, Action action) {
+        Identifier asset = modelId(model);
+        return Identifier.fromNamespaceAndPath(
                 "bs3d",
                 "container/" + asset.getNamespace() + "/" + asset.getPath() + "/" + action.key());
     }
@@ -52,7 +52,7 @@ public final class ContainerSounds {
     public static void register(String model) {
         // 多个物品允许共用一套外观和音效，因此同一个事件只注册一次。
         for (Action action : Action.values()) {
-            ResourceLocation id = id(model, action);
+            Identifier id = id(model, action);
             if (!BuiltInRegistries.SOUND_EVENT.containsKey(id)) {
                 Registry.register(BuiltInRegistries.SOUND_EVENT, id, SoundEvent.createVariableRangeEvent(id));
             }
@@ -60,6 +60,6 @@ public final class ContainerSounds {
     }
 
     public static SoundEvent event(String model, Action action) {
-        return BuiltInRegistries.SOUND_EVENT.get(id(model, action));
+        return BuiltInRegistries.SOUND_EVENT.getValue(id(model, action));
     }
 }

@@ -7,7 +7,8 @@ import dev.kizuna.inventoryui.server.fabric.FabricServerModule;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
+import net.fabricmc.fabric.api.resource.v1.ResourceLoader;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.packs.PackType;
@@ -24,7 +25,8 @@ public final class VolumeServer implements ModInitializer, FabricServerModule {
     public void onInitialize() {
         PlayerContainerLimits.register();
         GroundInventory.register();
-        ResourceManagerHelper.get(PackType.SERVER_DATA).registerReloadListener(RULES);
+        ResourceLoader.get(PackType.SERVER_DATA)
+                .registerReloadListener(Identifier.fromNamespaceAndPath("bs3d", "handling_rules"), RULES);
         ServerTickEvents.END_SERVER_TICK.register(
                 server -> {
                     // 关闭回调可能移除会话，遍历快照避免同 tick 的回收影响其他玩家。

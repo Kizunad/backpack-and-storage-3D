@@ -2,12 +2,14 @@ package dev.kizuna.backpack3d.server;
 
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.service.Account;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtUtils;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.world.level.storage.TagValueOutput;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
@@ -42,7 +44,12 @@ public final class PlayerAccount implements Account {
 
     @Override
     public int selectedSlot() {
-        return player.getInventory().selected;
+        return player.getInventory().getSelectedSlot();
+    }
+
+    @Override
+    public HolderLookup.Provider registries() {
+        return player.registryAccess();
     }
 
     @Override
@@ -58,8 +65,8 @@ public final class PlayerAccount implements Account {
     }
 
     CompoundTag snapshot(SavedInventory next, List<ItemStack> inventory) throws IOException {
-        var server = player.getServer();
-        if (server == null || !server.isSameThread()) {
+        var server = player.level().getServer();
+        if (!server.isSameThread()) {
             throw new IOException("库存事务必须在服务器主线程执行");
         }
         var previous = data();
@@ -67,7 +74,7 @@ public final class PlayerAccount implements Account {
         try {
             // 仅为生成完整 NBT 暂时应用候选；同一服务器调用内恢复，不发网络快照。
             apply(next, inventory);
-            return NbtUtils.addCurrentDataVersion(player.saveWithoutId(new CompoundTag()));
+            return saveTag();
         } finally {
             apply(previous, previousInventory);
         }
@@ -83,8 +90,8 @@ public final class PlayerAccount implements Account {
     @Override
     public void commit(SavedInventory next, List<ItemStack> inventory) throws IOException {
         // 不跨原版存档与独立业务文件提交，消除二者保存先后造成的复制或丢物窗口。
-        var server = player.getServer();
-        if (server == null || !server.isSameThread()) {
+        var server = player.level().getServer();
+        if (!server.isSameThread()) {
             throw new IOException("库存事务必须在服务器主线程执行");
         }
         var previous = data();
@@ -93,12 +100,12 @@ public final class PlayerAccount implements Account {
         boolean committed = false;
         try {
             apply(next, inventory);
-            var tag = NbtUtils.addCurrentDataVersion(player.saveWithoutId(new CompoundTag()));
+            var tag = saveTag();
             var directory = server.getWorldPath(LevelResource.PLAYER_DATA_DIR);
             Files.createDirectories(directory);
             temporary =
                     Files.createTempFile(directory, player.getStringUUID() + "-bs3d-", ".dat");
-            NbtIo.writeCompressed(tag, temporary.toFile());
+            NbtIo.writeCompressed(tag, temporary);
             try (var channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
                 channel.force(true);
             }
@@ -125,6 +132,15 @@ public final class PlayerAccount implements Account {
         }
         // 只有提交成功后才让原版容器向客户端同步；磁盘失败时 UI 看不到候选栈。
         player.inventoryMenu.broadcastChanges();
+    }
+
+    private CompoundTag saveTag() {
+        // 与原版 PlayerDataStorage 相同，带注册表上下文写出整份玩家数据；DataVersion 由玩家自身写入。
+        try (var reporter = new ProblemReporter.ScopedCollector(player.problemPath(), LoggerFactory.getLogger("backpack_storage_3d"))) {
+            var output = TagValueOutput.createWithContext(reporter, player.registryAccess());
+            player.saveWithoutId(output);
+            return output.buildResult();
+        }
     }
 
     private void apply(SavedInventory data, List<ItemStack> inventory) {

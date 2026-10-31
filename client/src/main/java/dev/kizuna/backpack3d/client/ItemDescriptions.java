@@ -9,7 +9,7 @@ final class ItemDescriptions {
     private ItemDescriptions() {}
 
     static void register() {
-        ItemTooltipCallback.EVENT.register((stack, context, lines) -> {
+        ItemTooltipCallback.EVENT.register((stack, context, flag, lines) -> {
             // 描述按客户端当前语言解析；空键不产生空白行，原有 Lore 和附魔保持原样。
             String key = ItemMetadata.of(stack).descriptionTranslationKey();
             if (!key.isEmpty()) {

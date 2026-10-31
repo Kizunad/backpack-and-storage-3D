@@ -10,18 +10,16 @@ ext {
 }
 
 subprojects {
-    apply plugin: 'fabric-loom'
+    apply plugin: 'net.fabricmc.fabric-loom'
     apply plugin: 'com.google.protobuf'
     group = 'dev.kizuna.backpack3d'
     version = '0.1.0-SNAPSHOT'
     base.archivesName = "backpack-storage-3d-${project.name}"
-    loom {
-        // 单机同时加载 common 与客户端产物，映射文件必须避免类路径同名遮蔽。
-        mixin { defaultRefmapName = "bs3d-${project.name}.refmap.json" }
-    }
     repositories {
         maven { url = 'https://maven.fabricmc.net/' }
         maven { url = 'https://maven.wispforest.io/releases' }
+        // owo 0.13 依赖的 kdl4j 只发布在 JitPack。
+        maven { url = 'https://jitpack.io' }
         mavenCentral()
     }
     java {
@@ -34,10 +32,10 @@ subprojects {
         options.encoding = 'UTF-8'
     }
     dependencies {
+        // 26.x 不混淆：直接用官方名编译，没有映射，模组依赖也不经重映射。
         minecraft libs.minecraft
-        mappings loom.officialMojangMappings()
-        modImplementation libs.fabric.loader
-        modImplementation libs.fabric.api
+        implementation libs.fabric.loader
+        implementation libs.fabric.api
         implementation libs.protobuf.java
         testImplementation libs.junit.jupiter
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
