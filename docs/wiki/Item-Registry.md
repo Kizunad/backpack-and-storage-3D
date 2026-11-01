@@ -133,6 +133,6 @@ end_botany.jar
 
 ## 验证
 
-`ItemRegistrationsTest` 覆盖文本与二进制清单、普通物品与容器、默认堆叠、描述和附属字段、整份原子校验、版本/重复/已存在/短 ID/缺少类型、文本与二进制未知字段、非法 JSON 与挂点；自带模型覆盖 ZIP 归档内按清单目录解析、动画省略与禁用、音效路径、缺失文件/越界/绝对路径/错误后缀、无目录入口拒绝及重复资产拒绝。`BundledModelTest` 从 ZIP 归档读取默认草包，确认几何、贴图和开合动画，并检查归档路径不能越界。
+`ItemRegistrationsTest` 覆盖文本与二进制清单、普通物品与容器、默认堆叠、描述和附属字段、整份原子校验、版本/重复/已存在/短 ID/缺少类型、文本与二进制未知字段、非法 JSON 与挂点；自带模型覆盖 ZIP 归档内按清单目录解析、动画省略与禁用、音效路径、缺失文件/越界/绝对路径/错误后缀、无目录入口拒绝及重复资产拒绝。`BundledModelTest` 从 ZIP 归档读取带盖袋测试夹具（`client/src/test/resources/fixtures/LidPouch.bbmodel`），确认几何、贴图和开合动画，并检查归档路径不能越界。
 
-真实 Fabric 环境：专用服务器启动日志确认 `bs3d_smoke` 清单被自动发现并注册；Xvfb 客户端资源验收（`:client:runResourceSmoke`）确认附属自带草包模型被加载，且在清空和写坏 `config.toml` 时保留，结果见[验证状态](Validation.md)。开发环境中模组资源是目录而非 JAR，JAR 归档路径由单元测试覆盖。业务协议 v6 与保存格式不变。
+真实 Fabric 环境：专用服务器启动日志确认 `bs3d_smoke` 清单被自动发现并注册；Xvfb 客户端资源验收（`:client:runResourceSmoke`）确认附属自带的带盖袋模型（`bs3d_smoke:bundled_pouch`）被加载，且在清空和写坏 `config.toml` 时保留，结果见[验证状态](Validation.md)。开发环境中模组资源是目录而非 JAR，JAR 归档路径由单元测试覆盖。业务协议 v6 与保存格式不变。

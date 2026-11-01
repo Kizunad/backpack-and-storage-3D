@@ -4,16 +4,14 @@
 
 ## 目录与注册
 
-BS3D 另自带九件 [Bong 收纳装备](Bong-Gear.md)，通过 common JAR 中的物品清单加载；它们无需复制到配置目录，已有配置也能直接使用。下方首次启动模板仍只负责草包与背篓。
+BS3D 自带九件 [Bong 收纳装备](Bong-Gear.md)，通过 common JAR 中的物品清单加载，无需复制到配置目录。客户端不生成默认配置或模板模型：没有 `config/bs3d/config.toml` 时只使用自带和附属模型，旋转键为默认 R/T。
 
-客户端首次启动自动创建 `config/bs3d/config.toml`，并复制带有开合动画的草包、背篓模型。后续启动不覆盖已有配置和模型。每个游戏实例维护自己的目录：
+需要自定义模型时，在每个游戏实例中自行创建下列目录；这些是玩家文件，模组不改写：
 
 ```text
 config/bs3d/
   config.toml
   models/
-    GrassPouch.bbmodel
-    BackBasket.bbmodel
     travel_bag.bbmodel
   sounds/
     travel_open.ogg
@@ -23,7 +21,7 @@ config/bs3d/
 
 复制 `.bbmodel` 后，必须在 `config.toml` 添加 `[[models]]`。仅复制文件不会启用；未注册的 `.bbmodel` 会在 `logs/latest.log` 输出 WARN。删除注册并按 **F3+T** 后，模型、贴图和自定义声音从当前目录撤销，UI、手持、世界装备及地面渲染不会继续使用旧模型缓存。
 
-完整格式如下。保留内置模型时，把新条目追加在已有配置之后；`version` 只在文件开头写一次。
+完整格式如下，`version` 只在文件开头写一次。示例中的 `travel_bag` 只用来说明格式，BS3D 不附带这份模型。
 
 ```toml
 version = 1
@@ -56,13 +54,13 @@ place = "sounds/travel_place.ogg"
 
 所有路径都相对于 `config/bs3d`，禁止绝对路径或符号链接越出该目录。TOML 不接受未知字段、重复 ID、错误字段类型或版本；整个注册表无效时，日志报告原因并停用全部导入模型。单个已登记模型缺失或解析失败，仅跳过这个模型。可选声音失败则保留该动作的默认声。
 
-配置只是资源登记，不创建物品、不改变容量、不修改装备规则。扩展模组仍需在两端物品注册阶段调用 `ContainerItems.register`，或通过 [Protobuf 物品清单](Item-Registry.md) 登记，将 `model` 设为同一个完整 ID；详见[物品扩展](Extension-Guide.md)。附属也可以在清单的 `container.asset` 中随 JAR 分发模型、动画和音效，玩家无需改 TOML；本文件登记同一 ID 时覆盖附属资源。早期 `grass_pouch` 之类的 Java 短名称兼容为 `bs3d:grass_pouch`，TOML 必须写完整 ID。
+配置只是资源登记，不创建物品、不改变容量、不修改装备规则。扩展模组仍需在两端物品注册阶段调用 `ContainerItems.register`，或通过 [Protobuf 物品清单](Item-Registry.md) 登记，将 `model` 设为同一个完整 ID；详见[物品扩展](Extension-Guide.md)。附属也可以在清单的 `container.asset` 中随 JAR 分发模型、动画和音效，玩家无需改 TOML；本文件登记同一 ID 时覆盖附属资源。Java 注册时的短名称（如 `herb_pouch`）兼容为 `bs3d:herb_pouch`，TOML 必须写完整 ID。
 
 ## Blockbench 编辑约定
 
 首版支持 **Blockbench 4.x `.bbmodel` 的 cube 模型**：逐面 UV、多张 PNG、面的 90 度 UV 旋转、隐藏面、立方体局部旋转及嵌套分组。推荐把 PNG 嵌入模型；外部 PNG 必须通过 `relative_path` 引用，相对于 `.bbmodel` 所在目录解析，且最终仍在 `config/bs3d` 内。编辑器保存的 `path` 绝对路径不被读取。
 
-模型按 **16 像素 = 1 方块** 渲染，参考水平中心为 `(8, 8)`，Y 轴向上。保持与内置编辑源一致的坐标约定；腰部和胸背挂载继续由公共挂点变换控制。贴图原有 UV 不重绘，地面高度按关闭姿态的实际最低点计算。
+模型按 **16 像素 = 1 方块** 渲染，参考水平中心为 `(8, 8)`，Y 轴向上。保持与自带 Bong 模型一致的坐标约定；腰部和胸背挂载继续由公共挂点变换控制。贴图原有 UV 不重绘，地面高度按关闭姿态的实际最低点计算。
 
 几何文件最大 16 MiB、4096 个元素、32 层分组；每张 PNG 最大 8 MiB、4096×4096。`mesh`、box UV、`rescale`、`inflate` 和 Blockbench 5.x 当前不支持，会明确报告错误；不要把这类资源当成已支持模型导出格式。
 
@@ -72,7 +70,7 @@ place = "sounds/travel_place.ogg"
 {"model": {"type": "minecraft:special", "base": "<物品命名空间>:item/<物品路径>", "model": {"type": "bs3d:container"}}}
 ```
 
-`base` 指向的 `models/item/<物品路径>.json` 不声明 `parent`，仍通过标准 `display` 字段调整原版物品展示变换。未改用三维渲染的普通收纳箱保留标准物品模型。地面容器优先使用已登记的导入模型。
+`base` 指向的 `models/item/<物品路径>.json` 不声明 `parent`，仍通过标准 `display` 字段调整原版物品展示变换。未改用三维渲染的容器物品保留标准物品模型。地面容器优先使用已登记的导入模型。
 
 `bs3d:container` 类型经访问器 mixin 加入原版 `SpecialModelRenderers.ID_MAPPER`：Fabric API 0.161 无公开入口，有了就换。
 
@@ -108,7 +106,7 @@ python3 scripts/import_models.py "/path/to/travel_bag.bbmodel" \
   --id "example:travel_bag" --into "/path/to/game/config/bs3d"
 ```
 
-旧脚本的“两份固定模型目录 → 构建期 JSON”模式已替换；运行时不再读取旧的 `assets/bs3d/models/<名称>.json`。`models/` 保留原始编辑源，带开合片段的首次启动模板位于客户端资源的 `bs3d/defaults/`。已有玩家库存、容器 UUID、装备和地面保存均无需迁移。
+旧脚本的“两份固定模型目录 → 构建期 JSON”模式已替换；运行时不再读取旧的 `assets/bs3d/models/<名称>.json`。2026-11-01 起不再附带草包、背篓的编辑源和首次启动模板。早期版本生成的 `config.toml` 与 `GrassPouch.bbmodel`、`BackBasket.bbmodel` 留在玩家目录，模组不删除；其中 `bs3d:grass_pouch`、`bs3d:back_basket` 两条登记仍会按普通条目加载，但已没有物品使用，可手动删去。
 
 具体测试证据与限制见[验证状态](Validation.md)。
 

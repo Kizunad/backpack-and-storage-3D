@@ -37,7 +37,7 @@ var optional = Map.of(Identifier.fromNamespaceAndPath("bs3d_weights", "weight"),
 
 ContainerItems.register(
         Identifier.fromNamespaceAndPath("example", "pouch"),
-        "示例草包",
+        "示例腰包",
         "item.example.pouch.description",
         "example:pouch",
         Volumes.size(1, 2, 2),
