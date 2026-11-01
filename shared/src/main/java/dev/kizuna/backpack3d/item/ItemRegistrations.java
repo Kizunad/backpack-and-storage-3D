@@ -205,8 +205,9 @@ public final class ItemRegistrations {
         if (BuiltInRegistries.ITEM.containsKey(id)) {
             throw new IllegalArgumentException(location + "：物品 ID 已被注册：" + id);
         }
+        // 省略 creative_tab 时进入 bs3d 专属物品栏；显式写别的栏则只进那个栏。
         Identifier tab = entry.getCreativeTab().isEmpty()
-                ? null
+                ? ContainerItems.TAB.identifier()
                 : identifier(location, "creative_tab", entry.getCreativeTab());
         var optional = optionalFields(location, entry.getOptionalFieldsList());
         BundledModel bundled = null;
@@ -349,11 +350,9 @@ public final class ItemRegistrations {
             item = Registry.register(BuiltInRegistries.ITEM, key, new Item(settings));
             ItemMetadata.register(item, entry.getDescriptionTranslationKey(), prepared.optional());
         }
-        if (prepared.tab() != null) {
-            Item registered = item;
-            CreativeModeTabEvents.modifyOutputEvent(ResourceKey.create(Registries.CREATIVE_MODE_TAB, prepared.tab()))
-                    .register(entries -> entries.accept(registered));
-        }
+        Item registered = item;
+        CreativeModeTabEvents.modifyOutputEvent(ResourceKey.create(Registries.CREATIVE_MODE_TAB, prepared.tab()))
+                .register(entries -> entries.accept(registered));
         return item;
     }
 
@@ -409,7 +408,7 @@ public final class ItemRegistrations {
             Identifier id,
             ItemEntry entry,
             Map<Identifier, JsonObject> optional,
-            // null 表示不额外加入创造模式物品栏。
+            // 条目所在的创造模式物品栏；清单省略时为 ContainerItems.TAB。
             Identifier tab,
             // null 表示没有随 JAR 分发的模型资产。
             BundledModel bundled) {}

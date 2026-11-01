@@ -93,7 +93,7 @@ ItemRegistrations.register("end_botany", ItemRegistry.newBuilder()
 | `items[].id` | 必填 `namespace:path`，清单内及注册表中唯一 |
 | `description_translation_key` | 简介语言键；空字符串表示无补充简介，文案由附属语言资源提供 |
 | `optional_fields` | 附属扩展字段，`id` 为完整资源 ID，`json` 必须是 JSON 对象文本；同一条目不能重复。含义同 Java 入口的 `optional` 参数，见[物品扩展](Extension-Guide.md) |
-| `creative_tab` | 可选创造模式物品栏 ID；普通物品省略时不加入物品栏，容器始终在工具栏，指定时额外加入。未存在的物品栏不会报错，只是不显示 |
+| `creative_tab` | 可选创造模式物品栏 ID；省略时普通物品与容器都进入 BS3D 专属物品栏 `bs3d:containers`（「背包与收纳」），指定时只进入指定的栏。未存在的物品栏不会报错，只是不显示 |
 | `plain.max_count` | 最大堆叠 `1..64`，`0` 或省略为 64 |
 | `container.title` | 必填非空显示标题 |
 | `container.model` | 必填完整模型 ID，与 `config.toml` 的 `[[models]] id` 相同 |

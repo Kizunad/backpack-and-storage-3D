@@ -56,6 +56,19 @@ ContainerItems.register(
 
 附属也可以不写 Java，在 `fabric.mod.json` 中声明 protobuf 清单，于启动时注册普通物品与容器，见 [Protobuf 物品清单](Item-Registry.md)。
 
+## 创造模式物品栏
+
+2026-11-01：BS3D 注册专属物品栏 `bs3d:containers`（「背包与收纳」，图标为骨架背篓），不再往原版“工具与实用物品”加物品。附属的物品按注册方式归栏：
+
+- protobuf 清单（推荐）：条目省略 `creative_tab` 即进入 `bs3d:containers`；显式写别的栏（如 `minecraft:natural`）时只进那个栏。
+- Java 直接调用 `ContainerItems.register` 或自行注册的物品不会自动进栏，在 `main` 入口按 Fabric 写法加入，例如：
+
+```java
+CreativeModeTabEvents.modifyOutputEvent(ContainerItems.TAB).register(entries -> entries.accept(item));
+```
+
+当前 Pocket、Weights、Burden、Vanilla 不注册物品；PA-bs3d 的摆动容器经 protobuf 清单登记，省略 `creative_tab`，进入本栏。
+
 ## 使用标准 item tag
 
 在数据包中定义 `data/example/tags/item/metal_equipment.json`：

@@ -126,6 +126,16 @@ class ItemRegistrationsTest {
     }
 
     @Test
+    void omittedCreativeTabDefaultsToContainersTab() {
+        // 省略 creative_tab 的条目进 bs3d 专属物品栏；显式写别的栏时只进那个栏。
+        var prepared = ItemRegistrations.prepare("test:tab", registry(
+                plain("test_tab:default"),
+                plain("test_tab:natural").toBuilder().setCreativeTab("minecraft:natural").build()), null);
+        assertEquals(Identifier.fromNamespaceAndPath("bs3d", "containers"), prepared.get(0).tab());
+        assertEquals(Identifier.fromNamespaceAndPath("minecraft", "natural"), prepared.get(1).tab());
+    }
+
+    @Test
     void rejectsUnknownFieldsInvalidJsonAndMounts() {
         assertThrows(IllegalArgumentException.class, () -> ItemRegistrations.registerText(
                 "test:unknown_text", "version: 1\nitems { id: \"test_unknown:a\" plain { size: 2 } }"));

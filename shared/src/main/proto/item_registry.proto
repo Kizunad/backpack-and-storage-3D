@@ -17,7 +17,7 @@ message ItemEntry {
   string id = 1; // 必填 namespace:path，注册物品类型 ID，不能使用 minecraft 命名空间。
   string description_translation_key = 2; // 简介语言键；空字符串表示无补充简介。
   repeated OptionalField optional_fields = 3; // 附属扩展字段，对应 Java 入口的 optional 参数。
-  string creative_tab = 4; // 可选创造模式物品栏 ID，如 minecraft:natural；容器默认进入工具栏。
+  string creative_tab = 4; // 可选创造模式物品栏 ID，如 minecraft:natural；省略时进入 bs3d:containers。
   oneof kind {
     PlainItem plain = 10;
     ContainerItem container = 11;

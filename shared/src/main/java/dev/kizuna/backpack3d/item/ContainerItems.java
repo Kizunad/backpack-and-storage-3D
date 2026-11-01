@@ -7,20 +7,21 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
 import dev.kizuna.backpack3d.world.GroundBags;
 
 import net.fabricmc.api.ModInitializer;
-import net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents;
+import net.fabricmc.fabric.api.creativetab.v1.FabricCreativeModeTab;
 import net.minecraft.core.Registry;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.item.CreativeModeTabs;
+import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomData;
@@ -36,6 +37,10 @@ public final class ContainerItems implements ModInitializer {
     public static final Identifier POUCH = Identifier.fromNamespaceAndPath("bs3d", "grass_pouch");
     public static final Identifier BASKET = Identifier.fromNamespaceAndPath("bs3d", "back_basket");
     public static final Identifier BOX = Identifier.fromNamespaceAndPath("bs3d", "storage_box");
+    // bs3d 专属创造模式物品栏；物品清单省略 creative_tab 时进入此栏。
+    public static final ResourceKey<CreativeModeTab> TAB =
+            ResourceKey.create(Registries.CREATIVE_MODE_TAB, Identifier.fromNamespaceAndPath("bs3d", "containers"));
+    private static final Identifier TAB_ICON = Identifier.fromNamespaceAndPath("bs3d", "gu_jia_bei_lou");
     public static final int DEFAULT_WAIST_LIMIT = 2;
     public static final int MAX_NESTING_DEPTH = 4;
     public static final int MAX_CONTAINERS = 32;
@@ -50,8 +55,11 @@ public final class ContainerItems implements ModInitializer {
     @Override
     public void onInitialize() {
         initialize();
-        CreativeModeTabEvents.modifyOutputEvent(CreativeModeTabs.TOOLS_AND_UTILITIES)
-                .register(entries -> TYPES.keySet().forEach(item -> entries.accept(item)));
+        // 物品栏本身不列物品，各条目由 ItemRegistrations 按清单的 creative_tab 加入；图标是 Bong 九件之一。
+        Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, TAB, FabricCreativeModeTab.builder()
+                .title(Component.translatable("itemGroup.bs3d.containers"))
+                .icon(() -> new ItemStack(BuiltInRegistries.ITEM.getValue(TAB_ICON)))
+                .build());
     }
 
     public static void initialize() {
