@@ -117,9 +117,13 @@ public final class ModelResources implements ResourceManagerReloadListener {
     }
 
     private static List<ModelConfig.Entry> readRegistrations(Path directory) {
-        // 配置整体校验失败时停用全部导入，不能让前半份注册表意外生效。
+        // 没有 config.toml 表示玩家没有自定义导入，按默认按键继续；文件存在但整体校验失败时停用全部导入，
+        // 不能让前半份注册表意外生效。
+        if (!Files.exists(directory.resolve("config.toml"))) {
+            rotationControls = RotationControls.DEFAULTS;
+            return List.of();
+        }
         try {
-            installDefaults(directory);
             var configuration = ModelConfig.read(directory, LOG::warn);
             rotationControls = configuration.controls();
             return configuration.models();
@@ -165,7 +169,7 @@ public final class ModelResources implements ResourceManagerReloadListener {
     }
 
     static ModelAsset optional(String name) {
-        // 原版收纳箱等类型允许保留标准物品模型，不为这种回退产生缺失警告。
+        // 不可穿戴容器等类型允许保留标准物品模型，不为这种回退产生缺失警告。
         Identifier id = Identifier.tryParse(name.contains(":") ? name : "bs3d:" + name);
         return id == null ? null : models.get(id);
     }
@@ -173,28 +177,6 @@ public final class ModelResources implements ResourceManagerReloadListener {
     private static void warnMissing(String name) {
         if (missing.add(name)) {
             LOG.warn("模型 {} 未注册或导入失败，跳过绘制；请检查 config/bs3d/config.toml", name);
-        }
-    }
-
-    private static void installDefaults(Path directory) throws IOException {
-        // 仅首次创建模板，不覆盖用户已经登记的路径或编辑过的模型。
-        Files.createDirectories(directory);
-        if (Files.exists(directory.resolve("config.toml"))) {
-            return;
-        }
-        for (String file :
-                List.of("models/GrassPouch.bbmodel", "models/BackBasket.bbmodel", "config.toml")) {
-            Path target = directory.resolve(file);
-            Files.createDirectories(target.getParent());
-            if (!Files.exists(target)) {
-                try (var input =
-                        ModelResources.class.getResourceAsStream("/bs3d/defaults/" + file)) {
-                    if (input == null) {
-                        throw new IOException("缺少内置模板：" + file);
-                    }
-                    Files.copy(input, target);
-                }
-            }
         }
     }
 }

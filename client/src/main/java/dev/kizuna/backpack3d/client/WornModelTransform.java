@@ -7,8 +7,8 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
 /** UI 命中、预览和世界外观共用身体挂点，所有坐标均在 body 骨架局部系内。 */
 final class WornModelTransform {
     private static final float MODEL_UNITS_PER_BLOCK = 16;
-    private static final float POUCH_SCALE = 0.5f;
-    private static final float BASKET_SCALE = 0.8f;
+    private static final float WAIST_SCALE = 0.5f;
+    private static final float TORSO_SCALE = 0.8f;
     // 挂点与半径单位为方块；body 的 y 轴朝下。
     static final float WAIST_X = 0.42f;
     static final float WAIST_Z = 0.29f;
@@ -25,7 +25,7 @@ final class WornModelTransform {
             boolean waist,
             Mount mount,
             float angleDegrees) {
-        float scale = (waist ? POUCH_SCALE : BASKET_SCALE) / MODEL_UNITS_PER_BLOCK;
+        float scale = (waist ? WAIST_SCALE : TORSO_SCALE) / MODEL_UNITS_PER_BLOCK;
         if (waist) {
             // 挂带顶部贴腰，包体自然下垂；不可把模型中心塞进腰部。
             double angle = Math.toRadians(angleDegrees);

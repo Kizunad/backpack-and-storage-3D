@@ -6,6 +6,7 @@ import dev.kizuna.backpack3d.protocol.StackCodec;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.EquipmentAppearance;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornModel;
+import dev.kizuna.backpack3d.service.RetiredContainers;
 import dev.kizuna.inventoryui.server.ServerConnection;
 
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
@@ -83,7 +84,10 @@ final class WornEquipmentSync {
                         .setEntityId(entityId)
                         .setDimension(dimension);
         for (var worn : saved.getWornList()) {
-            // 只投影身体上的根容器；收纳在其中的草包、背篓不能重复穿到身上。
+            // 只投影身体上的根容器，收纳在其中的容器不能重复穿到身上；已移除类型的旧容器不显示。
+            if (RetiredContainers.is(worn.getStackNbt(), "身上")) {
+                continue;
+            }
             var type = ContainerItems.definition(StackCodec.decode(worn.getStackNbt(), registries));
             if (type != null && !type.mounts().isEmpty()) {
                 appearance.addModels(

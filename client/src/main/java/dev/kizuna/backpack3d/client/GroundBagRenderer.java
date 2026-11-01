@@ -26,8 +26,8 @@ import net.minecraft.world.phys.Vec3;
 final class GroundBagRenderer implements BlockEntityRenderer<GroundBagBlockEntity, GroundBagRenderer.State> {
     private static final float BLOCK_CENTER = 0.5f;
     private static final float MODEL_PIXELS_PER_BLOCK = 16;
-    private static final float POUCH_SCALE = 0.5f;
-    private static final float BASKET_SCALE = 0.8f;
+    private static final float WAIST_SCALE = 0.5f;
+    private static final float TORSO_SCALE = 0.8f;
     private final ItemModelResolver items;
 
     private GroundBagRenderer(BlockEntityRendererProvider.Context context) {
@@ -50,7 +50,7 @@ final class GroundBagRenderer implements BlockEntityRenderer<GroundBagBlockEntit
             float partialTicks,
             Vec3 cameraPosition,
             ModelFeatureRenderer.CrumblingOverlay breakProgress) {
-        // 26.2 先抽取渲染快照再提交；类型、模型和收纳箱的物品外观都在这里定下。
+        // 26.2 先抽取渲染快照再提交；类型、模型和不可穿戴容器的物品外观都在这里定下。
         BlockEntityRenderer.super.extractRenderState(bag, state, partialTicks, cameraPosition, breakProgress);
         state.yaw = bag.yaw();
         state.type = null;
@@ -70,7 +70,7 @@ final class GroundBagRenderer implements BlockEntityRenderer<GroundBagBlockEntit
             return;
         }
         if (state.type.mounts().isEmpty()) {
-            // 收纳箱沿用注册物品模型。
+            // 不可穿戴容器沿用注册物品模型。
             items.updateForTopItem(
                     state.item, stack, ItemDisplayContext.FIXED, bag.getLevel(), null, (int) bag.getBlockPos().asLong());
         } else {
@@ -91,8 +91,8 @@ final class GroundBagRenderer implements BlockEntityRenderer<GroundBagBlockEntit
             matrices.translate(0, BLOCK_CENTER, 0);
             state.item.submit(matrices, collector, state.lightCoords, OverlayTexture.NO_OVERLAY, 0);
         } else {
-            // 草包和背篓按几何底部贴地，不悬空。
-            float scale = (state.type.waist() ? POUCH_SCALE : BASKET_SCALE) / MODEL_PIXELS_PER_BLOCK;
+            // 可穿戴容器按几何底部贴地，不悬空。
+            float scale = (state.type.waist() ? WAIST_SCALE : TORSO_SCALE) / MODEL_PIXELS_PER_BLOCK;
             matrices.translate(0, state.asset.groundOffset() * scale, 0);
             matrices.scale(scale, scale, scale);
             state.asset.render(matrices, collector, 0, null, state.lightCoords, OverlayTexture.NO_OVERLAY);

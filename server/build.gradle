@@ -12,9 +12,9 @@ sourceSets.create('smoke') {
     compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
     runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
 }
-// 验收清单的自带模型复用带开合动画的默认模板，不在夹具目录保存第二份 bbmodel。
+// 验收清单的自带模型复用客户端单元测试里带开合动画的夹具，不在夹具目录保存第二份 bbmodel。
 processSmokeResources {
-    from(rootProject.file('client/src/main/resources/bs3d/defaults/models/GrassPouch.bbmodel')) { into 'bs3d/models' }
+    from(rootProject.file('client/src/test/resources/fixtures/LidPouch.bbmodel')) { into 'bs3d/models' }
 }
 loom {
     mods {

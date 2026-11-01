@@ -125,6 +125,19 @@ public final class StackCodec {
         }
     }
 
+    public static String itemId(ByteString bytes) {
+        // 只读原始 NBT 的 id 字段、不经注册表解析，用来识别注册表里已不存在的旧物品；大小与分配限制同 decode。
+        if (bytes.isEmpty() || bytes.size() > Messages.MAX_NBT_BYTES) {
+            throw new IllegalArgumentException("无效 NBT 大小");
+        }
+        try {
+            var input = new DataInputStream(bytes.newInput());
+            return NbtIo.read(input, NbtAccounter.create(Messages.MAX_NBT_MEMORY_BYTES)).getStringOr("id", "");
+        } catch (IOException failure) {
+            throw new UncheckedIOException(failure);
+        }
+    }
+
     public static ByteString fingerprint(ByteString bytes) {
         // 指纹只用于内容对拍，不把它视为身份认证或物品创建权限。
         try {

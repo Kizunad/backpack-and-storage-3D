@@ -29,6 +29,8 @@ public final class ContainerTree {
     private final Map<String, Node> nodes = new LinkedHashMap<>();
     private final Set<String> itemIds = new HashSet<>();
     private final List<Node> roots = new ArrayList<>();
+    // 身上已移除类型的旧容器，不进树，保存时原样写回。
+    private final List<WornContainer> retired = new ArrayList<>();
     private final List<ItemStack> inventory;
     private final Map<String, ItemStack> ground;
     private final int waistLimit;
@@ -49,6 +51,10 @@ public final class ContainerTree {
         this.ground = ground;
         waistLimit = waistLimit(data);
         for (WornContainer worn : data.getWornList()) {
+            if (RetiredContainers.is(worn.getStackNbt(), "身上")) {
+                retired.add(worn);
+                continue;
+            }
             Node root = read(StackCodec.decode(worn.getStackNbt(), registries), null, 0);
             root.mount = worn.getMount();
             root.angle = worn.getWaistAngleDegrees();
@@ -118,6 +124,11 @@ public final class ContainerTree {
             if (!expected.equals(item.getSize())) {
                 throw new IllegalArgumentException("物品朝向和尺寸不一致");
             }
+            if (RetiredContainers.is(item.getStackNbt(), "容器内")) {
+                // 已移除类型的旧容器继续占原来的格子，字节连同其中的内容物原样保留。
+                node.entries.add(new Entry(item, null, true));
+                continue;
+            }
             ItemStack childStack = StackCodec.decode(item.getStackNbt(), registries);
             Node child =
                     ContainerItems.definition(childStack) == null
@@ -154,6 +165,9 @@ public final class ContainerTree {
             for (int index = 0; index < node.entries.size(); index++) {
                 Entry entry = node.entries.get(index);
                 if (entry.item.getId().equals(itemId)) {
+                    if (entry.retired) {
+                        throw new IllegalArgumentException("这件物品的类型已移除，不能取出");
+                    }
                     node.entries.remove(index);
                     return entry;
                 }
@@ -358,8 +372,8 @@ public final class ContainerTree {
     }
 
     public List<WornContainer> worn() {
-        // 由根向外输出保存候选，同时把原版根容器的最新内容写回候选槽位。
-        List<WornContainer> result = new ArrayList<>();
+        // 由根向外输出保存候选，同时把原版根容器的最新内容写回候选槽位；已移除类型的旧容器原样排在最前。
+        List<WornContainer> result = new ArrayList<>(retired);
         for (Node node : roots) {
             ItemStack stack = pack(node);
             if (node.grounded) {
@@ -426,14 +440,19 @@ public final class ContainerTree {
     }
 
     private void collectItems(Node node, List<Item> result) {
-        // 展开的条目供内景绘制，容器实物的 NBT 仍携带完整子树以支持再次取出。
+        // 展开的条目供内景绘制，容器实物的 NBT 仍携带完整子树以支持再次取出；已移除类型的旧容器换成占位物品。
         for (Entry entry : node.entries) {
-            result.add(
-                    entry.container == null
-                            ? entry.item
-                            : entry.item.toBuilder()
-                                    .setStackNbt(StackCodec.encode(pack(entry.container), registries))
-                                    .build());
+            Item item = entry.item;
+            if (entry.retired) {
+                item = item.toBuilder()
+                        .setStackNbt(RetiredContainers.placeholder(item.getStackNbt(), registries))
+                        .build();
+            } else if (entry.container != null) {
+                item = item.toBuilder()
+                        .setStackNbt(StackCodec.encode(pack(entry.container), registries))
+                        .build();
+            }
+            result.add(item);
             if (entry.container != null) {
                 collectItems(entry.container, result);
             }
@@ -453,10 +472,17 @@ public final class ContainerTree {
     public static final class Entry {
         private Item item;
         private final Node container;
+        // 已移除类型的旧容器：只占格、原样保存，不能取出。
+        private final boolean retired;
 
         Entry(Item item, Node container) {
+            this(item, container, false);
+        }
+
+        private Entry(Item item, Node container, boolean retired) {
             this.item = item;
             this.container = container;
+            this.retired = retired;
         }
 
         public Item item() {

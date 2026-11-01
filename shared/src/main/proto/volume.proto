@@ -126,7 +126,7 @@ message State {
 }
 // 世界外观只公开已装备容器的类型与挂点，不携带容器身份、内容或 ItemStack NBT。
 message WornModel {
-  string item_type = 1; // 两端已注册的物品 ID，例如 bs3d:grass_pouch。
+  string item_type = 1; // 两端已注册的物品 ID，例如 bs3d:herb_pouch。
   Mount mount = 2;
   float waist_angle_degrees = 3; // [0,360)，与 Placement 使用相同身体局部系。
 }

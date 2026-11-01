@@ -18,7 +18,7 @@ class BbModelTest {
 
     @Test
     void bundledModelsKeepGeometryTexturesAndNamedLidAnimations() throws Exception {
-        for (String name : new String[] {"GrassPouch", "BackBasket"}) {
+        for (String name : new String[] {"LidPouch", "LidBasket"}) {
             JsonObject json = bundled(name);
             BbModel model = read(json, null, null);
             assertEquals(json.getAsJsonArray("elements").size(), model.cubes().size());
@@ -38,7 +38,7 @@ class BbModelTest {
 
     @Test
     void staticModelOpensWithoutWaitingForAnInventedAnimation() throws Exception {
-        JsonObject json = bundled("GrassPouch");
+        JsonObject json = bundled("LidPouch");
         json.remove("animations");
         BbModel model = read(json, null, null);
         var animation = new BagAnimation();
@@ -53,7 +53,7 @@ class BbModelTest {
 
     @Test
     void missingClosingClipUsesOpeningClipInReverse() throws Exception {
-        JsonObject json = bundled("GrassPouch");
+        JsonObject json = bundled("LidPouch");
         json.getAsJsonArray("animations").remove(1);
         ModelAsset asset = new ModelAsset(read(json, null, null));
         assertEquals(asset.openSeconds(), asset.closeSeconds());
@@ -65,7 +65,7 @@ class BbModelTest {
 
     @Test
     void explicitMissingClipAndUnsupportedGeometryFailClearly() throws Exception {
-        JsonObject json = bundled("GrassPouch");
+        JsonObject json = bundled("LidPouch");
         assertTrue(
                 assertThrows(IllegalArgumentException.class, () -> read(json, "wrong", null))
                         .getMessage()
@@ -79,7 +79,7 @@ class BbModelTest {
 
     @Test
     void nestedBonesUvRotationAndUntexturedFacesArePreserved() throws Exception {
-        JsonObject json = bundled("GrassPouch");
+        JsonObject json = bundled("LidPouch");
         var first = json.getAsJsonArray("elements").get(0).getAsJsonObject();
         var faces = first.getAsJsonObject("faces");
         faces.getAsJsonObject("west").addProperty("rotation", 90);
@@ -93,7 +93,7 @@ class BbModelTest {
 
     @Test
     void keyframesRejectExpressionsAndUnsupportedInterpolation() throws Exception {
-        JsonObject json = bundled("GrassPouch");
+        JsonObject json = bundled("LidPouch");
         var frame = firstFrame(json);
         frame.getAsJsonArray("data_points")
                 .get(0)
@@ -110,7 +110,7 @@ class BbModelTest {
 
     @Test
     void stepKeysHoldUntilTheirNextTimestamp() throws Exception {
-        JsonObject json = bundled("GrassPouch");
+        JsonObject json = bundled("LidPouch");
         firstFrame(json).addProperty("interpolation", "step");
         ModelClip clip = read(json, null, null).open();
         String bone = clip.tracks().keySet().iterator().next();
@@ -120,7 +120,7 @@ class BbModelTest {
 
     @Test
     void brokenPngAndOggHeadersAreRejected() throws Exception {
-        JsonObject json = bundled("GrassPouch");
+        JsonObject json = bundled("LidPouch");
         json.getAsJsonArray("textures")
                 .get(0)
                 .getAsJsonObject()
@@ -143,7 +143,7 @@ class BbModelTest {
     private static JsonObject bundled(String name) throws Exception {
         try (var stream =
                 BbModelTest.class.getResourceAsStream(
-                        "/bs3d/defaults/models/" + name + ".bbmodel")) {
+                        "/fixtures/" + name + ".bbmodel")) {
             return JsonParser.parseString(
                             new String(
                                     stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8))

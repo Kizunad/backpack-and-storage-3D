@@ -2,7 +2,6 @@ package dev.kizuna.backpack3d.item;
 
 import com.google.gson.JsonObject;
 import dev.kizuna.backpack3d.protocol.Messages;
-import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
 import dev.kizuna.backpack3d.world.GroundBags;
 
@@ -34,9 +33,6 @@ import java.util.UUID;
 
 /** 容器是不可堆叠的真实物品，内部容量、外部占格与可装备部位分别注册。 */
 public final class ContainerItems implements ModInitializer {
-    public static final Identifier POUCH = Identifier.fromNamespaceAndPath("bs3d", "grass_pouch");
-    public static final Identifier BASKET = Identifier.fromNamespaceAndPath("bs3d", "back_basket");
-    public static final Identifier BOX = Identifier.fromNamespaceAndPath("bs3d", "storage_box");
     // bs3d 专属创造模式物品栏；物品清单省略 creative_tab 时进入此栏。
     public static final ResourceKey<CreativeModeTab> TAB =
             ResourceKey.create(Registries.CREATIVE_MODE_TAB, Identifier.fromNamespaceAndPath("bs3d", "containers"));
@@ -68,37 +64,8 @@ public final class ContainerItems implements ModInitializer {
             return;
         }
         initialized = true;
-        register(
-                POUCH,
-                "草包",
-                "item.bs3d.grass_pouch.description",
-                "grass_pouch",
-                Volumes.size(1, 2, 2),
-                Volumes.size(2, 2, 2),
-                List.of(
-                        Mount.WAIST_RIGHT_FRONT, Mount.WAIST_LEFT_FRONT,
-                        Mount.WAIST_LEFT_BACK, Mount.WAIST_RIGHT_BACK),
-                Map.of());
-        register(
-                BASKET,
-                "背篓",
-                "item.bs3d.back_basket.description",
-                "back_basket",
-                Volumes.size(3, 3, 3),
-                Volumes.size(3, 3, 4),
-                List.of(Mount.TORSO_FRONT, Mount.TORSO_BACK),
-                Map.of());
-        register(
-                BOX,
-                "收纳箱",
-                "item.bs3d.storage_box.description",
-                "storage_box",
-                Volumes.size(5, 3, 2),
-                Volumes.size(5, 3, 2),
-                List.of(),
-                Map.of());
         GroundBags.initialize();
-        // 内置类型之后读取各模组 fabric.mod.json 声明的 protobuf 物品清单。
+        // 容器类型全部来自各模组 fabric.mod.json 声明的 protobuf 物品清单，本模组的 Bong 九件也走这条路。
         ItemRegistrations.discover();
     }
 

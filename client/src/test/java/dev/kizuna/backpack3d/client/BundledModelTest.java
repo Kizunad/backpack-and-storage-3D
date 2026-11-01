@@ -22,7 +22,7 @@ class BundledModelTest {
         try (var zip = FileSystems.newFileSystem(jar, Map.of("create", "true"));
                 var source =
                         BundledModelTest.class.getResourceAsStream(
-                                "/bs3d/defaults/models/GrassPouch.bbmodel")) {
+                                "/fixtures/LidPouch.bbmodel")) {
             Path root = zip.getPath("/bs3d");
             Files.createDirectories(root.resolve("models"));
             Path file = root.resolve("models/pouch.bbmodel");

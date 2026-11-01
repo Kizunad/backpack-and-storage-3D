@@ -25,8 +25,8 @@ final class GroundBagBlock extends BaseEntityBlock {
     private static final double EDGE_INSET_PIXELS = 3;
     private static final double TOP_PIXELS = 18;
     private static final double BLOCK_PIXELS = 16;
-    private static final double POUCH_INSET_PIXELS = 5;
-    private static final double POUCH_TOP_PIXELS = 7;
+    private static final double WAIST_INSET_PIXELS = 5;
+    private static final double WAIST_TOP_PIXELS = 7;
     private static final VoxelShape SHAPE =
             box(
                     EDGE_INSET_PIXELS,
@@ -35,14 +35,14 @@ final class GroundBagBlock extends BaseEntityBlock {
                     BLOCK_PIXELS - EDGE_INSET_PIXELS,
                     TOP_PIXELS,
                     BLOCK_PIXELS - EDGE_INSET_PIXELS);
-    private static final VoxelShape POUCH_SHAPE =
+    private static final VoxelShape WAIST_SHAPE =
             box(
-                    POUCH_INSET_PIXELS,
+                    WAIST_INSET_PIXELS,
                     0,
-                    POUCH_INSET_PIXELS,
-                    BLOCK_PIXELS - POUCH_INSET_PIXELS,
-                    POUCH_TOP_PIXELS,
-                    BLOCK_PIXELS - POUCH_INSET_PIXELS);
+                    WAIST_INSET_PIXELS,
+                    BLOCK_PIXELS - WAIST_INSET_PIXELS,
+                    WAIST_TOP_PIXELS,
+                    BLOCK_PIXELS - WAIST_INSET_PIXELS);
     private static final MapCodec<GroundBagBlock> CODEC = simpleCodec(GroundBagBlock::new);
 
     GroundBagBlock(Properties settings) {
@@ -67,13 +67,13 @@ final class GroundBagBlock extends BaseEntityBlock {
     @Override
     public VoxelShape getShape(
             BlockState state, BlockGetter world, BlockPos pos, CollisionContext context) {
-        // 草包使用更小的碰撞与命中体积，不能在小模型上方留下不可见的大障碍。
+        // 腰挂容器使用更小的碰撞与命中体积，不能在小模型上方留下不可见的大障碍。
         if (world.getBlockEntity(pos) instanceof GroundBagBlockEntity bag) {
             Identifier id = Identifier.tryParse(bag.itemType());
             if (id != null && BuiltInRegistries.ITEM.containsKey(id)) {
                 var type = ContainerItems.definition(new ItemStack(BuiltInRegistries.ITEM.getValue(id)));
                 if (type != null && type.waist()) {
-                    return POUCH_SHAPE;
+                    return WAIST_SHAPE;
                 }
             }
         }

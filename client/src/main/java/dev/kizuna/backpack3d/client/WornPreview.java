@@ -144,7 +144,7 @@ public final class WornPreview {
     }
 
     public int slotAt(double x, double y) {
-        // 身上容器参与同一深度比较，不能隔着背篓抓取胸甲或背后的手。
+        // 身上容器参与同一深度比较，不能隔着背后容器抓取胸甲或背后的手。
         double depth = Double.NEGATIVE_INFINITY;
         for (var entry : transforms.entrySet()) {
             depth =
