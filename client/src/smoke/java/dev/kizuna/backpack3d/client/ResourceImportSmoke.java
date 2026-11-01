@@ -5,6 +5,7 @@ import dev.kizuna.backpack3d.item.ContainerSounds.Action;
 import net.minecraft.client.renderer.item.SpecialModelWrapper;
 import net.minecraft.client.sounds.JOrbisAudioStream;
 import dev.kizuna.backpack3d.item.ContainerItems;
+import dev.kizuna.backpack3d.item.ItemRegistrations;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -26,10 +27,28 @@ public final class ResourceImportSmoke implements ClientModInitializer {
     private static final List<String> BONG_GEAR = List.of(
             "gu_jia_bei_lou", "xiu_kuang_bei_jia", "za_pi_xing_nang", "pi_nang_xiong_gua",
             "herb_pouch", "ore_sack", "water_skin", "moisture_guard", "coin_box");
+    private static final Identifier HERB_POUCH = Identifier.fromNamespaceAndPath("bs3d", "herb_pouch");
+    // 玩家导入：同 ID 覆盖灵草囊自带模型并换上五种动作音效；坏模型只影响自己。
+    private static final String IMPORTED =
+            """
+            version = 1
+            [[models]]
+            id = "bs3d:herb_pouch"
+            file = "models/HerbPouch.bbmodel"
+            [models.sounds]
+            open = "test.ogg"
+            close = "test.ogg"
+            place = "test.ogg"
+            pickup = "test.ogg"
+            touch = "test.ogg"
+            [[models]]
+            id = "bs3d:broken"
+            file = "broken.bbmodel"
+            """;
     private static final long TIMEOUT_MILLIS = 120_000;
     private final Path directory = FabricLoader.getInstance().getConfigDir().resolve("bs3d");
     private CompletableFuture<Void> reload;
-    private String original;
+    private Identifier importedSound;
     private int step;
     private long started;
 
@@ -69,13 +88,20 @@ public final class ResourceImportSmoke implements ClientModInitializer {
         }
         switch (step) {
             case 0 -> {
+                // 不再随模组附带默认 config.toml；首次启动只有各模组 JAR 自带的模型。
+                require(!Files.exists(directory.resolve("config.toml")), "首次启动仍生成了 config.toml");
                 verifyBongGear(client);
-                require(ModelResources.find("grass_pouch") != null, "默认草包没有登记");
-                require(ModelResources.find("back_basket") != null, "默认背篓没有登记");
                 require(
                         ModelResources.find("bs3d_smoke:bundled_pouch") != null,
                         "附属 JAR 自带模型没有加载");
-                original = Files.readString(directory.resolve("config.toml"));
+                // 玩家导入：把灵草囊自带的 bbmodel 复制进 config/bs3d，用 config.toml 覆盖同 ID 模型并换上自定义音效。
+                var bundled =
+                        ItemRegistrations.bundledModels().stream()
+                                .filter(model -> model.model().equals(HERB_POUCH))
+                                .findFirst()
+                                .orElseThrow();
+                Files.createDirectories(directory.resolve("models"));
+                Files.write(directory.resolve("models/HerbPouch.bbmodel"), Files.readAllBytes(bundled.file()));
                 var vanilla =
                         client.getSoundManager()
                                 .getSoundEvent(SoundEvents.UI_BUTTON_CLICK.value().location())
@@ -90,36 +116,20 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 Files.writeString(
                         directory.resolve("stray.bbmodel"), "not JSON and must never be parsed");
                 Files.writeString(directory.resolve("broken.bbmodel"), "invalid registered model");
-                String config =
-                        """
-                        version = 1
-                        [[models]]
-                        id = "bs3d:grass_pouch"
-                        file = "models/GrassPouch.bbmodel"
-                        [models.sounds]
-                        open = "test.ogg"
-                        close = "test.ogg"
-                        place = "test.ogg"
-                        pickup = "test.ogg"
-                        touch = "test.ogg"
-                        [[models]]
-                        id = "bs3d:broken"
-                        file = "broken.bbmodel"
-                        """;
-                reload(client, config);
+                reload(client, IMPORTED);
             }
             case 1 -> {
-                require(ModelResources.find("grass_pouch") != null, "合法资源被坏资源一起移除");
-                require(ModelResources.find("back_basket") == null, "撤销注册后仍保留旧模型");
+                require(ModelResources.find("herb_pouch") != null, "合法资源被坏资源一起移除");
                 require(ModelResources.find("broken") == null, "坏模型被加载");
                 for (Action action : Action.values()) {
                     var sound =
                             client.getSoundManager()
-                                    .getSoundEvent(ContainerSounds.id("grass_pouch", action))
+                                    .getSoundEvent(ContainerSounds.id("herb_pouch", action))
                                     .getSound(RandomSource.create());
                     require(
                             sound.getLocation().getPath().startsWith("imports/"),
                             "自定义动作音效未生效：" + action);
+                    importedSound = sound.getPath();
                     try (var input =
                                     client.getResourceManager()
                                             .getResource(sound.getPath())
@@ -132,37 +142,29 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 reload(client, "version = 1\nmodels = []\n");
             }
             case 2 -> {
+                // 撤销玩家登记后，灵草囊回到 JAR 自带模型与默认音效，导入的声音文件也不再留在资源里。
                 verifyBongGear(client);
-                require(ModelResources.find("grass_pouch") == null, "空白名单仍有模型");
-                // 附属自带模型不属于玩家白名单，清空 config.toml 不影响它。
                 require(
                         ModelResources.find("bs3d_smoke:bundled_pouch") != null,
                         "清空 config.toml 后附属自带模型被移除");
-                Identifier texture = Identifier.fromNamespaceAndPath("bs3d", "imports/bs3d/grass_pouch/0.png");
-                require(client.getResourceManager().getResource(texture).isEmpty(), "旧贴图仍在资源目录");
-                var sound =
-                        client.getSoundManager()
-                                .getSoundEvent(ContainerSounds.id("grass_pouch", Action.PLACE))
-                                .getSound(RandomSource.create());
-                require(sound.getLocation().getNamespace().equals("minecraft"), "移除自定义声后未恢复默认");
+                require(client.getResourceManager().getResource(importedSound).isEmpty(), "旧导入音效仍在资源目录");
+                require(defaultPlaceSound(client), "移除自定义声后未恢复默认");
                 reload(client, "version = 1\n[[models]\n");
             }
             case 3 -> {
                 verifyBongGear(client);
-                require(ModelResources.find("grass_pouch") == null, "损坏配置没有关闭加载");
+                require(defaultPlaceSound(client), "损坏配置没有关闭加载");
                 require(
                         ModelResources.find("bs3d_smoke:bundled_pouch") != null,
                         "损坏的 config.toml 连带停用了附属自带模型");
-                reload(client, original);
+                reload(client, IMPORTED);
             }
             case 4 -> {
-                require(
-                        ModelResources.find("grass_pouch") != null
-                                && ModelResources.find("back_basket") != null,
-                        "恢复配置后模型没有恢复");
+                require(!defaultPlaceSound(client), "恢复配置后导入资源没有恢复");
                 String result =
-                        "registered-only; invalid-file-isolation; five-custom-ogg-actions; decode;"
-                                + " revoke; malformed-config; restore; bundled-addon-model; nine-bong-containers";
+                        "no-default-config; registered-only; invalid-file-isolation; override-bundled;"
+                                + " five-custom-ogg-actions; decode; revoke; malformed-config; restore;"
+                                + " bundled-addon-model; nine-bong-containers";
                 Files.writeString(client.gameDirectory.toPath().resolve("resources-ok.txt"), result);
                 System.out.println("BS3D_RESOURCES " + result);
                 step++;
@@ -172,12 +174,20 @@ public final class ResourceImportSmoke implements ClientModInitializer {
         }
     }
 
+    private static boolean defaultPlaceSound(Minecraft client) {
+        var sound =
+                client.getSoundManager()
+                        .getSoundEvent(ContainerSounds.id("herb_pouch", Action.PLACE))
+                        .getSound(RandomSource.create());
+        return sound.getLocation().getNamespace().equals("minecraft");
+    }
+
     private void reload(Minecraft client, String config) throws Exception {
         // 调用 F3+T 使用的同一入口，下一 tick 等原版纹理与声音重载完成。
         Files.writeString(directory.resolve("config.toml"), config);
-        ModelAsset beforeScan = ModelResources.find("grass_pouch");
+        ModelAsset beforeScan = ModelResources.find("herb_pouch");
         client.getResourcePackRepository().reload();
-        require(beforeScan == ModelResources.find("grass_pouch"), "仅扫描资源包就提前切换了模型");
+        require(beforeScan == ModelResources.find("herb_pouch"), "仅扫描资源包就提前切换了模型");
         step++;
         reload = client.reloadResourcePacks();
     }

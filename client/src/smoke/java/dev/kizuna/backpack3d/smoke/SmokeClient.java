@@ -163,7 +163,7 @@ public final class SmokeClient implements ClientModInitializer {
                                                 value ->
                                                         value.getWorn()
                                                                 && value.getModel()
-                                                                        .equals("grass_pouch"))
+                                                                        .equals("bs3d:herb_pouch"))
                                         .findFirst()
                                         .orElseThrow()
                                         .getId();
@@ -173,7 +173,7 @@ public final class SmokeClient implements ClientModInitializer {
                                                 value ->
                                                         value.getWorn()
                                                                 && value.getModel()
-                                                                        .equals("back_basket"))
+                                                                        .equals("bs3d_smoke:lid_basket"))
                                         .findFirst()
                                         .orElseThrow()
                                         .getId();
@@ -294,7 +294,7 @@ public final class SmokeClient implements ClientModInitializer {
                             java.util.Arrays.equals(
                                     basketBeforeOpening,
                                     ((VolumeScreen) client.gui.screen()).bagBounds(basket)),
-                            "打开草包改变了人物取景或缩放");
+                            "打开灵草囊改变了人物取景或缩放");
                     shot(client, "02-open-pouch");
                     module.move(UUID.randomUUID().toString(), pouch, Cell.getDefaultInstance(),
                             true /* automatic */);
@@ -500,7 +500,7 @@ public final class SmokeClient implements ClientModInitializer {
             }
             case EQUIP_BASKET -> {
                 if (state.getRevision() == 7) {
-                    require(module.mount(pouch) == Mount.WAIST_LEFT_FRONT, "草包挂点未同步");
+                    require(module.mount(pouch) == Mount.WAIST_LEFT_FRONT, "灵草囊挂点未同步");
                     module.cycleMount(basket);
                     next(Step.CLOSE_SCREEN);
                 }
@@ -676,7 +676,7 @@ public final class SmokeClient implements ClientModInitializer {
                     require(
                             module.container(pouch).getParent().equals(basket)
                                     && !module.container(pouch).getWorn(),
-                            "草包收纳后仍装备在身体上");
+                            "灵草囊收纳后仍装备在身体上");
                     if (dragContainerToBody(client, pouch, basket, null)) {
                         next(Step.BASKET_TO_BACK);
                     }
@@ -684,7 +684,7 @@ public final class SmokeClient implements ClientModInitializer {
             }
             case BASKET_TO_BACK -> {
                 if (state.getRevision() == 17 && !module.busy()) {
-                    require(module.container(pouch).getWorn(), "草包没有重新挂上腰部");
+                    require(module.container(pouch).getWorn(), "灵草囊没有重新挂上腰部");
                     require(module.container(pouch).getWaistAngleDegrees() != 45, "腰部位置仍锁定旧挂点");
                     if (dragContainerToBody(client, basket, null, Mount.TORSO_BACK)) {
                         next(Step.CANCEL_BEFORE_ACK);
@@ -988,7 +988,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
         }
-        throw new IllegalStateException("没有可收纳草包的空间");
+        throw new IllegalStateException("没有可收纳灵草囊的空间");
     }
 
     private static boolean dragContainerToBody(
@@ -1201,12 +1201,19 @@ public final class SmokeClient implements ClientModInitializer {
     }
 
     private void verifyConfiguredRotation(VolumeScreen screen) throws java.io.IOException {
-        // 从真实 TOML 重读新键，旧键不再旋转；结束后恢复夹具配置。
+        // 从真实 TOML 重读新键，旧键不再旋转；隔离世界首次启动没有 config.toml，结束后删掉恢复默认按键。
         Path directory = FabricLoader.getInstance().getConfigDir().resolve("bs3d");
         Path config = directory.resolve("config.toml");
-        String original = Files.readString(config);
-        String rebound = original.replace("key.keyboard.r", "key.keyboard.y");
+        require(!Files.exists(config), "首次启动仍生成了 config.toml");
+        String rebound =
+                """
+                version = 1
+                [controls]
+                rotate_yaw = "key.keyboard.y"
+                rotate_pitch = "key.keyboard.t"
+                """;
         try {
+            Files.createDirectories(directory);
             Files.writeString(config, rebound);
             ModelResources.registerPack(ignored -> {});
             int before = screen.selectedOrientation();
@@ -1215,7 +1222,7 @@ public final class SmokeClient implements ClientModInitializer {
             screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_Y, 0, 0));
             require(screen.selectedOrientation() != before, "TOML 新旋转键未生效");
         } finally {
-            Files.writeString(config, original);
+            Files.delete(config);
             ModelResources.registerPack(ignored -> {});
         }
     }

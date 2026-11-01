@@ -14,7 +14,8 @@ sourceSets.create('smoke') {
 }
 // 验收清单的自带模型复用客户端单元测试里带开合动画的夹具，不在夹具目录保存第二份 bbmodel。
 processSmokeResources {
-    from(rootProject.file('client/src/test/resources/fixtures/LidPouch.bbmodel')) { into 'bs3d/models' }
+    from(rootProject.files('client/src/test/resources/fixtures/LidPouch.bbmodel',
+            'client/src/test/resources/fixtures/LidBasket.bbmodel')) { into 'bs3d/models' }
 }
 loom {
     mods {

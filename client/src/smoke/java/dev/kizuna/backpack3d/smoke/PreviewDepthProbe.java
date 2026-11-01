@@ -6,6 +6,7 @@ import dev.kizuna.backpack3d.client.InteriorRenderer;
 import dev.kizuna.backpack3d.client.VolumeModule;
 import dev.kizuna.backpack3d.client.WornPreview;
 import dev.kizuna.backpack3d.protocol.Volumes;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Container;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
 import dev.kizuna.inventoryui.client.InventoryUiClient;
 import dev.kizuna.inventoryui.theme.ThemeTokens;
@@ -27,6 +28,10 @@ import net.minecraft.network.chat.Component;
  * 现在检查的是界面层叠：同一帧先画的不透明面板必须留在预览下面。
  */
 final class PreviewDepthProbe extends Screen {
+    // 只在本探针里绘制的 3×3×3 内景，单位为格，不对应任何已登记容器。
+    private static final String PROBE = "probe";
+    private static final Container PROBE_CONTAINER =
+            Container.newBuilder().setId(PROBE).setTitle("探针").setSize(Volumes.size(3, 3, 3)).build();
     private final VolumeModule module;
     private final WornPreview reference;
     private final WornPreview obstructed;
@@ -141,7 +146,7 @@ final class PreviewDepthProbe extends Screen {
         var interior = new InteriorRenderer();
         var bounds = new InteriorRenderer.Rect(0, 0, 180, 180);
         interior.draw(
-                context, module, Volumes.container(Volumes.BASKET), bounds, -1, -1, "", null, 0);
+                context, module, PROBE_CONTAINER, bounds, -1, -1, "", null, 0);
         var center = Volumes.cell(1, 1, 1);
         var occupied = new java.util.ArrayList<Item>();
         for (int y = 0; y < 3; y++) {
@@ -152,7 +157,7 @@ final class PreviewDepthProbe extends Screen {
                         occupied.add(
                                 Item.newBuilder()
                                         .setId("occupied-" + x + y + z)
-                                        .setContainer(Volumes.BASKET)
+                                        .setContainer(PROBE)
                                         .setCell(cell)
                                         .setSize(Volumes.UNIT)
                                         .build());
@@ -166,8 +171,8 @@ final class PreviewDepthProbe extends Screen {
                 if (center.equals(
                         interior.placementAt(
                                 occupied,
-                                Volumes.BASKET,
-                                Volumes.size(3, 3, 3),
+                                PROBE,
+                                PROBE_CONTAINER.getSize(),
                                 preview,
                                 0,
                                 x,
@@ -196,7 +201,7 @@ final class PreviewDepthProbe extends Screen {
             interior.draw(
                     context,
                     module,
-                    Volumes.container(Volumes.BASKET),
+                    PROBE_CONTAINER,
                     bounds,
                     -1,
                     -1,

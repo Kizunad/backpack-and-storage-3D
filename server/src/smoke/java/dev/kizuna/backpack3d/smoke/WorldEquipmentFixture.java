@@ -5,7 +5,6 @@ import com.mojang.authlib.GameProfile;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.server.PlayerStorage;
-import dev.kizuna.backpack3d.service.TransferService;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.network.Connection;
@@ -104,10 +103,7 @@ final class WorldEquipmentFixture {
                         new Connection(PacketFlow.SERVERBOUND),
                         subject,
                         CommonListenerCookie.createInitial(subject.getGameProfile(), false));
-        equipped =
-                TransferService.upgrade(
-                        SavedInventory.newBuilder().setFormatVersion(2).build(),
-                        subject.registryAccess());
+        equipped = SmokeContainers.account(subject.registryAccess());
         ((PlayerStorage) subject).bs3d$setInventory(equipped);
         homeX = viewer.getX() + 2;
         homeY = viewer.getY();

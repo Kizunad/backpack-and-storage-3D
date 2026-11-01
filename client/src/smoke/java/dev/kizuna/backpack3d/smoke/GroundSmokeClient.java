@@ -16,6 +16,7 @@ import net.minecraft.client.input.MouseButtonInfo;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.protocol.game.ServerboundPlayerInputPacket;
+import net.minecraft.resources.Identifier;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Input;
@@ -26,6 +27,8 @@ import net.minecraft.world.phys.Vec3;
 
 /** 使用原版交互包放置、打开和收回，并验证即时存取、模型落点与重启后的内容。 */
 final class GroundSmokeClient {
+    // 服务器夹具放进第 0 格的 Bong 灵草囊。
+    private static final Identifier POUCH = Identifier.fromNamespaceAndPath("bs3d", "herb_pouch");
     private int step;
     private int ticks;
     private String id;
@@ -65,7 +68,7 @@ final class GroundSmokeClient {
                                 .getItem(0)
                                 .is(
                                         net.minecraft.core.registries.BuiltInRegistries.ITEM.getValue(
-                                                ContainerItems.POUCH))) {
+                                                POUCH))) {
                     return null;
                 }
                 client.player.getInventory().setSelectedSlot(0);

@@ -2,9 +2,7 @@ package dev.kizuna.backpack3d.smoke;
 
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.PlayerSlots;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.server.PlayerStorage;
-import dev.kizuna.backpack3d.service.TransferService;
 
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
@@ -33,14 +31,9 @@ public final class SmokeServer implements DedicatedServerModInitializer {
                         throw new IllegalStateException("临时位置锁错误地改变了重力存档");
                     }
                     if (((PlayerStorage) player).bs3d$getInventory().getRevision() == 0) {
-                        // 夹具同时覆盖旧固定容器升级；生产中新玩家不会自动获赠背包。
+                        // 生产中新玩家不会自动获赠背包；验收直接给一组身上容器。
                         ((PlayerStorage) player)
-                                .bs3d$setInventory(
-                                        TransferService.upgrade(
-                                                SavedInventory.newBuilder()
-                                                        .setFormatVersion(2)
-                                                        .build(),
-                                                player.registryAccess()));
+                                .bs3d$setInventory(SmokeContainers.account(player.registryAccess()));
                         var sword = new ItemStack(Items.IRON_SWORD);
                         sword.set(DataComponents.CUSTOM_NAME, Component.literal("旧铁剑"));
                         sword.setDamageValue(17);
@@ -49,10 +42,10 @@ public final class SmokeServer implements DedicatedServerModInitializer {
                         player.getInventory().getNonEquipmentItems().set(2, new ItemStack(Items.IRON_PICKAXE));
                         player.getInventory()
                                 .getNonEquipmentItems()
-                                .set(3, ContainerItems.create(ContainerItems.POUCH));
+                                .set(3, ContainerItems.create(SmokeContainers.POUCH));
                         player.getInventory()
                                 .getNonEquipmentItems()
-                                .set(4, ContainerItems.create(ContainerItems.BOX));
+                                .set(4, ContainerItems.create(SmokeContainers.COIN_BOX));
                         player.getInventory()
                                 .setItem(
                                         PlayerSlots.armorSlot(EquipmentSlot.HEAD),

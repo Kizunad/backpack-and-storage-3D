@@ -24,3 +24,22 @@ items {
     }
   }
 }
+
+# 胸前、背后两用的验收背篓：Bong 九件没有能前后切换的胸背容器。几何同 2026-11-01 移除的旧背篓，
+# 单位为格；模型用带开合动画的测试夹具，构建时与带盖袋一同复制。
+items {
+  id: "bs3d_smoke:lid_basket"
+  container {
+    title: "验收背篓"
+    model: "bs3d_smoke:lid_basket"
+    inside { width: 3 height: 3 depth: 3 }
+    outside { width: 3 height: 3 depth: 4 }
+    mounts: TORSO_FRONT
+    mounts: TORSO_BACK
+    asset {
+      file: "models/LidBasket.bbmodel"
+      open_animation: "open"
+      close_animation: "close"
+    }
+  }
+}

@@ -75,7 +75,7 @@ final class GroundSmokeFixture {
             if (!Files.readString(Path.of("../client/phase.txt")).strip().equals("ground")) {
                 return;
             }
-            var bag = ContainerItems.create(ContainerItems.POUCH);
+            var bag = ContainerItems.create(SmokeContainers.POUCH);
             String id = ContainerItems.identity(bag);
             var sword = new ItemStack(Items.IRON_SWORD);
             sword.setDamageValue(17);
