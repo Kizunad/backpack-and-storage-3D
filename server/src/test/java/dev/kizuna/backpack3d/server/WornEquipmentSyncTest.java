@@ -9,6 +9,7 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
 import dev.kizuna.backpack3d.service.TransferService;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import org.junit.jupiter.api.BeforeAll;
@@ -18,6 +19,9 @@ import java.util.List;
 import java.util.UUID;
 
 class WornEquipmentSyncTest {
+    // Bong 九件中的背后骨架背篓与腰挂灵草囊。
+    private static final Identifier BASKET = Identifier.fromNamespaceAndPath("bs3d", "gu_jia_bei_lou");
+    private static final Identifier POUCH = Identifier.fromNamespaceAndPath("bs3d", "herb_pouch");
     @BeforeAll
     static void bootstrap() {
         TestRegistries.bootstrap();
@@ -25,8 +29,8 @@ class WornEquipmentSyncTest {
 
     @Test
     void appearanceContainsOnlyWornRootsAndDoesNotLeakContents() {
-        var basket = ContainerItems.create(ContainerItems.BASKET);
-        var pouch = ContainerItems.create(ContainerItems.POUCH);
+        var basket = ContainerItems.create(BASKET);
+        var pouch = ContainerItems.create(POUCH);
         var privateItem = new ItemStack(Items.DIAMOND);
         privateItem.set(DataComponents.CUSTOM_NAME, Component.literal("private-name-must-not-be-broadcast"));
         ContainerItems.setContents(
@@ -50,7 +54,7 @@ class WornEquipmentSyncTest {
         var player = UUID.randomUUID();
         var appearance = WornEquipmentSync.appearance(player, 12, "minecraft:overworld", saved, TestRegistries.VANILLA);
         assertEquals(1, appearance.getModelsCount());
-        assertEquals("bs3d:back_basket", appearance.getModels(0).getItemType());
+        assertEquals(BASKET.toString(), appearance.getModels(0).getItemType());
         assertEquals(Mount.TORSO_BACK, appearance.getModels(0).getMount());
         assertFalse(appearance.toString().contains(ContainerItems.identity(basket)));
         assertFalse(appearance.toString().contains("private-name"));
@@ -75,8 +79,7 @@ class WornEquipmentSyncTest {
                                 WornContainer.newBuilder()
                                         .setStackNbt(
                                                 StackCodec.encode(
-                                                        ContainerItems.create(
-                                                                ContainerItems.POUCH), TestRegistries.VANILLA))
+                                                        ContainerItems.create(POUCH), TestRegistries.VANILLA))
                                         .setMount(Mount.WAIST_LEFT_FRONT)
                                         .setWaistAngleDegrees(117.5f))
                         .build();

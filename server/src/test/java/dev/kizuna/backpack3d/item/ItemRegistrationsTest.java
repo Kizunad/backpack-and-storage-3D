@@ -116,7 +116,7 @@ class ItemRegistrationsTest {
         assertThrows(IllegalArgumentException.class, () -> ItemRegistrations.register("test:duplicate",
                 registry(plain("test_duplicate:item"), plain("test_duplicate:item"))));
         assertThrows(IllegalArgumentException.class, () -> ItemRegistrations.register("test:existing",
-                registry(plain("bs3d:grass_pouch"))));
+                registry(plain("bs3d:herb_pouch"))));
         assertThrows(IllegalArgumentException.class, () -> ItemRegistrations.register("test:vanilla",
                 registry(plain("minecraft:end_seed"))));
         assertThrows(IllegalArgumentException.class, () -> ItemRegistrations.register("test:short",

@@ -70,7 +70,7 @@ class ItemMetadataTest {
         var id = Identifier.fromNamespaceAndPath("test", "metadata_container");
         var payload = new JsonObject();
         payload.addProperty("value", 42);
-        ContainerItems.register(id, "测试容器", "item.test.container.description", "bs3d:grass_pouch",
+        ContainerItems.register(id, "测试容器", "item.test.container.description", "bs3d:herb_pouch",
                 Volumes.UNIT, Volumes.UNIT, List.of(), Map.of(FIELD, payload));
         TestRegistries.bindComponents();
         var stack = ContainerItems.create(id);
@@ -84,7 +84,7 @@ class ItemMetadataTest {
     void invalidMetadataDoesNotPartiallyRegisterContainer() {
         var id = Identifier.fromNamespaceAndPath("test", "invalid_metadata_container");
         assertThrows(NullPointerException.class, () -> ContainerItems.register(
-                id, "测试容器", "", "bs3d:grass_pouch", Volumes.UNIT, Volumes.UNIT, List.of(), null));
+                id, "测试容器", "", "bs3d:herb_pouch", Volumes.UNIT, Volumes.UNIT, List.of(), null));
         assertFalse(BuiltInRegistries.ITEM.containsKey(id));
     }
 

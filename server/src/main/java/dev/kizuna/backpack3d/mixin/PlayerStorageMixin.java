@@ -44,8 +44,7 @@ public abstract class PlayerStorageMixin implements PlayerStorage {
         // 物品编解码使用玩家所在服务器的注册表，与原版库存读取同一份数据包内容。
         var registries = ((ServerPlayer) (Object) this).registryAccess();
         try {
-            bs3d$inventory =
-                    TransferService.upgrade(SavedInventory.parseFrom(bytes.getAsByteArray()), registries);
+            bs3d$inventory = SavedInventory.parseFrom(bytes.getAsByteArray());
             TransferService.validate(bs3d$inventory, registries);
         } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
             throw new IllegalStateException("3D 库存存档损坏", failure);

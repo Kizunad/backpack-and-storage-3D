@@ -8,10 +8,7 @@ import dev.kizuna.backpack3d.protocol.StackCodec;
 import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Container;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.EquipRequest;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.MoveRequest;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Receipt;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
@@ -36,8 +33,6 @@ import net.minecraft.world.item.equipment.Equippable;
 /** 先构造完整候选，再在同一调用内核对来源并原子提交。 */
 public final class TransferService {
     public static final int SAVE_VERSION = 3;
-    private static final int PLACEMENT_SAVE_VERSION = 2;
-    private static final int LEGACY_SAVE_VERSION = 1;
     private final Function<ItemStack, Size> sizes;
 
     public TransferService(Function<ItemStack, Size> sizes) {
@@ -50,10 +45,9 @@ public final class TransferService {
 
     public static void validate(SavedInventory data, HolderLookup.Provider registries) {
         // 先拒绝不支持或过大的存档，再逐类检查身份、装备和物品内容。
+        // 第 1、2 版固定容器存档没有任何已提交版本写出过，升级路径已随旧容器物品删除。
         int version = data.getFormatVersion();
-        if (version != SAVE_VERSION
-                && version != PLACEMENT_SAVE_VERSION
-                && version != LEGACY_SAVE_VERSION) {
+        if (version != SAVE_VERSION) {
             throw new IllegalArgumentException("不支持的库存保存版本：" + version);
         }
         if (data.getRevision() < 0) {
@@ -63,29 +57,10 @@ public final class TransferService {
             throw new IllegalArgumentException("库存存档超过大小限制");
         }
         validateReceipts(data.getReceiptsList());
-        if (version < SAVE_VERSION) {
-            validatePlacements(data.getPlacementsList());
-            validateItems(data.getItemsList(), registries);
-            return;
-        }
         if (data.getItemsCount() != 0 || data.getPlacementsCount() != 0) {
-            throw new IllegalArgumentException("新版存档不能同时包含旧固定库存");
+            throw new IllegalArgumentException("存档不能包含已废弃的旧固定库存字段");
         }
         new ContainerTree(registries, data, new ArrayList<>());
-    }
-
-    private static void validatePlacements(List<Placement> placements) {
-        // 每个容器只能装备一次，并且只能选择该容器类型允许的挂点。
-        Set<String> containers = new HashSet<>();
-        for (Placement placement : placements) {
-            String container = placement.getContainer();
-            if (!containers.add(container)) {
-                throw new IllegalArgumentException("容器挂点重复：" + container);
-            }
-            if (!Volumes.mounts(container).contains(placement.getMount())) {
-                throw new IllegalArgumentException("容器不支持该挂点：" + container);
-            }
-        }
     }
 
     private static void validateReceipts(List<Receipt> receipts) {
@@ -102,30 +77,6 @@ public final class TransferService {
             if (receipt.getFingerprint().size() != StackCodec.SHA256_BYTES) {
                 throw new IllegalArgumentException("转移收据指纹长度无效：" + operation);
             }
-        }
-    }
-
-    private static void validateItems(List<Item> items, HolderLookup.Provider registries) {
-        // 先验证实例身份和占格，再解码真实栈，不能把损坏项静默当成空物品。
-        Set<String> ids = new HashSet<>();
-        for (Item item : items) {
-            String id = item.getId();
-            if (!validId(id) || !ids.add(id)) {
-                throw new IllegalArgumentException("物品实例 ID 无效或重复：" + id);
-            }
-            if (!Volumes.fits(items, item.getContainer(), item.getCell(), item.getSize(), id)) {
-                throw new IllegalArgumentException("物品位置越界或重叠：" + id);
-            }
-            // 旧存档缺少原始尺寸时，只能解释为未旋转的物品。
-            if (!item.hasBaseSize() && item.getOrientation() != 0) {
-                throw new IllegalArgumentException("旋转物品缺少原始尺寸：" + id);
-            }
-            Size expectedSize =
-                    OrthogonalRotation.size(Volumes.baseSize(item), item.getOrientation());
-            if (!expectedSize.equals(item.getSize())) {
-                throw new IllegalArgumentException("物品朝向与占格不一致：" + id);
-            }
-            StackCodec.decode(item.getStackNbt(), registries);
         }
     }
 
@@ -325,44 +276,6 @@ public final class TransferService {
                         .build();
         validate(next, account.registries());
         account.commit(next, vanilla);
-    }
-
-    public static SavedInventory upgrade(SavedInventory previous, HolderLookup.Provider registries) {
-        // 旧固定容器各转换为一个真实物品，原有内容、朝向和挂点随物品保存。
-        validate(previous, registries);
-        if (previous.getFormatVersion() == SAVE_VERSION) {
-            return previous;
-        }
-        var next =
-                previous.toBuilder().setFormatVersion(SAVE_VERSION).clearItems().clearPlacements();
-        for (Container legacy : Volumes.CONTAINERS) {
-            ItemStack stack =
-                    ContainerItems.create(
-                            legacy.getId().equals(Volumes.POUCH)
-                                    ? ContainerItems.POUCH
-                                    : ContainerItems.BASKET);
-            String id = ContainerItems.identity(stack);
-            List<Item> contents =
-                    previous.getItemsList().stream()
-                            .filter(item -> item.getContainer().equals(legacy.getId()))
-                            .map(
-                                    item ->
-                                            item.toBuilder()
-                                                    .setContainer(id)
-                                                    .setBaseSize(Volumes.baseSize(item))
-                                                    .build())
-                            .toList();
-            ContainerItems.setContents(stack, contents);
-            Mount mount = Volumes.mount(previous, legacy.getId());
-            next.addWorn(
-                    WornContainer.newBuilder()
-                            .setStackNbt(StackCodec.encode(stack, registries))
-                            .setMount(mount)
-                            .setWaistAngleDegrees(ContainerTree.defaultAngle(mount)));
-        }
-        SavedInventory upgraded = next.build();
-        validate(upgraded, registries);
-        return upgraded;
     }
 
     public void commit(Account account, MoveRequest request) throws IOException {

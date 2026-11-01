@@ -58,7 +58,7 @@ class EquipmentAppearancesTest {
                 .setDimension(dimension)
                 .addModels(
                         WornModel.newBuilder()
-                                .setItemType("bs3d:back_basket")
+                                .setItemType("bs3d:gu_jia_bei_lou")
                                 .setMount(Mount.TORSO_BACK))
                 .build();
     }

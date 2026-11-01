@@ -2,6 +2,7 @@ package dev.kizuna.backpack3d.service;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import dev.kizuna.backpack3d.TestContainers;
 import dev.kizuna.backpack3d.TestRegistries;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.*;
@@ -86,7 +87,7 @@ class EquipmentTransferTest {
 
     @Test
     void allArmorPartsCanBeEquippedRemovedAndStored() throws IOException {
-        String bag = wearNew(ContainerItems.BASKET, Mount.TORSO_BACK);
+        String bag = wearNew(TestContainers.BASKET, Mount.TORSO_BACK);
         var pieces =
                 Map.of(
                         EquipmentSlot.HEAD,
@@ -139,7 +140,7 @@ class EquipmentTransferTest {
 
     @Test
     void bindingCurseCannotBeBypassedThroughHandsOrContainers() throws IOException {
-        String bag = wearNew(ContainerItems.BASKET, Mount.TORSO_BACK);
+        String bag = wearNew(TestContainers.BASKET, Mount.TORSO_BACK);
         int head = PlayerSlots.armorSlot(EquipmentSlot.HEAD);
         ItemStack helmet = new ItemStack(Items.IRON_HELMET);
         helmet.enchant(
@@ -172,8 +173,8 @@ class EquipmentTransferTest {
 
     @Test
     void filledPouchMovesIntoBasketOutToHandAndBackOntoWaist() throws IOException {
-        String basket = wearNew(ContainerItems.BASKET, Mount.TORSO_BACK);
-        String pouch = wearNew(ContainerItems.POUCH, Mount.WAIST_LEFT_FRONT);
+        String basket = wearNew(TestContainers.BASKET, Mount.TORSO_BACK);
+        String pouch = wearNew(TestContainers.POUCH, Mount.WAIST_LEFT_FRONT);
         ItemStack sword = new ItemStack(Items.IRON_SWORD);
         sword.set(DataComponents.CUSTOM_NAME, Component.literal("随包保存"));
         account.inventory.set(0, sword);
@@ -229,8 +230,8 @@ class EquipmentTransferTest {
 
     @Test
     void selfAndDescendantContainmentRejectWithoutRemovingSource() throws IOException {
-        String basket = wearNew(ContainerItems.BASKET, Mount.TORSO_BACK);
-        String pouch = wearNew(ContainerItems.POUCH, Mount.WAIST_LEFT_FRONT);
+        String basket = wearNew(TestContainers.BASKET, Mount.TORSO_BACK);
+        String pouch = wearNew(TestContainers.POUCH, Mount.WAIST_LEFT_FRONT);
         assertThrows(
                 IllegalArgumentException.class,
                 () -> service.commit(account, move(basket, basket).build()));
@@ -244,8 +245,8 @@ class EquipmentTransferTest {
 
     @Test
     void basketCannotFitInThirtyCellBoxInAnyOrientation() throws IOException {
-        String basket = wearNew(ContainerItems.BASKET, Mount.TORSO_BACK);
-        account.inventory.set(0, ContainerItems.create(ContainerItems.BOX));
+        String basket = wearNew(TestContainers.BASKET, Mount.TORSO_BACK);
+        account.inventory.set(0, ContainerItems.create(TestContainers.BOX));
         String box = ContainerItems.identity(account.inventory.get(0));
         for (int orientation = 0; orientation < OrthogonalRotation.COUNT; orientation++) {
             var request = move(basket, box).setOrientation(orientation).build();
@@ -260,9 +261,9 @@ class EquipmentTransferTest {
 
     @Test
     void waistLimitDefaultsToTwoAndPlayerOverridePersists() throws IOException {
-        wearNew(ContainerItems.POUCH, Mount.WAIST_LEFT_FRONT);
-        wearNew(ContainerItems.POUCH, Mount.WAIST_RIGHT_FRONT);
-        account.inventory.set(0, ContainerItems.create(ContainerItems.POUCH));
+        wearNew(TestContainers.POUCH, Mount.WAIST_LEFT_FRONT);
+        wearNew(TestContainers.POUCH, Mount.WAIST_RIGHT_FRONT);
+        account.inventory.set(0, ContainerItems.create(TestContainers.POUCH));
         var request =
                 fromPlayer(0, Volumes.WORN)
                         .setWornTarget(
@@ -283,8 +284,8 @@ class EquipmentTransferTest {
 
     @Test
     void torsoSlotsAreExclusiveAndContainersCannotUseWrongMounts() throws IOException {
-        wearNew(ContainerItems.BASKET, Mount.TORSO_BACK);
-        account.inventory.set(0, ContainerItems.create(ContainerItems.BASKET));
+        wearNew(TestContainers.BASKET, Mount.TORSO_BACK);
+        account.inventory.set(0, ContainerItems.create(TestContainers.BASKET));
         assertThrows(
                 IllegalArgumentException.class,
                 () ->
@@ -315,8 +316,8 @@ class EquipmentTransferTest {
     @Test
     void discardedAndFailedContainerCandidatesLeaveContentsAndReceiptUntouched()
             throws IOException {
-        String basket = wearNew(ContainerItems.BASKET, Mount.TORSO_BACK);
-        String pouch = wearNew(ContainerItems.POUCH, Mount.WAIST_LEFT_FRONT);
+        String basket = wearNew(TestContainers.BASKET, Mount.TORSO_BACK);
+        String pouch = wearNew(TestContainers.POUCH, Mount.WAIST_LEFT_FRONT);
         account.inventory.set(0, new ItemStack(Items.APPLE, 7));
         service.commit(account, fromPlayer(0, pouch).build());
         var before = account.data;
@@ -375,7 +376,7 @@ class EquipmentTransferTest {
     void tooDeepNestingAndDuplicateContainerIdentityAreRejected() throws IOException {
         List<String> boxes = new ArrayList<>();
         for (int slot = 0; slot < ContainerItems.MAX_NESTING_DEPTH + 2; slot++) {
-            ItemStack box = ContainerItems.create(ContainerItems.BOX);
+            ItemStack box = ContainerItems.create(TestContainers.BOX);
             account.inventory.set(slot, box);
             boxes.add(ContainerItems.identity(box));
         }

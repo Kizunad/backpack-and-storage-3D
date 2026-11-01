@@ -25,9 +25,10 @@ public final class TestRegistries {
 
     private TestRegistries() {}
 
-    /** 登记本模组容器物品并绑定组件，测试即可直接构造 ItemStack。 */
+    /** 登记本模组容器物品与测试夹具容器并绑定组件，测试即可直接构造 ItemStack。 */
     public static void bootstrap() {
         ContainerItems.initialize();
+        TestContainers.register();
         bindComponents();
     }
 

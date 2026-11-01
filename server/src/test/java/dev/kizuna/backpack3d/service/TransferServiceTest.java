@@ -7,8 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.kizuna.backpack3d.TestContainers;
 import dev.kizuna.backpack3d.TestRegistries;
-import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.server.ImmediateTransfer;
 import dev.kizuna.backpack3d.server.HandlingRules;
 import dev.kizuna.backpack3d.protocol.OrthogonalRotation;
@@ -22,6 +22,7 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Phase;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Receipt;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -41,6 +42,10 @@ import java.util.Set;
 import java.util.UUID;
 
 class TransferServiceTest {
+    // 夹具账户里两件身上容器的简称，move 时换成实例 UUID；灵草囊内部容量单位为格。
+    private static final String POUCH = "pouch";
+    private static final String BASKET = "basket";
+    private static final Size POUCH_INSIDE = Volumes.size(1, 2, 2);
     private final TransferService service =
             new TransferService(
                     stack -> stack.is(Items.IRON_SWORD) ? Volumes.size(1, 2, 1) : Volumes.UNIT);
@@ -55,7 +60,7 @@ class TransferServiceTest {
     void moveReturnsCompletedAfterSameCallCommitAndReplayDoesNotRepeat() throws IOException {
         // 调用生产会话使用的即时入口，不调用 tick 就必须得到已提交库存和终态。
         account.inventory.set(0, new ItemStack(Items.APPLE));
-        var request = deposit(Volumes.POUCH);
+        var request = deposit(POUCH);
         var immediate = new ImmediateTransfer(
                 service, new HandlingRules());
         var response = immediate.execute(account, request);
@@ -73,12 +78,12 @@ class TransferServiceTest {
     void automaticCarriedTargetPrefersWaistAndQuickTakeMergesBack() throws IOException {
         // 随身自动目标不依赖 UI 窗口，优先腰挂；取回保留整栈数量。
         account.inventory.set(0, new ItemStack(Items.APPLE));
-        var request = deposit(Volumes.POUCH).toBuilder()
+        var request = deposit(POUCH).toBuilder()
                 .setTarget(Volumes.CARRIED)
                 .build();
         service.commit(account, request);
         var item = stored(account.data).get(0);
-        assertEquals(bag(Volumes.POUCH), item.getContainer());
+        assertEquals(bag(POUCH), item.getContainer());
         account.inventory.set(0, new ItemStack(Items.APPLE));
         service.commit(account, move(item.getId(), Volumes.PLAYER));
         assertEquals(2, account.inventory.get(0).getCount());
@@ -91,11 +96,11 @@ class TransferServiceTest {
         final int pouchCells = 4;
         for (int index = 0; index < pouchCells; index++) {
             account.inventory.set(0, new ItemStack(Items.APPLE));
-            service.commit(account, deposit(Volumes.POUCH));
+            service.commit(account, deposit(POUCH));
         }
         account.inventory.set(0, new ItemStack(Items.IRON_SWORD));
         int orientation = OrthogonalRotation.turn(0, true /* vertical */, false /* reverse */);
-        var request = deposit(Volumes.POUCH).toBuilder()
+        var request = deposit(POUCH).toBuilder()
                 .setTarget(Volumes.CARRIED)
                 .setOrientation(orientation)
                 .build();
@@ -103,7 +108,7 @@ class TransferServiceTest {
         var sword = stored(account.data).stream()
                 .filter(item -> StackCodec.decode(item.getStackNbt(), TestRegistries.VANILLA).is(Items.IRON_SWORD))
                 .findFirst().orElseThrow();
-        assertEquals(bag(Volumes.BASKET), sword.getContainer());
+        assertEquals(bag(BASKET), sword.getContainer());
         assertEquals(orientation, sword.getOrientation());
     }
 
@@ -113,12 +118,12 @@ class TransferServiceTest {
         final int pouchCells = 4;
         for (int index = 0; index < pouchCells; index++) {
             account.inventory.set(0, new ItemStack(Items.APPLE));
-            service.commit(account, deposit(Volumes.POUCH));
+            service.commit(account, deposit(POUCH));
         }
         var original = new ItemStack(Items.IRON_SWORD);
         account.inventory.set(0, original);
         var before = account.data;
-        var request = deposit(Volumes.POUCH);
+        var request = deposit(POUCH);
         var failure = assertThrows(IllegalArgumentException.class, () -> service.commit(account, request));
         assertTrue(failure.getMessage().contains("里放不下"));
         assertSame(before, account.data);
@@ -129,7 +134,7 @@ class TransferServiceTest {
     void preparationAndCancellationLeaveBothInventoriesUntouched() {
         account.inventory.set(0, new ItemStack(Items.IRON_SWORD));
         var before = account.data;
-        var plan = service.prepare(account, deposit(Volumes.POUCH));
+        var plan = service.prepare(account, deposit(POUCH));
         assertEquals(1, stored(plan.data()).size());
         assertSame(before, account.data);
         assertTrue(account.inventory.get(0).is(Items.IRON_SWORD));
@@ -143,7 +148,7 @@ class TransferServiceTest {
         sword.set(DataComponents.CUSTOM_NAME, Component.literal("带名字的剑"));
         sword.setDamageValue(17);
         account.inventory.set(0, sword);
-        var request = deposit(Volumes.POUCH);
+        var request = deposit(POUCH);
         service.commit(account, request);
         service.commit(account, request);
         assertEquals(1, account.commits);
@@ -157,7 +162,7 @@ class TransferServiceTest {
     @Test
     void stackChangedDuringWaitRejectsBeforeCommit() {
         account.inventory.set(0, new ItemStack(Items.STONE, 16));
-        var request = deposit(Volumes.BASKET);
+        var request = deposit(BASKET);
         service.prepare(account, request);
         account.inventory.set(0, new ItemStack(Items.DIRT));
         assertThrows(IllegalArgumentException.class, () -> service.commit(account, request));
@@ -168,7 +173,7 @@ class TransferServiceTest {
     @Test
     void unrelatedVanillaChangeDuringWaitIsPreserved() throws IOException {
         account.inventory.set(0, new ItemStack(Items.STONE));
-        var request = deposit(Volumes.BASKET);
+        var request = deposit(BASKET);
         service.prepare(account, request);
         account.inventory.set(1, new ItemStack(Items.APPLE, 7));
         service.commit(account, request);
@@ -178,12 +183,12 @@ class TransferServiceTest {
     @Test
     void crossContainerMoveMaintainsInstanceIdentity() throws IOException {
         account.inventory.set(0, new ItemStack(Items.IRON_SWORD));
-        service.commit(account, deposit(Volumes.POUCH));
+        service.commit(account, deposit(POUCH));
         var item = stored(account.data).get(0);
-        var move = move(item.getId(), Volumes.BASKET);
+        var move = move(item.getId(), BASKET);
         service.commit(account, move);
         assertEquals(item.getId(), stored(account.data).get(0).getId());
-        assertEquals(bag(Volumes.BASKET), stored(account.data).get(0).getContainer());
+        assertEquals(bag(BASKET), stored(account.data).get(0).getContainer());
         assertEquals(1, stored(account.data).size());
     }
 
@@ -192,26 +197,27 @@ class TransferServiceTest {
         var item =
                 Item.newBuilder()
                         .setId("a")
-                        .setContainer(Volumes.POUCH)
+                        .setContainer(POUCH)
                         .setSize(Volumes.size(1, 2, 1))
                         .setCell(Volumes.cell(0, 0, 0))
                         .build();
         assertTrue(
                 Volumes.fits(
-                        List.of(item), Volumes.POUCH, Volumes.cell(0, 0, 1), item.getSize(), ""));
+                        List.of(item), POUCH, POUCH_INSIDE, Volumes.cell(0, 0, 1), item.getSize(), ""));
         assertFalse(
                 Volumes.fits(
-                        List.of(item), Volumes.POUCH, Volumes.cell(0, 1, 1), item.getSize(), ""));
+                        List.of(item), POUCH, POUCH_INSIDE, Volumes.cell(0, 1, 1), item.getSize(), ""));
         assertFalse(
                 Volumes.fits(
-                        List.of(item), Volumes.POUCH, Volumes.cell(1, 0, 0), Volumes.UNIT, ""));
+                        List.of(item), POUCH, POUCH_INSIDE, Volumes.cell(1, 0, 0), Volumes.UNIT, ""));
         assertFalse(
                 Volumes.fits(
-                        List.of(item), Volumes.POUCH, Volumes.cell(0, 0, 2), Volumes.UNIT, ""));
+                        List.of(item), POUCH, POUCH_INSIDE, Volumes.cell(0, 0, 2), Volumes.UNIT, ""));
         assertFalse(
                 Volumes.fits(
                         List.of(item),
-                        Volumes.POUCH,
+                        POUCH,
+                        POUCH_INSIDE,
                         Volumes.cell(Integer.MAX_VALUE, 0, 0),
                         Volumes.UNIT,
                         ""));
@@ -221,10 +227,10 @@ class TransferServiceTest {
     void fullTargetNeverRemovesSource() throws IOException {
         for (int index = 0; index < 4; index++) {
             account.inventory.set(0, new ItemStack(Items.STONE));
-            service.commit(account, deposit(Volumes.POUCH));
+            service.commit(account, deposit(POUCH));
         }
         account.inventory.set(0, new ItemStack(Items.APPLE));
-        var request = deposit(Volumes.POUCH);
+        var request = deposit(POUCH);
         assertThrows(IllegalArgumentException.class, () -> service.commit(account, request));
         assertEquals(4, stored(account.data).size());
         assertTrue(account.inventory.get(0).is(Items.APPLE));
@@ -234,7 +240,7 @@ class TransferServiceTest {
     void failedPersistenceLeavesMemoryAndReceiptUnchanged() {
         account.inventory.set(0, new ItemStack(Items.STONE));
         account.failCommit = true;
-        assertThrows(IOException.class, () -> service.commit(account, deposit(Volumes.POUCH)));
+        assertThrows(IOException.class, () -> service.commit(account, deposit(POUCH)));
         assertEquals(0, account.data.getRevision());
         assertEquals(0, account.data.getReceiptsCount());
         assertTrue(account.inventory.get(0).is(Items.STONE));
@@ -243,7 +249,7 @@ class TransferServiceTest {
     @Test
     void fullVanillaInventoryRejectsWithdrawal() throws IOException {
         account.inventory.set(0, new ItemStack(Items.IRON_SWORD));
-        service.commit(account, deposit(Volumes.POUCH));
+        service.commit(account, deposit(POUCH));
         Collections.fill(account.inventory, new ItemStack(Items.DIRT, 64));
         var request = move(stored(account.data).get(0).getId(), Volumes.PLAYER);
         assertThrows(IllegalArgumentException.class, () -> service.commit(account, request));
@@ -253,9 +259,9 @@ class TransferServiceTest {
     @Test
     void sameOperationWithDifferentIntentIsRejected() throws IOException {
         account.inventory.set(0, new ItemStack(Items.STONE));
-        var request = deposit(Volumes.POUCH);
+        var request = deposit(POUCH);
         service.commit(account, request);
-        var changed = request.toBuilder().setTarget(Volumes.BASKET).build();
+        var changed = request.toBuilder().setTarget(BASKET).build();
         assertThrows(IllegalArgumentException.class, () -> service.commit(account, changed));
     }
 
@@ -298,11 +304,11 @@ class TransferServiceTest {
     @Test
     void rotationCommitsAtSameCellAndRetainsNbt() throws IOException {
         account.inventory.set(0, new ItemStack(Items.IRON_SWORD));
-        service.commit(account, deposit(Volumes.POUCH));
+        service.commit(account, deposit(POUCH));
         var before = stored(account.data).get(0);
         int horizontal = OrthogonalRotation.turn(0, true, false);
         var move =
-                move(before.getId(), Volumes.POUCH).toBuilder()
+                move(before.getId(), POUCH).toBuilder()
                         .setAutoPlace(false)
                         .setCell(before.getCell())
                         .setOrientation(horizontal)
@@ -321,15 +327,15 @@ class TransferServiceTest {
     @Test
     void rotatedBoundaryAndCollisionRejectWithoutMutation() throws IOException {
         account.inventory.set(0, new ItemStack(Items.IRON_SWORD));
-        service.commit(account, deposit(Volumes.POUCH));
+        service.commit(account, deposit(POUCH));
         var sword = stored(account.data).get(0);
         account.inventory.set(0, new ItemStack(Items.STONE));
-        service.commit(account, deposit(Volumes.POUCH));
+        service.commit(account, deposit(POUCH));
         int pitch = OrthogonalRotation.turn(0, true, false);
         int sideways = OrthogonalRotation.turn(pitch, false, false);
         var before = account.data;
         var collision =
-                move(sword.getId(), Volumes.POUCH).toBuilder()
+                move(sword.getId(), POUCH).toBuilder()
                         .setAutoPlace(false)
                         .setCell(Volumes.cell(0, 0, 0))
                         .setOrientation(pitch)
@@ -341,37 +347,16 @@ class TransferServiceTest {
     }
 
     @Test
-    void legacySaveUpgradesOnFirstRotationAndInvalidGeometryIsRejected() throws IOException {
-        account.inventory.set(0, new ItemStack(Items.IRON_SWORD));
-        service.commit(account, deposit(Volumes.POUCH));
-        var old =
-                stored(account.data).get(0).toBuilder()
-                        .clearBaseSize()
-                        .setContainer(Volumes.POUCH)
-                        .build();
-        var legacy = SavedInventory.newBuilder().setFormatVersion(1).addItems(old).build();
-        account.data = TransferService.upgrade(legacy, TestRegistries.VANILLA);
-        service.commit(
-                account,
-                move(old.getId(), Volumes.POUCH).toBuilder()
-                        .setOrientation(OrthogonalRotation.turn(0, true, false))
-                        .build());
-        assertEquals(TransferService.SAVE_VERSION, account.data.getFormatVersion());
-        var bad = legacy.toBuilder().setItems(0, old.toBuilder().setOrientation(1)).build();
-        assertThrows(IllegalArgumentException.class, () -> TransferService.validate(bad, TestRegistries.VANILLA));
-    }
-
-    @Test
     void equipmentValidatesMountRevisionAndPersistsWithoutMovingItems() throws IOException {
         account.inventory.set(0, new ItemStack(Items.STONE));
-        service.commit(account, deposit(Volumes.BASKET));
+        service.commit(account, deposit(BASKET));
         var items = stored(account.data);
         var equip =
                 EquipRequest.newBuilder()
                         .setRevision(account.data.getRevision())
                         .setPlacement(
                                 Placement.newBuilder()
-                                        .setContainer(bag(Volumes.BASKET))
+                                        .setContainer(bag(BASKET))
                                         .setMount(Mount.TORSO_FRONT))
                         .build();
         service.equip(account, equip);
@@ -382,7 +367,7 @@ class TransferServiceTest {
                 Mount.TORSO_FRONT,
                 new ContainerTree(TestRegistries.VANILLA, account.data, new ArrayList<>())
                         .containers().stream()
-                                .filter(value -> value.getId().equals(bag(Volumes.BASKET)))
+                                .filter(value -> value.getId().equals(bag(BASKET)))
                                 .findFirst()
                                 .orElseThrow()
                                 .getMount());
@@ -417,7 +402,7 @@ class TransferServiceTest {
         account.inventory.set(Inventory.INVENTORY_SIZE, new ItemStack(Items.IRON_BOOTS));
         account.inventory.set(2, new ItemStack(Items.APPLE, 5));
         var deposit =
-                deposit(Volumes.POUCH, Inventory.SLOT_OFFHAND).toBuilder()
+                deposit(POUCH, Inventory.SLOT_OFFHAND).toBuilder()
                         .setAutoPlace(false)
                         .setCell(Volumes.cell(0, 0, 1))
                         .build();
@@ -443,7 +428,7 @@ class TransferServiceTest {
     @Test
     void withdrawalUsesChosenHandInsteadOfFirstFreeSlot() throws IOException {
         account.inventory.set(0, new ItemStack(Items.IRON_SWORD));
-        service.commit(account, deposit(Volumes.POUCH));
+        service.commit(account, deposit(POUCH));
         account.selectedSlot = 4;
         service.commit(
                 account,
@@ -458,7 +443,7 @@ class TransferServiceTest {
     @Test
     void occupiedHandRejectsWithoutFallingBackToFreeInventory() throws IOException {
         account.inventory.set(0, new ItemStack(Items.IRON_SWORD));
-        service.commit(account, deposit(Volumes.POUCH));
+        service.commit(account, deposit(POUCH));
         account.inventory.set(Inventory.SLOT_OFFHAND, new ItemStack(Items.APPLE));
         var before = account.data;
         var request =
@@ -474,7 +459,7 @@ class TransferServiceTest {
     @Test
     void handOnlyMergesWhenEntireStackFits() throws IOException {
         account.inventory.set(0, new ItemStack(Items.STONE, 16));
-        service.commit(account, deposit(Volumes.BASKET));
+        service.commit(account, deposit(BASKET));
         var request =
                 move(stored(account.data).get(0).getId(), Volumes.PLAYER).toBuilder()
                         .setTargetPlayerSlot(Inventory.SLOT_OFFHAND)
@@ -491,7 +476,7 @@ class TransferServiceTest {
     @Test
     void handChangesDuringTimerRejectAndPreserveSource() throws IOException {
         account.inventory.set(0, new ItemStack(Items.STONE));
-        service.commit(account, deposit(Volumes.BASKET));
+        service.commit(account, deposit(BASKET));
         var request =
                 move(stored(account.data).get(0).getId(), Volumes.PLAYER).toBuilder()
                         .setTargetPlayerSlot(0)
@@ -509,12 +494,12 @@ class TransferServiceTest {
     @Test
     void offhandFingerprintAndDiskFailureNeverRemoveRealStack() {
         account.inventory.set(Inventory.SLOT_OFFHAND, new ItemStack(Items.STONE, 16));
-        var request = deposit(Volumes.BASKET, Inventory.SLOT_OFFHAND);
+        var request = deposit(BASKET, Inventory.SLOT_OFFHAND);
         service.prepare(account, request);
         account.inventory.set(Inventory.SLOT_OFFHAND, new ItemStack(Items.STONE, 15));
         assertThrows(IllegalArgumentException.class, () -> service.commit(account, request));
         account.failCommit = true;
-        var current = deposit(Volumes.BASKET, Inventory.SLOT_OFFHAND);
+        var current = deposit(BASKET, Inventory.SLOT_OFFHAND);
         assertThrows(IOException.class, () -> service.commit(account, current));
         assertEquals(15, account.inventory.get(Inventory.SLOT_OFFHAND).getCount());
         assertEquals(0, account.data.getRevision());
@@ -523,7 +508,7 @@ class TransferServiceTest {
     @Test
     void nonEquipmentTargetsCannotBeUsed() throws IOException {
         account.inventory.set(0, new ItemStack(Items.STONE));
-        service.commit(account, deposit(Volumes.BASKET));
+        service.commit(account, deposit(BASKET));
         var request = move(stored(account.data).get(0).getId(), Volumes.PLAYER);
         for (int slot : List.of(-1, 1, 35, 36, 39, 41)) {
             assertThrows(
@@ -539,7 +524,7 @@ class TransferServiceTest {
                         service.prepare(
                                 account,
                                 request.toBuilder()
-                                        .setTarget(Volumes.POUCH)
+                                        .setTarget(POUCH)
                                         .setTargetPlayerSlot(0)
                                         .build()));
         assertEquals(1, stored(account.data).size());
@@ -548,7 +533,7 @@ class TransferServiceTest {
     @Test
     void automaticWithdrawalDoesNotUseOffhandOrArmor() throws IOException {
         account.inventory.set(0, new ItemStack(Items.STONE));
-        service.commit(account, deposit(Volumes.POUCH));
+        service.commit(account, deposit(POUCH));
         for (int slot = 0; slot < Inventory.INVENTORY_SIZE; slot++) {
             account.inventory.set(slot, new ItemStack(Items.DIRT, 64));
         }
@@ -580,7 +565,7 @@ class TransferServiceTest {
                 .setRevision(account.data.getRevision())
                 .setItem(item)
                 .setTarget(
-                        target.equals(Volumes.POUCH) || target.equals(Volumes.BASKET)
+                        target.equals(POUCH) || target.equals(BASKET)
                                 ? bag(target)
                                 : target)
                 .setAutoPlace(true)
@@ -595,7 +580,7 @@ class TransferServiceTest {
     }
 
     private String bag(String type) {
-        String model = type.equals(Volumes.POUCH) ? "grass_pouch" : "back_basket";
+        String model = (type.equals(POUCH) ? TestContainers.POUCH : TestContainers.BASKET).toString();
         return new ContainerTree(TestRegistries.VANILLA, account.data, new ArrayList<>())
                 .containers().stream()
                         .filter(container -> container.getModel().equals(model))
@@ -610,8 +595,7 @@ class TransferServiceTest {
             return TestRegistries.VANILLA;
         }
 
-        SavedInventory data =
-                TransferService.upgrade(SavedInventory.newBuilder().setFormatVersion(2).build(), TestRegistries.VANILLA);
+        SavedInventory data = TestContainers.account();
         List<ItemStack> inventory =
                 new ArrayList<>(
                         Collections.nCopies(Inventory.SLOT_OFFHAND + 1, ItemStack.EMPTY));

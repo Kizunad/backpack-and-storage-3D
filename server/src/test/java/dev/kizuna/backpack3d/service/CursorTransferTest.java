@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.kizuna.backpack3d.TestContainers;
 import dev.kizuna.backpack3d.TestRegistries;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.StackCodec;
@@ -30,7 +31,7 @@ class CursorTransferTest {
     void groundCursorCandidateStaysPrivateUntilFinalPlacement() {
         // 地面模型使用同一容器树，候选往返不得修改权威原栈或复制物品。
         var account = new MemoryAccount();
-        var groundBag = ContainerItems.create(ContainerItems.POUCH);
+        var groundBag = ContainerItems.create(TestContainers.POUCH);
         String id = ContainerItems.identity(groundBag);
         var ground = Map.of(id, groundBag);
         var source = new ItemStack(Items.APPLE);
@@ -209,7 +210,7 @@ class CursorTransferTest {
                     slot++) {
                 slots.add(ItemStack.EMPTY);
             }
-            var pouch = ContainerItems.create(ContainerItems.POUCH);
+            var pouch = ContainerItems.create(TestContainers.POUCH);
             bag = ContainerItems.identity(pouch);
             var worn = WornContainer.newBuilder()
                     .setMount(Mount.WAIST_RIGHT_FRONT)

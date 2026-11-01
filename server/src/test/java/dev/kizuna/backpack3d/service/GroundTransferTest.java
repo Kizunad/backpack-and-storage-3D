@@ -2,6 +2,7 @@ package dev.kizuna.backpack3d.service;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import dev.kizuna.backpack3d.TestContainers;
 import dev.kizuna.backpack3d.TestRegistries;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.StackCodec;
@@ -89,11 +90,11 @@ class GroundTransferTest {
 
     @Test
     void portableContainerCanMoveIntoGroundBagAndReturnWithItsIdentity() throws IOException {
-        var box = ContainerItems.create(ContainerItems.BOX);
+        var box = ContainerItems.create(TestContainers.BOX);
         String id = ContainerItems.identity(box);
         account.ground.put(id, box);
         account.versions.put(id, 0L);
-        var pouch = ContainerItems.create(ContainerItems.POUCH);
+        var pouch = ContainerItems.create(TestContainers.POUCH);
         String pouchId = ContainerItems.identity(pouch);
         account.inventory.set(0, pouch);
         service.commit(account, deposit(id));
@@ -106,7 +107,7 @@ class GroundTransferTest {
     }
 
     private String groundBag() {
-        var stack = ContainerItems.create(ContainerItems.POUCH);
+        var stack = ContainerItems.create(TestContainers.POUCH);
         String id = ContainerItems.identity(stack);
         account.ground.put(id, stack);
         account.versions.put(id, 0L);

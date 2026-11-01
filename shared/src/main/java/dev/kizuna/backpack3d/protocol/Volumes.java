@@ -1,37 +1,17 @@
 package dev.kizuna.backpack3d.protocol;
 
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Cell;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Container;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
 
 import java.util.List;
 
 /** 体积规则不依赖渲染和宿主线程，客户端预测与服务端校验复用同一实现。 */
 public final class Volumes {
-    public static final String POUCH = "pouch";
-    public static final String BASKET = "basket";
     public static final String PLAYER = "player";
     public static final String CARRIED = "carried";
     public static final String WORN = "worn";
     public static final Size UNIT = size(1, 1, 1);
-    public static final List<Container> CONTAINERS =
-            List.of(
-                    Container.newBuilder()
-                            .setId(POUCH)
-                            .setTitle("草包")
-                            .setSize(size(1, 2, 2))
-                            .setModel("grass_pouch")
-                            .build(),
-                    Container.newBuilder()
-                            .setId(BASKET)
-                            .setTitle("背篓")
-                            .setSize(size(3, 3, 3))
-                            .setModel("back_basket")
-                            .build());
 
     private Volumes() {}
 
@@ -43,47 +23,9 @@ public final class Volumes {
         return Cell.newBuilder().setX(x).setY(y).setZ(z).build();
     }
 
-    public static Container container(String id) {
-        // 身份只来自注册目录，不能用客户端尺寸扩大容量。
-        return CONTAINERS.stream()
-                .filter(value -> value.getId().equals(id))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("未知容器"));
-    }
-
-    public static List<Mount> mounts(String container) {
-        // 挂点由容器类型约束；客户端不能把大容器塞到腰侧。
-        return switch (container) {
-            case POUCH ->
-                    List.of(
-                            Mount.WAIST_RIGHT_FRONT,
-                            Mount.WAIST_LEFT_FRONT,
-                            Mount.WAIST_LEFT_BACK,
-                            Mount.WAIST_RIGHT_BACK);
-            case BASKET -> List.of(Mount.TORSO_BACK, Mount.TORSO_FRONT);
-            default -> throw new IllegalArgumentException("未知容器");
-        };
-    }
-
-    public static Mount mount(SavedInventory data, String container) {
-        // 先查保存的挂点；旧存档没有挂点时使用该容器的默认位置。
-        Mount defaultMount = mounts(container).get(0);
-        for (Placement placement : data.getPlacementsList()) {
-            if (placement.getContainer().equals(container)) {
-                return placement.getMount();
-            }
-        }
-        return defaultMount;
-    }
-
     public static Size baseSize(Item item) {
         // 旧存档无 base_size 且朝向为零，可以直接复用原始占格。
         return item.hasBaseSize() ? item.getBaseSize() : item.getSize();
-    }
-
-    public static boolean fits(
-            List<Item> items, String target, Cell position, Size size, String ignoredItem) {
-        return fits(items, target, container(target).getSize(), position, size, ignoredItem);
     }
 
     public static boolean fits(
@@ -133,10 +75,6 @@ public final class Volumes {
                 first.getZ() < second.getZ() + secondSize.getDepth()
                         && second.getZ() < first.getZ() + firstSize.getDepth();
         return overlapsX && overlapsY && overlapsZ;
-    }
-
-    public static Cell firstFree(List<Item> items, String target, Size size, String ignored) {
-        return firstFree(items, target, container(target).getSize(), size, ignored);
     }
 
     public static Cell firstFree(
