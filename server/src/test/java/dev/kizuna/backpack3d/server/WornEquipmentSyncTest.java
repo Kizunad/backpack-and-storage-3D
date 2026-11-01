@@ -2,7 +2,6 @@ package dev.kizuna.backpack3d.server;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import dev.kizuna.backpack3d.TestContainers;
 import dev.kizuna.backpack3d.TestRegistries;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.StackCodec;
@@ -70,30 +69,6 @@ class WornEquipmentSyncTest {
         assertEquals(
                 appearance,
                 WornEquipmentSync.appearance(player, 12, "minecraft:overworld", emptied, TestRegistries.VANILLA));
-    }
-
-    @Test
-    void retiredWornContainerHasNoAppearance() {
-        // 已移除的旧草包留在存档里但不再显示；同身的其他容器照常投影。
-        var saved =
-                TransferService.empty().toBuilder()
-                        .addWorn(
-                                WornContainer.newBuilder()
-                                        .setStackNbt(TestContainers.retired("bs3d:grass_pouch", List.of()))
-                                        .setMount(Mount.WAIST_LEFT_FRONT)
-                                        .setWaistAngleDegrees(45))
-                        .addWorn(
-                                WornContainer.newBuilder()
-                                        .setStackNbt(
-                                                StackCodec.encode(
-                                                        ContainerItems.create(BASKET), TestRegistries.VANILLA))
-                                        .setMount(Mount.TORSO_BACK))
-                        .build();
-        var appearance =
-                WornEquipmentSync.appearance(
-                        UUID.randomUUID(), 3, "minecraft:overworld", saved, TestRegistries.VANILLA);
-        assertEquals(1, appearance.getModelsCount());
-        assertEquals(BASKET.toString(), appearance.getModels(0).getItemType());
     }
 
     @Test

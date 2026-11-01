@@ -2,7 +2,6 @@
   "key.bs3d.open": "Open 3D backpack",
   "key.category.bs3d.general": "Backpack and Storage 3D",
   "itemGroup.bs3d.containers": "Packs & Storage",
-  "item.bs3d.retired_container": "Removed container (%s)",
   "block.bs3d.placed_bag": "Placed Backpack",
   "item.bs3d.gu_jia_bei_lou": "Bone Frame Basket",
   "item.bs3d.gu_jia_bei_lou.description": "A woven basket on a bone frame, worn on the back.",

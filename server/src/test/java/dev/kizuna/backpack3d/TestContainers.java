@@ -4,7 +4,6 @@ import com.google.protobuf.ByteString;
 import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.StackCodec;
 import dev.kizuna.backpack3d.protocol.Volumes;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Item;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornContainer;
@@ -54,12 +53,11 @@ public final class TestContainers {
                 .build();
     }
 
-    /** 用真实容器的编码改写物品 ID，得到注册表里已不存在的旧容器字节。 */
-    public static ByteString retired(String itemId, List<Item> contents) {
-        var stack = ContainerItems.create(POUCH);
-        ContainerItems.setContents(stack, contents);
+    /** 用空灵草囊的编码改写物品 ID，得到注册表里不存在的物品字节，例如已移除的旧容器。 */
+    public static ByteString unregistered(String itemId) {
         try {
-            var input = new DataInputStream(StackCodec.encode(stack, TestRegistries.VANILLA).newInput());
+            var input = new DataInputStream(
+                    StackCodec.encode(ContainerItems.create(POUCH), TestRegistries.VANILLA).newInput());
             var tag = NbtIo.read(input, NbtAccounter.unlimitedHeap());
             tag.putString("id", itemId);
             var bytes = new ByteArrayOutputStream();

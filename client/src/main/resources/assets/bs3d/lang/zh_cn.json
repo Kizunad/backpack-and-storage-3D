@@ -2,7 +2,6 @@
   "key.bs3d.open": "打开 3D 背包",
   "key.category.bs3d.general": "Backpack and Storage 3D",
   "itemGroup.bs3d.containers": "背包与收纳",
-  "item.bs3d.retired_container": "已移除的旧容器（%s）",
   "block.bs3d.placed_bag": "地面背包",
   "item.bs3d.gu_jia_bei_lou": "骨架背篓",
   "item.bs3d.gu_jia_bei_lou.description": "兽骨框架托起的草编背篓，装备在背后。",

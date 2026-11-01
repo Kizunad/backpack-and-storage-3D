@@ -6,7 +6,6 @@ import dev.kizuna.backpack3d.item.ContainerSounds.Action;
 import dev.kizuna.backpack3d.protocol.StackCodec;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.service.ContainerTree;
-import dev.kizuna.backpack3d.service.RetiredContainers;
 import dev.kizuna.backpack3d.world.GroundBagBlockEntity;
 import dev.kizuna.backpack3d.world.GroundBags;
 
@@ -69,8 +68,6 @@ public final class GroundInventory implements GroundBags.Actions {
     private final Map<String, UUID> leases = new HashMap<>();
     private final Map<ServerLevel, Set<ChunkPos>> loadedChunks = new HashMap<>();
     private Map<String, Entry> entries = new LinkedHashMap<>();
-    // 已移除类型的旧地面背包记录，不显示、不可拾取，每次写目录时原样带上。
-    private List<CompoundTag> retired = List.of();
     private boolean recoveryRequired;
 
     private GroundInventory(MinecraftServer server) throws IOException {
@@ -81,11 +78,9 @@ public final class GroundInventory implements GroundBags.Actions {
                         server.getWorldPath(LevelResource.PLAYER_DATA_DIR));
         journal.recover();
         if (Files.exists(journal.inventoryFile())) {
-            var catalog = read(
+            entries = read(
                     NbtIo.readCompressed(journal.inventoryFile(), NbtAccounter.unlimitedHeap()),
                     server.registryAccess());
-            entries = catalog.entries();
-            retired = catalog.retired();
         }
     }
 
@@ -400,8 +395,7 @@ public final class GroundInventory implements GroundBags.Actions {
             throws IOException {
         var account = new PlayerAccount(player);
         try {
-            journal.commit(
-                    player.getUUID(), account.snapshot(data, vanilla), write(next, retired, server.registryAccess()));
+            journal.commit(player.getUUID(), account.snapshot(data, vanilla), write(next, server.registryAccess()));
         } catch (GroundJournal.RecoveryRequiredException committed) {
             // 已过日志提交点不能回滚或继续新事务；停服后先重放日志，再允许玩家读档。
             recoveryRequired = true;
@@ -483,8 +477,7 @@ public final class GroundInventory implements GroundBags.Actions {
         }
     }
 
-    static CompoundTag write(
-            Map<String, Entry> values, List<CompoundTag> retired, HolderLookup.Provider registries) {
+    static CompoundTag write(Map<String, Entry> values, HolderLookup.Provider registries) {
         // 物品组件可能引用附魔等数据驱动注册表，必须带服务器注册表上下文编码。
         var ops = registries.createSerializationContext(NbtOps.INSTANCE);
         var root = new CompoundTag();
@@ -500,17 +493,13 @@ public final class GroundInventory implements GroundBags.Actions {
             nbt.store("stack", ItemStack.CODEC, ops, entry.stack());
             list.add(nbt);
         }
-        for (CompoundTag record : retired) {
-            list.add(record.copy());
-        }
         root.put("bags", list);
         return root;
     }
 
-    static Catalog read(CompoundTag root, HolderLookup.Provider registries) throws IOException {
+    static Map<String, Entry> read(CompoundTag root, HolderLookup.Provider registries) throws IOException {
         var ops = registries.createSerializationContext(NbtOps.INSTANCE);
         var entries = new LinkedHashMap<String, Entry>();
-        var retired = new ArrayList<CompoundTag>();
         var bags = root.getList("bags");
         if (root.getIntOr("version", 0) != SAVE_VERSION || bags.isEmpty()) {
             throw new IOException("不支持或损坏的地面背包存档");
@@ -519,12 +508,6 @@ public final class GroundInventory implements GroundBags.Actions {
             // 26.2 的列表可混合类型，逐项要求复合标签，不能跳过损坏项。
             if (!(value instanceof CompoundTag nbt)) {
                 throw new IOException("地面背包记录类型错误");
-            }
-            String itemId = nbt.getCompound("stack").map(tag -> tag.getStringOr("id", "")).orElse("");
-            if (RetiredContainers.is(itemId, "地面")) {
-                // 区块里的标记在对账时移除；记录连同内容物留在目录里。
-                retired.add(nbt.copy());
-                continue;
             }
             ItemStack stack = nbt.read("stack", ItemStack.CODEC, ops)
                     .orElseThrow(() -> new IOException("地面背包物品损坏"));
@@ -561,11 +544,8 @@ public final class GroundInventory implements GroundBags.Actions {
                             revision,
                             stack));
         }
-        return new Catalog(entries, List.copyOf(retired));
+        return entries;
     }
-
-    /** 读出的地面目录：可用背包按身份索引；retired 为已移除类型的原始记录。 */
-    record Catalog(Map<String, Entry> entries, List<CompoundTag> retired) {}
 
     /** stack 只在目录内部持有；调用者构造候选时必须 copy，位置单位为方块，yaw 单位为度。 */
     public record Entry(

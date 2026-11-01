@@ -4,15 +4,15 @@
 
 ## 2026-11-02：移除草包、背篓、收纳箱，新增「背包与收纳」物品栏
 
-删除 `bs3d:grass_pouch`、`bs3d:back_basket`、`bs3d:storage_box` 及其物品模型、贴图、语言键、默认 `config.toml` 与首次启动模板，仓库根 `models/` 一并删除；客户端不再生成任何默认配置。新增创造物品栏 `bs3d:containers`，九件 Bong 装备和省略 `creative_tab` 的附属清单条目都进入这里。玩家保存格式只接受 3，第 1、2 版升级路径删除。旧存档里的三件按损坏容器原样保留，规则见[通信和持久化](Protocol.md)。业务协议 v7 不变。
+删除 `bs3d:grass_pouch`、`bs3d:back_basket`、`bs3d:storage_box` 及其物品模型、贴图、语言键、默认 `config.toml` 与首次启动模板，仓库根 `models/` 一并删除；客户端不再生成任何默认配置。新增创造物品栏 `bs3d:containers`，九件 Bong 装备和省略 `creative_tab` 的附属清单条目都进入这里。玩家保存格式只接受 3，第 1、2 版升级路径删除。旧存档不做兼容：三件的实例与其他未注册物品一样按损坏数据拒绝读取，见[通信和持久化](Protocol.md)。业务协议 v7 不变。
 
-Java 25 `test --rerun build :server:compileSmokeJava :client:compileSmokeJava` 通过：客户端 **37 项**、服务端 **99 项**，共 **136 项**，无失败或跳过。相对 2026-11-01 新增 7 项：物品栏默认归属 1 项（`ItemRegistrationsTest`），旧容器兼容 6 项（`RetiredContainersTest` 3 项、`GroundInventoryTest` 2 项、`WornEquipmentSyncTest` 1 项）；删除 1 项：第 1、2 版存档升级测试随升级路径删除。单元测试夹具改用灵草囊，以及测试专用的 `bs3d_test:basket`（胸前背后两用）和 `bs3d_test:box`（不可穿戴）。原带盖草包、背篓模型改作客户端测试夹具 `client/src/test/resources/fixtures/`。日志为 `build/tabclean-test-build.log`。
+Java 25 `test --rerun build :server:compileSmokeJava :client:compileSmokeJava` 通过：客户端 **37 项**、服务端 **95 项**，共 **132 项**，无失败或跳过。相对 2026-11-01 新增 3 项：物品栏默认归属 1 项（`ItemRegistrationsTest`），旧容器 ID 按损坏数据拒绝 2 项（`TransferServiceTest` 1 项覆盖身上与容器内，`GroundInventoryTest` 1 项覆盖地面目录）；删除 1 项：第 1、2 版存档升级测试随升级路径删除。单元测试夹具改用灵草囊，以及测试专用的 `bs3d_test:basket`（胸前背后两用）和 `bs3d_test:box`（不可穿戴）。原带盖草包、背篓模型改作客户端测试夹具 `client/src/test/resources/fixtures/`。日志为 `build/retire-revert-test-build.log`。
 
-真实 Fabric 专服与 Xvfb 客户端四阶段 smoke 在 `build/smoke/tabclean2/` 全部通过，修订号依次为 **8、24、27、28**，四个阶段的覆盖项与 2026-11-01 记录逐字相同。验收夹具：腰挂用灵草囊；Bong 九件没有可在胸前、背后切换的容器，前后切换改用 smoke 源集登记的验收背篓 `bs3d_smoke:lid_basket`；原收纳箱槽位改为骨币匣。自定义旋转键改为验收临时写入只含 `[controls]` 的 `config.toml`。
+真实 Fabric 专服与 Xvfb 客户端四阶段 smoke 在 `build/smoke/retirerevert/` 全部通过，修订号依次为 **8、24、27、28**，四个阶段的覆盖项与 2026-11-01 记录逐字相同。验收夹具：腰挂用灵草囊；Bong 九件没有可在胸前、背后切换的容器，前后切换改用 smoke 源集登记的验收背篓 `bs3d_smoke:lid_basket`；原收纳箱槽位改为骨币匣。自定义旋转键改为验收临时写入只含 `[controls]` 的 `config.toml`。
 
-资源验收结果 `build/smoke/tabclean2/resource-client/resources-ok.txt` 为 `no-default-config; registered-only; invalid-file-isolation; override-bundled; five-custom-ogg-actions; decode; revoke; malformed-config; restore; bundled-addon-model; nine-bong-containers`，日志为 `build/tabclean-resource-smoke.log`：确认首次启动不生成配置，玩家 `config.toml` 以同一 ID 覆盖附带灵草囊模型及五种 OGG，撤销后恢复附带模型和默认声音。
+资源验收结果 `build/smoke/tabclean2/resource-client/resources-ok.txt` 为 `no-default-config; registered-only; invalid-file-isolation; override-bundled; five-custom-ogg-actions; decode; revoke; malformed-config; restore; bundled-addon-model; nine-bong-containers`，日志为 `build/tabclean-resource-smoke.log`（在撤除旧存档兼容层之前运行；撤除只删去一条客户端语言键，未重跑）：确认首次启动不生成配置，玩家 `config.toml` 以同一 ID 覆盖附带灵草囊模型及五种 OGG，撤销后恢复附带模型和默认声音。
 
-物品栏截图由一次性 Fabric 客户端 gametest 探针（未入库）在 Xvfb 单机创造世界中打开 `bs3d:containers` 页截取，存于远程会话仓库 `handoff/logs/bs3d-tab.png`：中文标题「背包与收纳」、骨架背篓图标与九件 Bong 装备。旧存档兼容只有单元测试，没有用真实旧版本世界在游戏中加载验证；未启动 Windows Native。Wiki 链接检查与 `git diff --check` 通过。
+物品栏截图由一次性 Fabric 客户端 gametest 探针（未入库）在 Xvfb 单机创造世界中打开 `bs3d:containers` 页截取，存于远程会话仓库 `handoff/logs/bs3d-tab.png`：中文标题「背包与收纳」、骨架背篓图标与九件 Bong 装备。旧存档按损坏数据拒绝只有单元测试，没有用真实旧版本世界在游戏中加载验证；未启动 Windows Native。Wiki 链接检查与 `git diff --check` 通过。
 
 ## 2026-11-01：迁移到 Minecraft 26.2 / Java 25
 

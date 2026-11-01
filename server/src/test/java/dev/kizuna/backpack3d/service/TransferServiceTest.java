@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.kizuna.backpack3d.TestContainers;
 import dev.kizuna.backpack3d.TestRegistries;
+import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.server.ImmediateTransfer;
 import dev.kizuna.backpack3d.server.HandlingRules;
 import dev.kizuna.backpack3d.protocol.OrthogonalRotation;
@@ -23,6 +24,7 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Receipt;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornContainer;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -272,6 +274,40 @@ class TransferServiceTest {
                         .addReceipts(Receipt.newBuilder().setOperation("x"))
                         .build();
         assertThrows(IllegalArgumentException.class, () -> TransferService.validate(invalid, TestRegistries.VANILLA));
+    }
+
+    @Test
+    void removedContainersMakeTheSaveCorrupt() {
+        // 已移除的草包、收纳箱和其他未注册物品一样，无论穿在身上还是收在容器里都使存档校验失败。
+        var worn =
+                TransferService.empty().toBuilder()
+                        .addWorn(
+                                WornContainer.newBuilder()
+                                        .setStackNbt(TestContainers.unregistered("bs3d:grass_pouch"))
+                                        .setMount(Mount.WAIST_LEFT_FRONT))
+                        .build();
+        assertThrows(IllegalArgumentException.class, () -> TransferService.validate(worn, TestRegistries.VANILLA));
+
+        var basket = ContainerItems.create(TestContainers.BASKET);
+        ContainerItems.setContents(
+                basket,
+                List.of(
+                        Item.newBuilder()
+                                .setId(UUID.randomUUID().toString())
+                                .setContainer(ContainerItems.identity(basket))
+                                .setCell(Volumes.cell(0, 0, 0))
+                                .setBaseSize(Volumes.size(2, 2, 2))
+                                .setSize(Volumes.size(2, 2, 2))
+                                .setStackNbt(TestContainers.unregistered("bs3d:storage_box"))
+                                .build()));
+        var nested =
+                TransferService.empty().toBuilder()
+                        .addWorn(
+                                WornContainer.newBuilder()
+                                        .setStackNbt(StackCodec.encode(basket, TestRegistries.VANILLA))
+                                        .setMount(Mount.TORSO_BACK))
+                        .build();
+        assertThrows(IllegalArgumentException.class, () -> TransferService.validate(nested, TestRegistries.VANILLA));
     }
 
     @Test
