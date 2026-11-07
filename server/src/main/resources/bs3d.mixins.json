@@ -2,6 +2,7 @@
   "required": true,
   "package": "dev.kizuna.backpack3d.mixin",
   "compatibilityLevel": "JAVA_25",
-  "mixins": ["PlayerStorageMixin", "ScreenHandlerAccess"],
+  "mixins": ["PlayerStorageMixin", "ScreenHandlerAccess", "ArmorEquipmentMixin", "ArmorInventoryMixin",
+    "CreativeArmorMixin"],
   "injectors": {"defaultRequire": 1}
 }

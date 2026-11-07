@@ -335,7 +335,8 @@ class EquipmentTransferTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"gu_jia_bei_lou", "xiu_kuang_bei_jia", "za_pi_xing_nang",
-            "pi_nang_xiong_gua", "herb_pouch", "ore_sack", "water_skin", "moisture_guard", "coin_box"})
+            "pi_nang_xiong_gua", "herb_pouch", "ore_sack", "water_skin", "moisture_guard", "coin_box",
+            "ku_teng_yao_dai"})
     void bongGearPreservesIdentityContentsAndMountRulesAcrossSave(String name) throws IOException {
         Identifier typeId = Identifier.fromNamespaceAndPath("bs3d", name);
         ItemStack fresh = ContainerItems.create(typeId);

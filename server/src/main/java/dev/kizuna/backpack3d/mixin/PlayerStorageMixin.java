@@ -3,6 +3,9 @@ package dev.kizuna.backpack3d.mixin;
 import dev.kizuna.backpack3d.protocol.Messages;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.server.PlayerStorage;
+import dev.kizuna.backpack3d.server.PlayerAccount;
+import dev.kizuna.backpack3d.server.WearableEquipment;
+import dev.kizuna.backpack3d.service.ContainerTree;
 import dev.kizuna.backpack3d.service.TransferService;
 import com.mojang.serialization.Codec;
 import java.nio.ByteBuffer;
@@ -27,6 +30,7 @@ public abstract class PlayerStorageMixin implements PlayerStorage {
     @Override
     public void bs3d$setInventory(SavedInventory value) {
         bs3d$inventory = value;
+        WearableEquipment.CHANGED.invoker().changed((ServerPlayer) (Object) this);
     }
 
     @Inject(method = "readAdditionalSaveData", at = @At("TAIL"))
@@ -35,7 +39,7 @@ public abstract class PlayerStorageMixin implements PlayerStorage {
         // ValueInput 解码失败与缺字段都返回空，因此直通取出原始标签再判断类型。
         var stored = input.read(NBT_KEY, Codec.PASSTHROUGH).map(value -> value.convert(NbtOps.INSTANCE).getValue());
         if (stored.isEmpty()) {
-            bs3d$inventory = TransferService.empty();
+            bs3d$setInventory(TransferService.empty());
             return;
         }
         if (!(stored.get() instanceof ByteArrayTag bytes) || bytes.size() > Messages.MAX_SAVE_BYTES) {
@@ -44,8 +48,12 @@ public abstract class PlayerStorageMixin implements PlayerStorage {
         // 物品编解码使用玩家所在服务器的注册表，与原版库存读取同一份数据包内容。
         var registries = ((ServerPlayer) (Object) this).registryAccess();
         try {
-            bs3d$inventory = SavedInventory.parseFrom(bytes.getAsByteArray());
-            TransferService.validate(bs3d$inventory, registries);
+            var restored = SavedInventory.parseFrom(bytes.getAsByteArray());
+            TransferService.validate(restored, registries);
+            var account = new PlayerAccount((ServerPlayer) (Object) this);
+            // 同时校验原版槽与甲层；非法旧存档明确拒绝，不自动卸装或覆盖其中的物品。
+            new ContainerTree(registries, restored, account.inventory());
+            bs3d$setInventory(restored);
         } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
             throw new IllegalStateException("3D 库存存档损坏", failure);
         }
@@ -60,6 +68,6 @@ public abstract class PlayerStorageMixin implements PlayerStorage {
     @Inject(method = "restoreFrom", at = @At("TAIL"))
     private void bs3d$copy(ServerPlayer previous, boolean alive, CallbackInfo callback) {
         // 初版的个人容器死亡保留；转移过程由会话取消，不复制运行中的事务。
-        bs3d$inventory = ((PlayerStorage) previous).bs3d$getInventory();
+        bs3d$setInventory(((PlayerStorage) previous).bs3d$getInventory());
     }
 }

@@ -149,7 +149,7 @@ public final class ModelResources implements ResourceManagerReloadListener {
         // 每个模型独立处理；单个文件失败不妨碍其余已登记资源加载。
         try {
             BbModel model = BbModel.read(directory, entry);
-            ModelAsset asset = new ModelAsset(model);
+            ModelAsset asset = new ModelAsset(model, entry.mode());
             assets.put(entry.id(), asset);
             files.putAll(model.textures());
             ModelSounds.addOverrides(entry, sounds, files);

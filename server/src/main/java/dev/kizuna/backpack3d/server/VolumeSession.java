@@ -1,6 +1,7 @@
 package dev.kizuna.backpack3d.server;
 
 import dev.kizuna.backpack3d.item.ContainerItems;
+import dev.kizuna.backpack3d.item.WearableItems;
 import dev.kizuna.backpack3d.protocol.Messages;
 import dev.kizuna.backpack3d.protocol.PlayerSlots;
 import dev.kizuna.backpack3d.protocol.StackCodec;
@@ -299,7 +300,9 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayer> {
         var player = connection.context();
         // 新获得的容器在第一次快照前生成真实身份，后续同步不重复分配。
         for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
-            ContainerItems.initializeStack(player.getInventory().getItem(slot));
+            ItemStack stack = player.getInventory().getItem(slot);
+            ContainerItems.initializeStack(stack);
+            WearableItems.initializeStack(stack);
         }
         lastInventory = new PlayerAccount(player).inventory();
         var state =
@@ -315,6 +318,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayer> {
             state.putAllGroundRevisions(account.groundRevisions());
             state.addAllItems(tree.items());
             state.addAllContainers(tree.containers());
+            state.addAllWearables(tree.wearables());
         } catch (IllegalArgumentException invalid) {
             // 外部获得的损坏或重复身份物品只禁用本次业务视图，不让同步异常终止服务器 tick。
             transfer =

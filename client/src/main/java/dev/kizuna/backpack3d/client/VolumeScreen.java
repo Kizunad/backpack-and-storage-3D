@@ -113,6 +113,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         // 场景被其他工作台窗口遮挡或失焦时撤销未完成的鼠标手势。
         releaseCapture();
         clearSelection();
+        player.closeEquipmentMenu();
     }
 
     @Override
@@ -171,6 +172,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         help.draw(context, font, width, mouseX, mouseY, status());
         super.extractRenderState(context, mouseX, mouseY, delta);
         drawItemTooltip(context, mouseX, mouseY);
+        player.drawEquipmentMenu(context, new Rect(0, TOP, width, height - TOP), mouseX, mouseY);
     }
 
     private void refreshSelection() {
@@ -228,7 +230,8 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
 
     private void drawItemTooltip(GuiGraphicsExtractor context, int mouseX, int mouseY) {
         // 操作期间不遮挡落点；只查询最上层窗口，不能透过窗口命中人物或被遮住的物品。
-        if (closing || dragging || scenePressed || !camera.isEmpty() || !layerDrag.isEmpty()
+        if (player.equipmentMenuVisible() || closing || dragging || scenePressed
+                || !camera.isEmpty() || !layerDrag.isEmpty()
                 || !pressedItem.isEmpty() || help.captures(mouseX, mouseY)) {
             return;
         }
@@ -565,6 +568,10 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         if (closing) {
             return true;
         }
+        if (player.clickEquipmentMenu(x, y, button)) {
+            releaseCapture();
+            return true;
+        }
         if (help.mouseClicked(x, y, button)) {
             releaseCapture();
             return true;
@@ -580,33 +587,35 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         }
         var window = windows.hitTest(x, y);
         String owner = window == null ? "" : window.key().identity();
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            // 只分派给最上层窗口，遮住的按钮不能穿透触发。
-            for (var control : List.copyOf(buttons)) {
-                if (control.owner().equals(owner) && control.rect().contains(x, y)) {
-                    if (!module.busy() || control.always()) {
-                        control.action().run();
-                    }
-                    return true;
-                }
-            }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && clickControl(owner, x, y)) {
+            return true;
         }
         if (window != null) {
             clickWindow(window, x, y, button);
             return true;
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            int slot = player.slotAt(x, y);
-            if (slot >= 0 && openItemContainer(VolumeModule.playerSlotPreviewId(slot))) {
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && !module.busy()) {
+            if (doubleClick && openPlayerContainer(x, y)) {
                 return true;
             }
-        }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && !module.busy()) {
             if (selectPlayerStack(x, y)) {
                 return true;
             }
         }
         return pressScene(event, doubleClick);
+    }
+
+    private boolean clickControl(String owner, double x, double y) {
+        // 只分派给最上层窗口，遮住的按钮不能穿透触发。
+        for (var control : List.copyOf(buttons)) {
+            if (control.owner().equals(owner) && control.rect().contains(x, y)) {
+                if (!module.busy() || control.always()) {
+                    control.action().run();
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean selectPlayerStack(double x, double y) {
@@ -638,6 +647,20 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             return true;
         }
         return false;
+    }
+
+    private boolean openPlayerContainer(double x, double y) {
+        int slot = player.slotAt(x, y);
+        if (slot < 0) {
+            return false;
+        }
+        String item = VolumeModule.playerSlotPreviewId(slot);
+        if (!openItemContainer(item)) {
+            return false;
+        }
+        clearSelection();
+        releaseCapture();
+        return true;
     }
 
     private boolean pressScene(MouseButtonEvent event, boolean doubleClick) {
@@ -733,7 +756,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         double y = event.y();
         int button = event.button();
         // 每次按下只捕获一个动作；跨越其他窗口不会从拖物品变为旋转或拖窗。
-        if (help.visible()) {
+        if (help.visible() || player.equipmentMenuVisible()) {
             return true;
         }
         if (!layerDrag.isEmpty()) {
@@ -760,24 +783,25 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             return true;
         }
         if (scenePressed) {
-            sceneDragged |=
-                    (x - pressX) * (x - pressX) + (y - pressY) * (y - pressY)
-                            >= DRAG_THRESHOLD_SQUARED_PIXELS;
-            if (sceneDragged) {
-                if (!pressedBag.isEmpty()
-                        && button == GLFW.GLFW_MOUSE_BUTTON_LEFT
-                        && !module.busy()) {
-                    select(pressedBag);
-                    pressedItem = selected;
-                    dragging = true;
-                    scenePressed = false;
-                } else {
-                    player.rotate(dx, dy);
-                }
-            }
+            dragScene(event, dx, dy);
             return true;
         }
         return super.mouseDragged(event, dx, dy);
+    }
+
+    private void dragScene(MouseButtonEvent event, double dx, double dy) {
+        sceneDragged |= movedPastThreshold(event.x(), event.y());
+        if (!sceneDragged) {
+            return;
+        }
+        if (!pressedBag.isEmpty() && event.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT && !module.busy()) {
+            select(pressedBag);
+            pressedItem = selected;
+            dragging = true;
+            scenePressed = false;
+        } else {
+            player.rotate(dx, dy);
+        }
     }
 
     @Override
@@ -802,8 +826,13 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         }
         if (dragging && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             dropAt(x, y);
-        } else if (scenePressed && !sceneDragged && !pressedBag.isEmpty()) {
-            openContainer(pressedBag);
+        } else if (scenePressed && !sceneDragged) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                clearSelection();
+                player.openEquipmentMenu(x, y);
+            } else if (!pressedBag.isEmpty()) {
+                openContainer(pressedBag);
+            }
         }
         releaseCapture();
         return true;
@@ -823,6 +852,11 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         if (help.captures(x, y) || selected.isEmpty()) {
             return;
         }
+        Placement equipment = player.equipmentAt(x, y, module.stack(selected));
+        if (equipment != null) {
+            module.wear(selected, selectedPlayerStack, equipment);
+            return;
+        }
         String bag = player.pick(x, y);
         if (!bag.isEmpty() && !bag.equals(selected)) {
             dropOnContainer(bag);
@@ -834,14 +868,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     private void dropOnBody(double x, double y) {
         // 身体落点包括挂点、双手与盔甲，服务端验证穿戴类型和卸装限制。
         int targetSlot = player.slotAt(x, y);
-        var type = ContainerItems.definition(module.stack(selected));
-        Placement placement = null;
-        if (type != null) {
-            placement = player.wearAt(x, y, type);
-        }
-        if (placement != null && (targetSlot < 0 || PlayerSlots.isArmor(targetSlot))) {
-            module.wear(selected, selectedPlayerStack, placement);
-        } else if (targetSlot >= 0) {
+        if (targetSlot >= 0) {
             if (selectedPlayerStack != null) {
                 module.movePlayerStack(selectedPlayerStack, targetSlot);
             } else {
@@ -903,6 +930,9 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
         // 与 1.20.1 一致只按纵向滚动量处理。
         double amount = scrollY;
+        if (player.scrollEquipmentMenu(amount)) {
+            return true;
+        }
         if (help.captures(x, y)) {
             help.scroll(amount, font);
             return true;
@@ -925,12 +955,10 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         int key = event.key();
         // ESC 始终保留关闭语义，即使用户把旋转动作绑定到同一个键。
         if (key == GLFW.GLFW_KEY_ESCAPE) {
-            if (help.visible()) {
-                help.close();
-                releaseCapture();
-                return true;
-            }
-            onClose();
+            escape();
+            return true;
+        }
+        if (player.equipmentMenuVisible()) {
             return true;
         }
         if (help.visible()) {
@@ -962,10 +990,22 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         return super.keyPressed(event);
     }
 
+    private void escape() {
+        if (player.equipmentMenuVisible()) {
+            player.closeEquipmentMenu();
+        } else if (help.visible()) {
+            help.close();
+            releaseCapture();
+        } else {
+            onClose();
+        }
+    }
+
     @Override
     public void onClose() {
         // 先释放地面访问，再播放合盖；结束时仅调用宿主提供的退出动作。
         module.closeGround("");
+        player.closeEquipmentMenu();
         clearSelection();
         releaseCapture();
         closing = true;
@@ -983,6 +1023,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         // 外部替换屏幕、断线和分辨率变化之外的销毁均释放所有窗口作用域。
         module.closeGround("");
         sceneAuthorized = false;
+        player.closeEquipmentMenu();
         releaseCapture();
         windows.reset();
         closing = false;

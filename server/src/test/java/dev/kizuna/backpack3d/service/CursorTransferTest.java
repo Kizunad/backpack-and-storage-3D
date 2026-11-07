@@ -11,13 +11,16 @@ import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.StackCodec;
 import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Placement;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornContainer;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.CustomData;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -27,6 +30,46 @@ import java.util.Map;
 import java.util.UUID;
 
 class CursorTransferTest {
+    @Test
+    void freshCreativeContainerInitializesOnlyInsideSuccessfulCandidate() {
+        // 创造授权刚写入的栈尚未经过 inventoryTick，穿戴候选必须自行建立唯一身份。
+        var account = new MemoryAccount();
+        var source = new ItemStack(BuiltInRegistries.ITEM.getValue(TestContainers.BASKET));
+        var original = source.copy();
+        var mount = Placement.newBuilder().setMount(Mount.TORSO_BACK).build();
+        var candidate = CursorTransfer.prepare(account, source,
+                CursorTransfer.Request.wear(0, mount), stack -> Volumes.UNIT);
+        assertTrue(ItemStack.matches(original, source));
+        assertEquals(0, account.data.getRevision());
+        assertTrue(candidate.cursor().isEmpty());
+        String id = ContainerItems.identity(candidate.moved());
+        account.apply(candidate);
+        var taken = CursorTransfer.prepare(account, ItemStack.EMPTY,
+                CursorTransfer.Request.take(candidate.data().getRevision(), id), stack -> Volumes.UNIT);
+        assertEquals(id, ContainerItems.identity(taken.cursor()));
+        assertEquals(1, taken.data().getWornCount(), "卸下后仅保留原来的腰袋");
+        assertTrue(taken.inventory().stream().allMatch(ItemStack::isEmpty));
+    }
+
+    @Test
+    void rejectedFreshOrCorruptContainerLeavesOriginalStackUntouched() {
+        // 挂点失败不能给原栈写 UUID，已有但类型错误的持久数据也不能被当作新物品覆盖。
+        var account = new MemoryAccount();
+        var source = new ItemStack(BuiltInRegistries.ITEM.getValue(TestContainers.BASKET));
+        var original = source.copy();
+        var wrongMount = Placement.newBuilder().setMount(Mount.WAIST_RIGHT_FRONT).build();
+        assertThrows(IllegalArgumentException.class, () -> CursorTransfer.prepare(account, source,
+                CursorTransfer.Request.wear(0, wrongMount), stack -> Volumes.UNIT));
+        assertTrue(ItemStack.matches(original, source));
+        var validMount = Placement.newBuilder().setMount(Mount.TORSO_BACK).build();
+        CustomData.update(DataComponents.CUSTOM_DATA, source, root -> root.putString("bs3d_container", "broken"));
+        var corrupt = source.copy();
+        assertThrows(IllegalArgumentException.class, () -> CursorTransfer.prepare(account, source,
+                CursorTransfer.Request.wear(0, validMount), stack -> Volumes.UNIT));
+        assertTrue(ItemStack.matches(corrupt, source));
+        assertEquals(0, account.data.getRevision());
+    }
+
     @Test
     void groundCursorCandidateStaysPrivateUntilFinalPlacement() {
         // 地面模型使用同一容器树，候选往返不得修改权威原栈或复制物品。

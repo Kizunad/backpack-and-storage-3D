@@ -21,6 +21,7 @@ message ItemEntry {
   oneof kind {
     PlainItem plain = 10;
     ContainerItem container = 11;
+    WearableItem wearable = 12;
   }
 }
 
@@ -39,13 +40,27 @@ message ContainerItem {
   ModelAsset asset = 6; // 可选：随附属 JAR 分发的模型，字段同 config.toml 的 [[models]]。
 }
 
+// 非容器穿戴物品；无内部容量，收纳占格仍由 handling 规则决定，每层最多装备一件。
+message WearableItem {
+  string title = 1; // 必填显示标题。
+  string model = 2; // 必填完整模型 ID，与 config.toml 中 [[models]] 的 id 相同。
+  repeated kizuna.backpack3d.v1.WearableSlot slots = 3; // 外观层、PA 骨名和模型局部偏移。
+  ModelAsset asset = 4; // 可选：随附属 JAR 分发的模型资产。
+}
+
 // 路径相对于清单文件所在目录，必须留在该目录内并使用正斜杠。
-// 模型 ID 取 ContainerItem.model；玩家 config.toml 中同 ID 的登记优先。
+// 模型 ID 取所属 container/wearable 的 model；玩家 config.toml 中同 ID 的登记优先。
 message ModelAsset {
   string file = 1; // 必填 .bbmodel 相对路径。
   optional string open_animation = 2; // 省略时自动寻找 open；空字符串禁用该方向片段。
   optional string close_animation = 3; // 省略时自动寻找 close；规则同上。
   ModelSounds sounds = 4; // 可选 Ogg Vorbis 音效。
+  ModelRenderMode mode = 5; // 默认按容器中心化；raw_segments 保留原坐标并按骨段输出。
+}
+
+enum ModelRenderMode {
+  MODEL_RENDER_MODE_DEFAULT = 0;
+  MODEL_RENDER_MODE_RAW_SEGMENTS = 1;
 }
 
 message ModelSounds {

@@ -98,6 +98,13 @@ CreativeModeTabEvents.modifyOutputEvent(ContainerItems.TAB).register(entries -> 
 
 ## 模型资产
 
+通用模型穿脱入口为 `WornPreview.equipmentAt` 与菜单系列方法，挂载根目录为
+`ModelEquipment.worn`。嵌入原版菜单的宿主通过 `WornPreview.EquipmentActions` 保留自己的
+菜单事务与光标校验，不应直接调用独立页面的移动接口。光标穿戴候选入口为
+`CursorTransfer.Request.wear`；完整契约见[非容器穿戴与分段模型](Wearables.md)。
+
+2026-11-03：独立非容器类型 `WearableItems`、骨名挂点、层规则及 `ModelAsset.segment(name)` 已加入未发布源码，详见[非容器穿戴与分段模型](Wearables.md)。容器 API 和腰环/胸背挂点继续保留；新业务协议为 v8，保存格式为 4。
+
 客户端直接导入 `config/bs3d/config.toml` 登记的 `.bbmodel`，支持可选开合关键帧与五类自定义 OGG 音效。未登记文件不加载并输出 WARN；F3+T 同时重读注册表、模型、贴图和音效。固定格式、Blockbench 支持范围、默认行为和旧导入脚本迁移见[模型资源导入](Model-Resources.md)。
 
 容器规格集中在 `ContainerItems`，使用上方带描述与 `optional` 的八参数入口同时注册真实不可堆叠物品及类型定义。两端必须在物品注册表冻结前注册相同类型；空挂点列表表示仅可收纳。当前 API 未冻结。新增模型还需提供对应客户端资源；类型的内部容量与外部占格不受普通 item tag 尺寸规则覆盖。UI 颜色来自 Framework 当前主题的语义令牌。

@@ -9,6 +9,17 @@ message Size {
   int32 height = 2;
   int32 depth = 3;
 }
+message WearableOffset {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+message WearableSlot {
+  string layer = 1; // 冲突层的稳定 ID，例如 head、cape 或 armor_head。
+  string bone = 2; // PA 骨名；没有 PA 帧时由附属选择原版 ModelPart 退回。
+  WearableOffset offset = 3; // 模型相对骨枢轴的局部偏移，单位为方块。
+  string segment = 4; // raw_segments 顶层组名；空字符串表示整件模型。
+}
 message Cell {
   int32 x = 1;
   int32 y = 2;
@@ -27,6 +38,7 @@ message Placement {
   string container = 1;
   Mount mount = 2;
   optional float waist_angle_degrees = 3; // 腰部环绕角度 [0,360)，0 为正前；胸背不使用此字段。
+  string wearable_layer = 4; // 非容器装备落点；必须属于类型 slots，穿戴时原子占用全部层。
 }
 message Container {
   string id = 1;
@@ -80,7 +92,7 @@ message MoveRequest {
   // v4 身上拖放：item 为空，两端必须是不同的双手/盔甲槽，且必须显式指定目标。
   // 手持目标只接收空槽或整栈合并；盔甲目标必须为空，且物品部位匹配、数量为 1。
   optional int32 target_player_slot = 11;
-  Placement worn_target = 12; // target=worn 时的身体落点；仅容器物品可以装备。
+  Placement worn_target = 12; // target=worn 时的身体落点；容器用 mount，穿戴物用 wearable_layer。
   map<string, int64> ground_revisions = 13; // 当前访问的地面根容器版本，提交前核对。
 }
 // 原版双手与盔甲的展示快照，无业务实例 ID；空槽使用空 stack_nbt。
@@ -123,12 +135,20 @@ message State {
   repeated PlayerSlotStack player_slots = 6; // 当前主手、副手和四个盔甲槽；原版换装也推送，不增加业务修订号。
   uint32 waist_limit = 7; // 服务端玩家变量；客户端只展示，不可提交修改。
   map<string, int64> ground_revisions = 8; // 只公布本连接已获得访问权的地面根容器。
+  repeated Wearable wearables = 9; // 身上的非容器装备目录，不提供容量或内景窗口。
 }
-// 世界外观只公开已装备容器的类型与挂点，不携带容器身份、内容或 ItemStack NBT。
+message Wearable {
+  string id = 1; // 实例 ID，对应 State.items 中 container=worn 的真实物品。
+  string title = 2;
+  string model = 3;
+  repeated WearableSlot slots = 4;
+}
+// 世界外观只公开已装备物品的类型与挂点，不携带实例身份、内容或 ItemStack NBT。
 message WornModel {
   string item_type = 1; // 两端已注册的物品 ID，例如 bs3d:herb_pouch。
   Mount mount = 2;
   float waist_angle_degrees = 3; // [0,360)，与 Placement 使用相同身体局部系。
+  WearableSlot wearable_slot = 4; // 外观穿戴物的层、骨名和偏移；容器模型省略。
 }
 // 每条事件完整替换一位玩家的外观；本人和原版实体跟踪范围内的观察者接收。
 message EquipmentAppearance {
@@ -147,6 +167,12 @@ message WornContainer {
   Mount mount = 2;
   float waist_angle_degrees = 3;
 }
+message WornWearable {
+  string id = 1; // 服务器分配的物品实例 UUID。
+  bytes stack_nbt = 2; // 真实非容器 ItemStack NBT。
+  repeated WearableSlot slots = 3; // 穿戴时占用的外观层及骨挂点。
+  Size base_size = 4; // 穿戴前的权威收纳占格，脱下时保留，不因穿戴变为单位格。
+}
 // 业务库存与原版 Inventory 存在同一玩家 NBT；未完成的转移不落盘。
 message Receipt {
   string operation = 1;
@@ -160,4 +186,5 @@ message SavedInventory {
   repeated Placement placements = 5;
   repeated WornContainer worn = 6;
   optional uint32 waist_limit = 7; // 缺省为 2，显式 0 表示禁止腰挂。
+  repeated WornWearable worn_wearables = 8; // 非容器穿戴物及其外观层。
 }

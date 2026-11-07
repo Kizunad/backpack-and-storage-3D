@@ -2,10 +2,11 @@ package dev.kizuna.backpack3d.client;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
+import dev.kizuna.backpack3d.item.ContainerItems;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Mount;
 
 /** UI 命中、预览和世界外观共用身体挂点，所有坐标均在 body 骨架局部系内。 */
-final class WornModelTransform {
+public final class WornModelTransform {
     private static final float MODEL_UNITS_PER_BLOCK = 16;
     private static final float WAIST_SCALE = 0.5f;
     private static final float TORSO_SCALE = 0.8f;
@@ -18,6 +19,12 @@ final class WornModelTransform {
     private static final float FRONT_DEGREES = 180;
 
     private WornModelTransform() {}
+
+    /** 附属复用同一容器挂点来计算共穿边界，输入矩阵须已处于身体挂点空间。 */
+    public static void apply(
+            PoseStack matrices, ModelAsset asset, ContainerItems.Definition type, Mount mount, float angleDegrees) {
+        apply(matrices, asset, type.waist(), mount, angleDegrees);
+    }
 
     static void apply(
             PoseStack matrices,

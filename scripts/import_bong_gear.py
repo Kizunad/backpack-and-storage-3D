@@ -28,6 +28,7 @@ SOURCE_BLOBS = {
     "water_skin": "c5dc448371d6218d76d60ddcd864e0b90172a58f",
     "moisture_guard": "ffaaf120339ceaf15732a5d29721a72894bebf80",
     "coin_box": "906ceabec09a74f2b5c9972df9945e9ef891ae0d",
+    "ku_teng_yao_dai": "cbed2086d850186d1e6b02dc0f65ec52cf1ed6ac",
 }
 
 # 容量与外部占格均按宽、高、深排列，单位为格；不从模型外观推导权威容量。
@@ -52,6 +53,9 @@ GEAR = (
     ("coin_box", "CoinBox", "骨币匣", "Bone Coin Box", (2, 1, 1), (2, 1, 2), "waist", 0,
      ("belt_strap", "belt_buckle", "belt_tab", "rags_front", "rags_back"),
      "带铁搭扣的腰挂木匣，适合小件物品。", "A wooden waist box with an iron clasp for small items."),
+    ("ku_teng_yao_dai", "KuTengYaoDai", "枯藤腰带", "Withered Vine Belt", (2, 1, 1), (2, 1, 2), "waist", 0, (),
+     "缠结枯藤制成的腰带，挂有小刀、葫芦、骨哨与麻绳。",
+     "A withered vine belt with a knife, gourd, bone whistle and rope."),
 )
 
 
@@ -151,12 +155,17 @@ def build_outputs(source):
         # 物品栏和手持沿用既有动态渲染入口；缩放抵消导入时的挂载比例补偿。
         item_scale = 0.4 if mount == "waist" else 0.64
         outputs[ROOT / f"client/src/main/resources/assets/bs3d/models/item/{item_id}.json"] = json_text({
-            "parent": "builtin/entity", "gui_light": "front", "display": {
+            "gui_light": "front", "display": {
                 "gui": {"rotation": [20, 35, 0], "scale": [item_scale] * 3},
                 "thirdperson_righthand": {"translation": [0, 2, 0], "scale": [item_scale] * 3},
                 "firstperson_righthand": {"scale": [item_scale] * 3},
             },
         })
+        # 26.2 的物品定义引用已注册的特殊模型渲染器；只生成旧模型入口不能绘制手持物品。
+        outputs[ROOT / f"client/src/main/resources/assets/bs3d/items/{item_id}.json"] = json.dumps({
+            "model": {"type": "minecraft:special", "base": f"bs3d:item/{item_id}",
+                      "model": {"type": "bs3d:container"}},
+        }) + "\n"
         for locale, title, description in (("zh_cn", chinese, zh_description), ("en_us", english, en_description)):
             translations = languages[locale][1]
             translations[f"item.bs3d.{item_id}"] = title

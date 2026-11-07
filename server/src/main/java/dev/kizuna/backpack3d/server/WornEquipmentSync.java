@@ -1,6 +1,7 @@
 package dev.kizuna.backpack3d.server;
 
 import dev.kizuna.backpack3d.item.ContainerItems;
+import dev.kizuna.backpack3d.item.WearableItems;
 import dev.kizuna.backpack3d.protocol.Messages;
 import dev.kizuna.backpack3d.protocol.StackCodec;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.EquipmentAppearance;
@@ -86,14 +87,35 @@ final class WornEquipmentSync {
             // 只投影身体上的根容器，收纳在其中的容器不能重复穿到身上。
             var type = ContainerItems.definition(StackCodec.decode(worn.getStackNbt(), registries));
             if (type != null && !type.mounts().isEmpty()) {
-                appearance.addModels(
-                        WornModel.newBuilder()
-                                .setItemType(type.id().toString())
-                                .setMount(worn.getMount())
-                                .setWaistAngleDegrees(worn.getWaistAngleDegrees()));
+                WornModel model = WornModel.newBuilder()
+                        .setItemType(type.id().toString())
+                        .setMount(worn.getMount())
+                        .setWaistAngleDegrees(worn.getWaistAngleDegrees())
+                        .build();
+                appearance.addModels(model);
             }
         }
+        addWearables(appearance, saved, registries);
         return appearance.build();
+    }
+
+    private static void addWearables(EquipmentAppearance.Builder appearance,
+                                      SavedInventory saved, HolderLookup.Provider registries) {
+        // 旁观者只接收类型及每段挂点，实例 UUID、自定义名称和完整栈始终只发给本人。
+        for (var worn : saved.getWornWearablesList()) {
+            var stack = StackCodec.decode(worn.getStackNbt(), registries);
+            var type = WearableItems.definition(stack);
+            if (type == null) {
+                throw new IllegalArgumentException("存档含未注册的穿戴物品");
+            }
+            for (var slot : type.slots()) {
+                WornModel model = WornModel.newBuilder()
+                        .setItemType(type.id().toString())
+                        .setWearableSlot(slot)
+                        .build();
+                appearance.addModels(model);
+            }
+        }
     }
 
     /** saved 是不可变存档引用；appearance 只保留可公开的装备外观。 */

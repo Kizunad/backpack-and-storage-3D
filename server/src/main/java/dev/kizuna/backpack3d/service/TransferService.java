@@ -12,7 +12,6 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.MoveRequest;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Receipt;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
-import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornContainer;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -32,7 +31,8 @@ import net.minecraft.world.item.equipment.Equippable;
 
 /** 先构造完整候选，再在同一调用内核对来源并原子提交。 */
 public final class TransferService {
-    public static final int SAVE_VERSION = 3;
+    public static final int SAVE_VERSION = 4;
+    private static final int CONTAINER_SAVE_VERSION = 3;
     private final Function<ItemStack, Size> sizes;
 
     public TransferService(Function<ItemStack, Size> sizes) {
@@ -47,8 +47,11 @@ public final class TransferService {
         // 先拒绝不支持或过大的存档，再逐类检查身份、装备和物品内容。
         // 第 1、2 版固定容器存档没有任何已提交版本写出过，升级路径已随旧容器物品删除。
         int version = data.getFormatVersion();
-        if (version != SAVE_VERSION) {
+        if (version != SAVE_VERSION && version != CONTAINER_SAVE_VERSION) {
             throw new IllegalArgumentException("不支持的库存保存版本：" + version);
+        }
+        if (version == CONTAINER_SAVE_VERSION && data.getWornWearablesCount() != 0) {
+            throw new IllegalArgumentException("旧版库存不能包含非容器穿戴物");
         }
         if (data.getRevision() < 0) {
             throw new IllegalArgumentException("库存修订号不能为负数");
@@ -111,18 +114,19 @@ public final class TransferService {
         OrthogonalRotation.require(request.getOrientation());
         SavedInventory previous = account.data();
         validateMoveIdentity(account, request, previous);
+        List<ItemStack> originalInventory = account.inventory();
         List<ItemStack> vanilla = new ArrayList<>();
-        for (ItemStack stack : account.inventory()) {
+        for (ItemStack stack : originalInventory) {
             vanilla.add(stack.copy());
         }
         Map<String, ItemStack> ground = new LinkedHashMap<>();
         account.ground().forEach((id, stack) -> ground.put(id, stack.copy()));
         ContainerTree tree = new ContainerTree(account.registries(), previous, vanilla, ground);
-        ContainerTree.Entry source = takeSource(account, request, tree, vanilla);
+        ContainerTree.Entry source = takeSource(account, request, tree, originalInventory);
         ItemStack moved = tree.stack(source);
         String sourceContainer = source.item().getContainer();
         placeTarget(account, request, tree, new PlayerDestination(vanilla, moved, source));
-        SavedInventory next = withReceipt(previous, tree.worn(), request);
+        SavedInventory next = withReceipt(previous, tree, request);
         // 重新解析候选同时验证嵌套深度、唯一身份和原版槽位里的整个子树。
         validate(next, account.registries());
         new ContainerTree(account.registries(), next, vanilla, ground);
@@ -149,7 +153,7 @@ public final class TransferService {
     }
 
     private ContainerTree.Entry takeSource(Account account, MoveRequest request,
-                                            ContainerTree tree, List<ItemStack> vanilla) {
+                                            ContainerTree tree, List<ItemStack> originalInventory) {
         // 身体来源先验证当前槽位，内景来源由容器树按实例身份取出。
         if (request.getItem().isEmpty()) {
             int slot = request.getPlayerSlot();
@@ -159,7 +163,7 @@ public final class TransferService {
                     throw new IllegalArgumentException("请指定不同的目标部位");
                 }
             }
-            ItemStack stack = readVanillaStack(account, request, vanilla);
+            ItemStack stack = readVanillaStack(account, request, originalInventory);
             return tree.takePlayer(slot, stack, request.getOperation(), sizeOf(stack));
         }
         return tree.take(request.getItem());
@@ -186,7 +190,7 @@ public final class TransferService {
             }
             case Volumes.WORN -> {
                 if (!request.hasWornTarget()) {
-                    throw new IllegalArgumentException("请选择容器装备部位");
+                    throw new IllegalArgumentException("请选择装备挂点或穿戴层");
                 }
                 tree.wear(source, request.getWornTarget());
             }
@@ -228,7 +232,7 @@ public final class TransferService {
     }
 
     private static SavedInventory withReceipt(
-            SavedInventory previous, List<WornContainer> worn, MoveRequest request) {
+            SavedInventory previous, ContainerTree tree, MoveRequest request) {
         // 库存和幂等收据写入同一个候选；提交失败时两者都不会生效。
         var next =
                 previous.toBuilder()
@@ -237,7 +241,9 @@ public final class TransferService {
                         .clearItems()
                         .clearPlacements()
                         .clearWorn()
-                        .addAllWorn(worn);
+                        .addAllWorn(tree.worn())
+                        .clearWornWearables()
+                        .addAllWornWearables(tree.wornWearables());
         if (next.getReceiptsCount() == Messages.RECEIPT_LIMIT) {
             next.removeReceipts(0);
         }
@@ -270,6 +276,7 @@ public final class TransferService {
         tree.reposition(request.getPlacement());
         SavedInventory next =
                 account.data().toBuilder()
+                        .setFormatVersion(SAVE_VERSION)
                         .clearWorn()
                         .addAllWorn(tree.worn())
                         .setRevision(Math.addExact(account.data().getRevision(), 1))

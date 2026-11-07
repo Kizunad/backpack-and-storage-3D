@@ -1,6 +1,8 @@
 # 通信和持久化
 
-适用：`0.1.0-SNAPSHOT`，业务协议 **v7**、Framework wire **v2**、玩家保存格式 **3**、地面保存格式 **1**，未发布。唯一消息定义为 `shared/src/main/proto/volume.proto`；生成 Java 类不提交。
+适用：`0.1.0-SNAPSHOT`，业务协议 **v8**、Framework wire **v2**、玩家保存格式 **4**、地面保存格式 **1**，未发布。唯一消息定义为 `shared/src/main/proto/volume.proto`；生成 Java 类不提交。
+
+2026-11-03：非容器装备新增 `State.wearables`、`SavedInventory.worn_wearables`、`Placement.wearable_layer` 与 `WornModel.wearable_slot`。旧格式 3 的纯容器存档可读，下一次转移升级为 4。层绑定、占格保留、广播隐私与双端更新要求见[非容器穿戴](Wearables.md)。
 
 统一通道为 `kizuna_inventory_ui:message`，业务模块为 `bs3d:inventory`。玩家身份来自 Framework 认证连接，客户端不能选择其他玩家的库存。
 
@@ -10,7 +12,7 @@
 | `bs3d:move` | 客户端 → 服务器 | 提交来源、目标、朝向、库存修订号和操作 UUID，同一 tick 校验并提交 |
 | `bs3d:equip` | 客户端 → 服务器 | 程序接口调整已穿戴容器的绝对位置，校验后原子保存 |
 | `bs3d:cancel` | 客户端 → 服务器 | 兼容空操作；即时事务没有可取消阶段 |
-| `bs3d:state` | 服务器 → 客户端 | 完整容器树、双手与盔甲展示栈、腰部上限、终态回执和完成声音 |
+| `bs3d:state` | 服务器 → 客户端 | 完整容器树、非容器装备目录、真实物品与原版槽展示栈、腰部上限、终态回执和完成声音 |
 | `bs3d:appearance` | 服务器 → 客户端 | 本人与原版实体跟踪范围内玩家的装备外观，使用 `EquipmentAppearance` |
 | `bs3d:ground_opened` | 服务器 → 客户端 | 原版右键校验成功并发送状态之后，通知打开指定地面内景 |
 | `bs3d:close_ground` | 客户端 → 服务器 | 释放指定地面容器访问权；空列表释放当前连接全部地面容器 |
@@ -33,7 +35,7 @@
 
 外观与本人库存使用不同的消息。`EquipmentAppearance` 每次完整替换一位玩家的可见装备，以 `player_uuid` 识别玩家，`entity_id` 和 `dimension` 共同限定当前实体，避免重生、切换维度或实体 ID 复用时显示旧装备。
 
-`models` 中的 `WornModel` 仅包含注册物品 ID `item_type`、挂点 `mount`、连续腰角 `waist_angle_degrees`。不包含容器实例 UUID、容量、库存内容、物品名称或 ItemStack NBT；嵌套和手持容器不作为穿戴模型广播。空列表表示卸下全部容器，`removed=true` 表示停止跟踪并删除缓存。
+`models` 中的 `WornModel` 包含注册物品 ID `item_type`；容器使用挂点 `mount` 与连续腰角 `waist_angle_degrees`，非容器装备每个绑定输出一条 `wearable_slot`。不包含实例 UUID、容量、库存内容、自定义物品名称或 ItemStack NBT；嵌套和手持物品不作为穿戴模型广播。空列表表示卸下全部装备，`removed=true` 表示停止跟踪并删除缓存。
 
 Framework 握手完成后，即使尚未打开背包 UI 也同步本人和原版实体跟踪范围内的玩家。服务端仅在外观变化或开始跟踪时发送完整快照，离开视野、维度或服务器时撤销缓存，重新进入时补发。未提交的转移不改变外观；只修改包内物品也不会触发外观广播。客户端断线清空缓存。
 
@@ -58,7 +60,7 @@ BS3D 自带类型的内部容量、外部占格与挂点见 [Bong 收纳装备](
 `MoveRequest.target` 为目标容器实例 UUID，或以下特殊值：
 
 - `player`：放回原版库存。`target_player_slot` 存在时精确放入当前主手、副手或盔甲；省略时只在主背包自动找空位或合并。
-- `worn`：将真实容器装备到身体，必须提供 `worn_target`。位置由服务端按物品类型与玩家上限校验。
+- `worn`：将真实容器或穿戴物装备到身体，必须提供 `worn_target`。容器使用 mount，穿戴物使用 wearable_layer，二者不能混传。位置由服务端按物品类型、层规则与玩家上限校验。
 
 从已存物品或身体容器移动时，`item` 引用实例 UUID。从原版来源移动时，`item` 为空，发送 `player_slot` 与开始拖动时真实栈的 SHA-256 指纹。客户端不上传 NBT、容量或尺寸创建库存。
 
@@ -80,7 +82,7 @@ BS3D 自带类型的内部容量、外部占格与挂点见 [Bong 收纳装备](
 
 target=carried 表示按腰挂、胸背顺序寻找有空位的随身根容器，不使用地面容器或 UI 切片。模型落点使用指定容器 UUID 与 auto_place=true，保留 orientation；原版自动取回使用 target=player。Vanilla 附属的快捷取回复用原版 insertItem。
 
-bs3d:equip 继续按当前修订号原子调整已穿戴容器的绝对挂点。幂等收据、玩家保存格式和地面原子日志不变。
+`bs3d:equip` 继续按当前修订号原子调整已穿戴容器的绝对挂点。幂等收据和地面原子日志不变；成功提交时使用当前玩家保存格式 4。
 
 ## 保存与嵌套
 
@@ -88,19 +90,19 @@ bs3d:equip 继续按当前修订号原子调整已穿戴容器的绝对挂点。
 
 禁止容器放进自身或子孙，同一玩家树中不得出现重复容器身份。根深度为 0，最大嵌套深度 4，整棵树最多 32 个容器；每层均校验几何。例如锈框背架（内部 4×4×2）放得下灵草囊（外部 2×2×2），但骨架背篓（外部 3×4×3）在全部 24 朝向均放不下。
 
-`SavedInventory.worn` 保存身体容器物品与位置，`waist_limit` 为可选玩家变量，缺省按 2 解释。原版根容器随原版 `Inventory` 保存。业务字段 `backpack_storage_3d` 与原版槽位在同一 playerdata 文件中，提交先写完整临时文件、刷盘再原子替换；不支持原子替换则拒绝事务并恢复内存。近期 128 个成功操作收据同时保存，运行中的操作不落盘。当前版本身体容器死亡保留；原版槽位遵循原版掉落规则。
+`SavedInventory.worn` 保存身体容器物品与位置，`worn_wearables` 保存非容器装备的真实栈、UUID、绑定与原始收纳尺寸；`waist_limit` 为可选玩家变量，缺省按 2 解释。原版槽位中的容器与穿戴物随原版 `Inventory` 保存。业务字段 `backpack_storage_3d` 与原版槽位在同一 playerdata 文件中，提交先写完整临时文件、刷盘再原子替换；不支持原子替换则拒绝事务并恢复内存。近期 128 个成功操作收据同时保存，运行中的操作不落盘。当前版本身体容器与非容器装备死亡保留；原版槽位遵循原版掉落规则。
 
 单件 NBT 编码上限 16 KiB，业务存档上限 192 KiB；内容嵌套同样受栈大小限制。损坏存档拒绝读取，不静默清空。运行中获得损坏或重复身份的容器时拒绝业务视图和操作，保留原物品供管理员处理。
 
 ## 升级与 API 变化
 
-业务消息 v7 删除计时并增加随身自动目标，两端需要同步升级，不能与 v6 混用。地面打开/关闭消息、位置标记与地面修订号继续保留。v5 引入的 `bs3d:appearance` 继续保留。Framework 信封仍为 wire v2，protobuf 包名 `kizuna.backpack3d.v1` 保留。字段号不复用，玩家保存格式 3 无需额外迁移；没有地面目录的旧世界从空目录开始。
+业务消息 v8 增加非容器穿戴，两端需要同步升级，不能与 v7 混用。v7 删除计时并增加的随身自动目标、地面消息与修订号，以及 v5 引入的 `bs3d:appearance` 继续保留。Framework 信封仍为 wire v2，protobuf 包名 `kizuna.backpack3d.v1` 保留，字段号不复用；没有地面目录的旧世界从空目录开始。
 
-玩家保存格式只接受 3。格式 1、2（两个固定容器）自首个实现提交起没有任何版本写出过，2026-11-01 随旧容器删除其升级路径，读到时按不支持的版本拒绝。新玩家不自动获赠容器。物品缺少 `base_size` 时以当前 `size` 作为未旋转占格。新格式不可交给旧版写入。
+玩家保存格式写出 4，接受格式 3 的旧容器存档，下一次转移升级；格式 3 不得携带 `worn_wearables`。格式 1、2（两个固定容器）自首个实现提交起没有任何版本写出过，2026-11-01 随旧容器删除其升级路径，读到时按不支持的版本拒绝。新玩家不自动获赠容器。内景物品缺少 `base_size` 时以当前 `size` 作为未旋转占格，已穿戴非容器装备必须保存有效 `base_size`。新格式不可交给旧版写入。
 
 2026-11-01 删除 `bs3d:grass_pouch`（草包）、`bs3d:back_basket`（背篓）、`bs3d:storage_box`（收纳箱）三件物品，旧存档里的实例按损坏数据处理，与其他未注册物品一样拒绝读取。
 
-客户端 `playerSlot()`、`movePlayerStack()` 和 `wear()` 分别提供原版槽快照、部位间转移与容器装备入口；`container(id)` 按实例 UUID 查询。公开 `Account.inventory()` 包含全部原版槽位，`selectedSlot()` 与新增 `creative()` 用于当前主手和绑定诅咒校验。`commit()` 必须将业务数据与完整原版候选原子保存。API 尚未冻结，集成方应以当前源码签名为准。
+客户端 `playerSlot()`、`movePlayerStack()` 和 `wear()` 分别提供原版槽快照、部位间转移与容器/穿戴物装备入口；`container(id)` 只查询容器实例，非容器装备位于 `state().getWearablesList()`。公开 `Account.inventory()` 包含全部原版槽位，`selectedSlot()` 与 `creative()` 用于当前主手和绑定诅咒校验。`commit()` 必须将业务数据与完整原版候选原子保存。API 尚未冻结，集成方应以当前源码签名为准。
 
 `Account.ground()` 和 `groundRevisions()` 缺省为空，原有个人库存适配器可保留原实现；支持地面容器时必须实现三参数 `commit(data, inventory, ground)` 的联合持久化。`ContainerTree` 新增接收地面根容器 Map 的构造方法，它们不属于原版额外槽位，也不进入 `SavedInventory.worn`。
 

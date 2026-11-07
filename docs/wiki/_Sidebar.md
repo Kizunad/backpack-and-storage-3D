@@ -5,5 +5,6 @@
 - [物品与声音扩展](Extension-Guide.md)
 - [Protobuf 物品清单](Item-Registry.md)
 - [模型、动画与音效导入](Model-Resources.md)
+- [非容器穿戴与分段模型](Wearables.md)
 - [Bong 收纳装备](Bong-Gear.md)
 - [验证](Validation.md)

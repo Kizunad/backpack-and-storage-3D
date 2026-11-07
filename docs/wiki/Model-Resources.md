@@ -4,7 +4,7 @@
 
 ## 目录与注册
 
-BS3D 自带九件 [Bong 收纳装备](Bong-Gear.md)，通过 common JAR 中的物品清单加载，无需复制到配置目录。客户端不生成默认配置或模板模型：没有 `config/bs3d/config.toml` 时只使用自带和附属模型，旋转键为默认 R/T。
+BS3D 自带十件 [Bong 收纳装备](Bong-Gear.md)，通过 common JAR 中的物品清单加载，无需复制到配置目录。客户端不生成默认配置或模板模型：没有 `config/bs3d/config.toml` 时只使用自带和附属模型，旋转键为默认 R/T。
 
 需要自定义模型时，在每个游戏实例中自行创建下列目录；这些是玩家文件，模组不改写：
 
@@ -50,6 +50,7 @@ place = "sounds/travel_place.ogg"
 | `file` | 必填 `.bbmodel` 相对路径，路径统一使用 `/` |
 | `open_animation` | 可省略，自动寻找 `open`；指定其他名称时必须存在；空字符串禁用该方向的片段选择 |
 | `close_animation` | 可省略，自动寻找 `close`；规则同上 |
+| `mode` | 缺省或 `centered` 为容器居中；`raw_segments` 保留模型原坐标，按具名顶层组输出段视图 |
 | `sounds` | 可省略的表，仅允许 `open`、`close`、`place`、`pickup`、`touch`，值为相对 `.ogg` 路径 |
 
 所有路径都相对于 `config/bs3d`，禁止绝对路径或符号链接越出该目录。TOML 不接受未知字段、重复 ID、错误字段类型或版本；整个注册表无效时，日志报告原因并停用全部导入模型。单个已登记模型缺失或解析失败，仅跳过这个模型。可选声音失败则保留该动作的默认声。
@@ -57,6 +58,8 @@ place = "sounds/travel_place.ogg"
 配置只是资源登记，不创建物品、不改变容量、不修改装备规则。扩展模组仍需在两端物品注册阶段调用 `ContainerItems.register`，或通过 [Protobuf 物品清单](Item-Registry.md) 登记，将 `model` 设为同一个完整 ID；详见[物品扩展](Extension-Guide.md)。附属也可以在清单的 `container.asset` 中随 JAR 分发模型、动画和音效，玩家无需改 TOML；本文件登记同一 ID 时覆盖附属资源。Java 注册时的短名称（如 `herb_pouch`）兼容为 `bs3d:herb_pouch`，TOML 必须写完整 ID。
 
 ## Blockbench 编辑约定
+
+2026-11-03 新增的原坐标模式及公开段 API 见[非容器穿戴与分段模型](Wearables.md)。下述水平居中约定只适用于默认模式；`raw_segments` 不居中、不缩放。
 
 首版支持 **Blockbench 4.x `.bbmodel` 的 cube 模型**：逐面 UV、多张 PNG、面的 90 度 UV 旋转、隐藏面、立方体局部旋转及嵌套分组。推荐把 PNG 嵌入模型；外部 PNG 必须通过 `relative_path` 引用，相对于 `.bbmodel` 所在目录解析，且最终仍在 `config/bs3d` 内。编辑器保存的 `path` 绝对路径不被读取。
 

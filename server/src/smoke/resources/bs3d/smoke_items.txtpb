@@ -1,6 +1,16 @@
 # 验收夹具：通过 fabric.mod.json 的 bs3d:item_registries 自动发现，覆盖启动期 protobuf 注册。
 version: 1
 items {
+  id: "bs3d_smoke:segmented_wearable"
+  wearable {
+    title: "分段穿戴夹具"
+    model: "bs3d_smoke:segmented_wearable"
+    slots { layer: "cape" bone: "chest" segment: "body" }
+    slots { layer: "cape" bone: "head" segment: "strap" }
+    asset { file: "models/LidPouch.bbmodel" mode: MODEL_RENDER_MODE_RAW_SEGMENTS }
+  }
+}
+items {
   id: "bs3d_smoke:end_seed"
   description_translation_key: "item.bs3d_smoke.end_seed.description"
   creative_tab: "minecraft:natural"

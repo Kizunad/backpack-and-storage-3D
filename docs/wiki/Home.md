@@ -10,6 +10,7 @@
 - [物品与声音扩展](Extension-Guide.md)
 - [Protobuf 物品清单](Item-Registry.md)
 - [模型、动画与音效导入](Model-Resources.md)
+- [非容器穿戴与分段模型](Wearables.md)
 - [验证状态](Validation.md)
 
-自带九件 [Bong 收纳装备](Bong-Gear.md)，在创造模式「背包与收纳」物品栏（`bs3d:containers`）取得，玩家通过真实物品获得容器。单机内置服务器与专用服务器共用权威库存实现；客户端模型预览不表示已从服务器取得库存。
+自带十件 [Bong 收纳装备](Bong-Gear.md)，在创造模式「背包与收纳」物品栏（`bs3d:containers`）取得，玩家通过真实物品获得容器。单机内置服务器与专用服务器共用权威库存实现；客户端模型预览不表示已从服务器取得库存。

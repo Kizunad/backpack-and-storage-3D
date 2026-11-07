@@ -120,7 +120,8 @@ public final class ContainerItems implements ModInitializer {
 
     public static void initializeStack(ItemStack stack) {
         // 只初始化全新的空容器，已有但损坏的标识不能被静默替换。
-        if (definition(stack) == null || data(stack).isPresent()) {
+        if (definition(stack) == null
+                || stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag().contains(DATA_KEY)) {
             return;
         }
         CompoundTag data = new CompoundTag();

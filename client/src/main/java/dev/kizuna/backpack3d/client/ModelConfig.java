@@ -4,6 +4,7 @@ import dev.kizuna.backpack3d.item.ContainerSounds;
 import dev.kizuna.backpack3d.item.ContainerSounds.Action;
 import dev.kizuna.backpack3d.item.ItemRegistrations;
 import dev.kizuna.backpack3d.item.ResourcePaths;
+import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelRenderMode;
 import org.tomlj.Toml;
 import org.tomlj.TomlTable;
 
@@ -24,7 +25,7 @@ final class ModelConfig {
     static final int FORMAT_VERSION = 1;
     private static final int MAX_CONFIG_BYTES = 256 * 1024;
     private static final Set<String> MODEL_KEYS =
-            Set.of("id", "file", "open_animation", "close_animation", "sounds");
+            Set.of("id", "file", "open_animation", "close_animation", "sounds", "mode");
 
     record Entry(
             Identifier id,
@@ -32,7 +33,14 @@ final class ModelConfig {
             // null 表示自动寻找同名 open/close，空字符串表示主动禁用。
             String openAnimation,
             String closeAnimation,
-            Map<Action, Path> sounds) {}
+            Map<Action, Path> sounds,
+            ModelRenderMode mode) {
+        Entry(Identifier id, Path file, String openAnimation, String closeAnimation,
+                Map<Action, Path> sounds) {
+            this(id, file, openAnimation, closeAnimation, sounds,
+                    ModelRenderMode.MODEL_RENDER_MODE_DEFAULT);
+        }
+    }
 
     record Configuration(List<Entry> models, RotationControls controls) {}
 
@@ -92,7 +100,8 @@ final class ModelConfig {
                 file,
                 table.getString("open_animation"),
                 table.getString("close_animation"),
-                sounds);
+                sounds,
+                readMode(table.getString("mode"), name));
     }
 
     private static Map<Action, Path> readSounds(Path directory, TomlTable soundTable, String name)
@@ -121,7 +130,18 @@ final class ModelConfig {
                 model.file(),
                 model.openAnimation(),
                 model.closeAnimation(),
-                model.sounds());
+                model.sounds(),
+                model.mode());
+    }
+
+    private static ModelRenderMode readMode(String value, String name) {
+        if (value == null || value.equals("centered")) {
+            return ModelRenderMode.MODEL_RENDER_MODE_DEFAULT;
+        }
+        if (value.equals("raw_segments")) {
+            return ModelRenderMode.MODEL_RENDER_MODE_RAW_SEGMENTS;
+        }
+        throw new IllegalArgumentException(name + ".mode 必须为 centered 或 raw_segments");
     }
 
     static Path localPath(Path directory, String value, String suffix) throws IOException {

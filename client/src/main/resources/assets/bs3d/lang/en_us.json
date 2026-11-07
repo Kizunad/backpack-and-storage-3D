@@ -20,5 +20,7 @@
   "item.bs3d.moisture_guard": "Moss Wrapped Pouch",
   "item.bs3d.moisture_guard.description": "A moss wrapped pouch; its appearance grants no preservation effect.",
   "item.bs3d.coin_box": "Bone Coin Box",
-  "item.bs3d.coin_box.description": "A wooden waist box with an iron clasp for small items."
+  "item.bs3d.coin_box.description": "A wooden waist box with an iron clasp for small items.",
+  "item.bs3d.ku_teng_yao_dai": "Withered Vine Belt",
+  "item.bs3d.ku_teng_yao_dai.description": "A withered vine belt with a knife, gourd, bone whistle and rope."
 }

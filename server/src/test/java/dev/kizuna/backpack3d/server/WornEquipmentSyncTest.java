@@ -3,8 +3,11 @@ package dev.kizuna.backpack3d.server;
 import static org.junit.jupiter.api.Assertions.*;
 
 import dev.kizuna.backpack3d.TestRegistries;
+import dev.kizuna.backpack3d.TestWearables;
 import dev.kizuna.backpack3d.item.ContainerItems;
+import dev.kizuna.backpack3d.item.WearableItems;
 import dev.kizuna.backpack3d.protocol.StackCodec;
+import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
 import dev.kizuna.backpack3d.service.TransferService;
 import net.minecraft.core.component.DataComponents;
@@ -25,6 +28,34 @@ class WornEquipmentSyncTest {
     @BeforeAll
     static void bootstrap() {
         TestRegistries.bootstrap();
+        TestWearables.register();
+    }
+
+    @Test
+    void wearableSegmentsSyncWithoutIdentityOrPrivateStackAndClearOnRemoval() {
+        ItemStack stack = WearableItems.create(TestWearables.CAPE);
+        stack.set(DataComponents.CUSTOM_NAME, Component.literal("private-cloak-name"));
+        String identity = WearableItems.identity(stack);
+        var type = WearableItems.definition(stack);
+        WornWearable worn = WornWearable.newBuilder()
+                .setId(identity)
+                .setStackNbt(StackCodec.encode(stack, TestRegistries.VANILLA))
+                .addAllSlots(type.slots())
+                .setBaseSize(Volumes.UNIT)
+                .build();
+        SavedInventory saved = TransferService.empty().toBuilder().addWornWearables(worn).build();
+        UUID player = UUID.randomUUID();
+        var appearance = WornEquipmentSync.appearance(player, 1, "minecraft:overworld", saved,
+                TestRegistries.VANILLA);
+        assertEquals(2, appearance.getModelsCount());
+        assertEquals("hood", appearance.getModels(0).getWearableSlot().getSegment());
+        assertEquals("back", appearance.getModels(1).getWearableSlot().getSegment());
+        assertEquals(TestWearables.CAPE.toString(), appearance.getModels(0).getItemType());
+        assertFalse(appearance.toString().contains(identity));
+        assertFalse(appearance.toString().contains("private-cloak-name"));
+        SavedInventory removed = saved.toBuilder().clearWornWearables().build();
+        assertEquals(0, WornEquipmentSync.appearance(player, 1, "minecraft:overworld", removed,
+                TestRegistries.VANILLA).getModelsCount());
     }
 
     @Test

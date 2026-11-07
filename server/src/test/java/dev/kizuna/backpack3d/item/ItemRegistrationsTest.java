@@ -35,6 +35,33 @@ class ItemRegistrationsTest {
     }
 
     @Test
+    void wearableCatalogRegistersRealNonContainerAndRejectsInvalidBindingsBeforeRegistration() {
+        var items = ItemRegistrations.registerText("test:wearable", """
+                version: 1
+                items { id: "test_registry:wearable" wearable {
+                  title: "饰物" model: "test_registry:wearable"
+                  slots { layer: "neck" bone: "chest" offset { x: 0.125 } }
+                } }
+                """);
+        TestRegistries.bindComponents();
+        var stack = WearableItems.create(Identifier.parse("test_registry:wearable"));
+        assertEquals(1, items.size());
+        assertEquals(1, stack.getMaxStackSize());
+        assertNull(ContainerItems.definition(stack));
+        assertEquals("chest", WearableItems.definition(stack).slots().getFirst().getBone());
+        String validId = "test_registry:must_not_register";
+        String prefix = "version: 1 items { id: '" + validId + "' plain {} } ";
+        for (String slots : List.of("", "slots { layer: 'head' }",
+                "slots { layer: 'head' bone: 'head' offset { x: nan } }",
+                "slots { layer: 'head' bone: 'head' } slots { layer: 'head' bone: 'head' }")) {
+            String invalid = prefix + "items { id: 'test_registry:invalid' wearable { title: '坏饰物' "
+                    + "model: 'test_registry:invalid' " + slots + "} }";
+            assertThrows(IllegalArgumentException.class, () -> ItemRegistrations.registerText("invalid", invalid));
+            assertFalse(BuiltInRegistries.ITEM.containsKey(Identifier.parse(validId)));
+        }
+    }
+
+    @Test
     void textRegistryRegistersPlainAndContainerItems() {
         var items = ItemRegistrations.registerText("test:text", """
                 version: 1

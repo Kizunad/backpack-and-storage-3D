@@ -37,7 +37,7 @@ record BbModel(
     private static final int MAX_BONE_DEPTH = 32;
     private static final int QUARTER_TURN_DEGREES = 90;
 
-    record Bone(String id, Vector3f origin, Vector3f rotation) {}
+    record Bone(String id, String name, Vector3f origin, Vector3f rotation) {}
 
     /** 面纹理及 UV 已归一化；rotation 表示顺时针四分之一圈的数量。 */
     record Face(Identifier texture, float u0, float v0, float u1, float v1, int rotation) {}
@@ -195,7 +195,8 @@ record BbModel(
             }
             // 复制链条后再加入当前组，兄弟节点不会共享可变的父链。
             var chain = new ArrayList<>(parents);
-            chain.add(new Bone(id, vector(group, "origin"), vector(group, "rotation")));
+            String name = GsonHelper.getAsString(group, "name", "");
+            chain.add(new Bone(id, name, vector(group, "origin"), vector(group, "rotation")));
             readTree(
                     GsonHelper.getAsJsonArray(group, "children"),
                     List.copyOf(chain),

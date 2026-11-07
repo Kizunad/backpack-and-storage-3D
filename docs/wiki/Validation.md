@@ -1,6 +1,22 @@
 # 验证状态
 
-适用：`0.1.0-SNAPSHOT`，业务协议 **v7**，玩家保存格式 **3**、地面保存格式 **1**，尚未发布。
+适用：`0.1.0-SNAPSHOT`，业务协议 **v8**，玩家保存格式 **4**、地面保存格式 **1**，尚未发布。
+
+## 2026-11-03：非容器穿戴、原坐标分段模型与枯藤腰带
+
+新增 `wearable` 物品种类、骨名与偏移绑定、独立穿戴层、非容器装备保存与同步，以及 UI 层标签；模型增加 `raw_segments` 模式和具名顶层组的段视图。枯藤腰带作为第十件 Bong 容器登记，内部容量 2×1×1、外部占格 2×1×2、使用腰环，原有九件容量与模型不变。公开契约与后续接入边界见[非容器穿戴](Wearables.md)。
+
+Java 25 `test build :server:compileSmokeJava :client:runResourceSmoke` 通过：客户端 **41 项**、服务端 **108 项**，共 **149 项**，无失败、错误或跳过。长期回归覆盖真实栈 UUID/NBT 和占格保留、穿戴与收纳往返、嵌套后再穿戴、同层及肩甲/身甲冲突、伪造落点、重复身份、失败不写库存与收据、光标取出、旧格式 3 容器存档升级、公开外观不泄漏私有字段、分段坐标/UV/命中和独立层标签。最终构建日志为 `/home/kiz/Code-gear/bs3d-g0-final.log`，结果 `BUILD SUCCESSFUL in 2m 2s`。
+
+真实 Fabric 客户端资源验收使用 Xvfb、`LIBGL_ALWAYS_SOFTWARE=1`、`ALSOFT_DRIVERS=null`，运行目录为 `build/smoke/g0-resources-20261103-c/resource-client/`：
+
+- `resources-ok.txt`：原有配置覆盖、撤销、坏文件隔离、声音解码与重载回归通过；十件 Bong 容器和附属 `raw_segments` 夹具加载通过。
+- `wearable-slots-ok.txt`：17 个穿戴层分别命中；`wearable-slots.png` 已人工查看，真实字体和主题下标签可读、无重叠，头饰/眼饰/面饰各自独立。
+- 客户端正常退出，Gradle 返回 0。前两次默认驱动运行虽然产出资源断言与截图，但退出时发生原生 SIGSEGV（134），均记为失败；最终按既有 Mesa 环境验收记录使用软件渲染复验成功。失败日志为 `/home/kiz/Code-gear/bs3d-g0-resources.log`、`/home/kiz/Code-gear/bs3d-g0-resources-b.log`。
+
+所有 Gradle 调用在检查门闸空闲后串行运行并使用 `--no-daemon`。本轮没有启动 `scripts/smoke.py` 的双 Gradle 四阶段专服/客户端流程；穿脱事务由上述回归测试验证，资源与标签由真实客户端验证，未做联网穿脱的完整鼠标操作验收。没有验收 PA 跟骨、实际穿搭模型、披风动画、War 防御、原版盔甲互斥、负重或 Windows 实例；这些不属于本次上游交付。
+
+`import_bong_gear.py --check`、Wiki 链接检查、`git diff --check` 通过；两端生产 JAR 不含 smoke 类、清单或测试夹具，包含新增协议类与各自负责的腰带资源。没有提交或推送。
 
 ## 2026-11-02：移除草包、背篓、收纳箱，新增「背包与收纳」物品栏
 
@@ -163,3 +179,21 @@ smoke 在 `build/smoke/<run-id>` 创建隔离世界，生成测试物品并主�
 新增光标候选与服务器入口，复用原版关闭和保存生命周期。Java 17 `test build` 全部通过：客户端 31 项、服务器 69 项，共 100 项。新增 7 项覆盖空光标指纹、预览不写入、NBT 完整保留、取放守恒、修订与占格失败、外部身份、嵌套自包含和满容量回退。
 
 配套原版交互附属的真实 Fabric 独服和单机验证了工作台拖放、原版合成扣料、计时取消/提交、熔炉产出及箱子存回；单机重开恢复背包内容。该接口不改变协议 v6 或保存格式，也不扩展到地面容器事务。新增调用约束见[扩展指南](Extension-Guide.md)。
+# 2026-11-03：通用模型穿脱
+
+未发布源码，业务协议 v8／保存格式 4 不变。已移除常驻穿搭层标签，改用模型通用落点与
+“脱掉 XXX”列表；列表包含所有挂载根容器和非容器穿搭，套装按真实实例只列一次。
+
+JUnit：client 43 项、server 113 项通过；新增目录过滤／刷新与光标穿戴候选回归。
+Gear 的真实 GameTest 12/12（包含原版 always_pass）验证全部注册装备自动卸装、重放单计、
+他人 UUID／旧修订／满背包拒绝，以及既有双向甲互斥、防御和负重。
+
+Linux Xvfb 集成服务器客户端两轮通过：Gear 工作区的
+`build/clienttest/model-equipment-vanilla-i/`（无 PA）和
+`build/clienttest/model-equipment-pa-j/`（含 PA），每轮 421 步、21 张截图，已人工查看。
+覆盖 14 件 Gear + 10 件 BS3D 容器逐件穿脱、完整列表翻页和满背包拒绝、右拖旋转、
+双击手持容器及内景装备拖入，另覆盖工作台、Vanilla E 页、箱子页和创造库存页。
+具体命令、XML、哈希见 Gear `build/model-equipment-review/`。
+
+Windows、远程多人和未逐个打开的其他工作站没有本轮实测；第三方宿主须接入共享接口。
+最后代码形状整理仅缓存重复读取，随后重新构建和运行单测；截图来自整理前行为相同的源码。

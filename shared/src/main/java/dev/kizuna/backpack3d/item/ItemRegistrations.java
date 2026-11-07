@@ -13,8 +13,10 @@ import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ContainerItem;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ItemEntry;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ItemRegistry;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelAsset;
+import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelRenderMode;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelSounds;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.OptionalField;
+import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.WearableItem;
 
 import net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents;
 import net.fabricmc.loader.api.FabricLoader;
@@ -206,10 +208,19 @@ public final class ItemRegistrations {
             throw new IllegalArgumentException(location + "：物品 ID 已被注册：" + id);
         }
         // 省略 creative_tab 时进入 bs3d 专属物品栏；显式写别的栏则只进那个栏。
-        Identifier tab = entry.getCreativeTab().isEmpty()
-                ? ContainerItems.TAB.identifier()
-                : identifier(location, "creative_tab", entry.getCreativeTab());
+        Identifier tab;
+        if (entry.getCreativeTab().isEmpty()) {
+            tab = ContainerItems.TAB.identifier();
+        } else {
+            tab = identifier(location, "creative_tab", entry.getCreativeTab());
+        }
         var optional = optionalFields(location, entry.getOptionalFieldsList());
+        BundledModel bundled = prepareKind(location, entry, assetRoot);
+        return new Prepared(id, entry, optional, tab, bundled);
+    }
+
+    private static BundledModel prepareKind(String location, ItemEntry entry, Path assetRoot) {
+        // 每种物品只校验自己的契约；资源检查完成后才允许整份清单进入注册阶段。
         BundledModel bundled = null;
         switch (entry.getKindCase()) {
             case PLAIN -> {
@@ -221,12 +232,28 @@ public final class ItemRegistrations {
             case CONTAINER -> {
                 requireContainer(location, entry.getContainer());
                 if (entry.getContainer().hasAsset()) {
-                    bundled = bundledModel(location, entry.getContainer(), assetRoot);
+                    bundled = bundledModel(
+                            location,
+                            "container",
+                            entry.getContainer().getModel(),
+                            entry.getContainer().getAsset(),
+                            assetRoot);
                 }
             }
-            default -> throw new IllegalArgumentException(location + "：必须指定 plain 或 container");
+            case WEARABLE -> {
+                requireWearable(location, entry.getWearable());
+                if (entry.getWearable().hasAsset()) {
+                    bundled = bundledModel(
+                            location,
+                            "wearable",
+                            entry.getWearable().getModel(),
+                            entry.getWearable().getAsset(),
+                            assetRoot);
+                }
+            }
+            default -> throw new IllegalArgumentException(location + "：必须指定 plain、container 或 wearable");
         }
-        return new Prepared(id, entry, optional, tab, bundled);
+        return bundled;
     }
 
     private static void requireContainer(
@@ -249,29 +276,54 @@ public final class ItemRegistrations {
         }
     }
 
-    private static BundledModel bundledModel(String location, ContainerItem container, Path root) {
+    private static void requireWearable(String location, WearableItem wearable) {
+        if (wearable.getTitle().isBlank()) {
+            throw new IllegalArgumentException(location + "：wearable.title 必须为非空字符串");
+        }
+        identifier(location, "wearable.model", wearable.getModel());
+        WearableLayers.validate(wearable.getSlotsList());
+    }
+
+    private static BundledModel bundledModel(
+            String location,
+            String kind,
+            String model,
+            ModelAsset asset,
+            Path root) {
         // 启动时只确认文件存在且位于清单目录内；几何、贴图和音频由客户端加载时校验。
         if (root == null) {
             throw new IllegalArgumentException(
-                    location + "：container.asset 只能在模组清单文件中声明，请使用 registerResource");
+                    location + "：" + kind + ".asset 只能在模组清单文件中声明，请使用 registerResource");
         }
-        ModelAsset asset = container.getAsset();
-        Path file = bundledPath(location, "container.asset.file", root, asset.getFile(), ".bbmodel");
+        if (asset.getMode() == ModelRenderMode.UNRECOGNIZED) {
+            throw new IllegalArgumentException(location + "：未知模型渲染模式");
+        }
+        Path file = bundledPath(location, kind + ".asset.file", root, asset.getFile(), ".bbmodel");
         var sounds = new LinkedHashMap<ContainerSounds.Action, Path>();
         ModelSounds configured = asset.getSounds();
-        putSound(location, root, sounds, ContainerSounds.Action.OPEN, configured.getOpen());
-        putSound(location, root, sounds, ContainerSounds.Action.CLOSE, configured.getClose());
-        putSound(location, root, sounds, ContainerSounds.Action.PLACE, configured.getPlace());
-        putSound(location, root, sounds, ContainerSounds.Action.PICKUP, configured.getPickup());
-        putSound(location, root, sounds, ContainerSounds.Action.TOUCH, configured.getTouch());
+        String soundLocation = location + "：" + kind + ".asset.sounds";
+        putSound(soundLocation, root, sounds, ContainerSounds.Action.OPEN, configured.getOpen());
+        putSound(soundLocation, root, sounds, ContainerSounds.Action.CLOSE, configured.getClose());
+        putSound(soundLocation, root, sounds, ContainerSounds.Action.PLACE, configured.getPlace());
+        putSound(soundLocation, root, sounds, ContainerSounds.Action.PICKUP, configured.getPickup());
+        putSound(soundLocation, root, sounds, ContainerSounds.Action.TOUCH, configured.getTouch());
+        String openAnimation = null;
+        if (asset.hasOpenAnimation()) {
+            openAnimation = asset.getOpenAnimation();
+        }
+        String closeAnimation = null;
+        if (asset.hasCloseAnimation()) {
+            closeAnimation = asset.getCloseAnimation();
+        }
         return new BundledModel(
-                identifier(location, "container.model", container.getModel()),
+                identifier(location, kind + ".model", model),
                 location,
                 root,
                 file,
-                asset.hasOpenAnimation() ? asset.getOpenAnimation() : null,
-                asset.hasCloseAnimation() ? asset.getCloseAnimation() : null,
-                Map.copyOf(sounds));
+                openAnimation,
+                closeAnimation,
+                Map.copyOf(sounds),
+                asset.getMode());
     }
 
     private static void putSound(
@@ -281,7 +333,7 @@ public final class ItemRegistrations {
             ContainerSounds.Action action,
             String value) {
         if (!value.isEmpty()) {
-            String field = "container.asset.sounds." + action.key();
+            String field = action.key();
             sounds.put(action, bundledPath(location, field, root, value, ".ogg"));
         }
     }
@@ -342,6 +394,14 @@ public final class ItemRegistrations {
                     container.getInside(),
                     container.getOutside(),
                     container.getMountsList(),
+                    prepared.optional());
+        } else if (entry.hasWearable()) {
+            var wearable = entry.getWearable();
+            var definition = new WearableItems.Definition(
+                    prepared.id(), wearable.getTitle(), wearable.getModel(), wearable.getSlotsList());
+            item = WearableItems.register(
+                    definition,
+                    entry.getDescriptionTranslationKey(),
                     prepared.optional());
         } else {
             int maxCount = entry.getPlain().getMaxCount();
@@ -425,5 +485,18 @@ public final class ItemRegistrations {
             // null 表示自动寻找 open/close，空字符串表示禁用。
             String openAnimation,
             String closeAnimation,
-            Map<ContainerSounds.Action, Path> sounds) {}
+            Map<ContainerSounds.Action, Path> sounds,
+            ModelRenderMode mode) {
+        public BundledModel(
+                Identifier model,
+                String source,
+                Path root,
+                Path file,
+                String openAnimation,
+                String closeAnimation,
+                Map<ContainerSounds.Action, Path> sounds) {
+            this(model, source, root, file, openAnimation, closeAnimation, sounds,
+                    ModelRenderMode.MODEL_RENDER_MODE_DEFAULT);
+        }
+    }
 }

@@ -29,7 +29,7 @@ public final class Messages {
     public static final String APPEARANCE = "bs3d:appearance";
     public static final String GROUND_OPENED = "bs3d:ground_opened";
     public static final String CLOSE_GROUND = "bs3d:close_ground";
-    public static final int VERSION = 7;
+    public static final int VERSION = 8;
     public static final int MAX_NBT_MEMORY_BYTES = 262_144;
     public static final int MAX_NBT_BYTES = 16_384;
     public static final int MAX_NBT_DEPTH = 32;

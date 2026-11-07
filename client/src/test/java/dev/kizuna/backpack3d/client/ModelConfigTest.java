@@ -3,6 +3,7 @@ package dev.kizuna.backpack3d.client;
 import static org.junit.jupiter.api.Assertions.*;
 
 import dev.kizuna.backpack3d.item.ContainerSounds.Action;
+import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelRenderMode;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -13,6 +14,20 @@ import java.util.ArrayList;
 
 class ModelConfigTest {
     @TempDir Path directory;
+
+    @Test
+    void rawSegmentModeIsExplicitAndUnknownModesAreRejected() throws Exception {
+        Files.writeString(directory.resolve("wear.bbmodel"), "parsed later");
+        String declaration = "version = 1\n[[models]]\nid = 'test:wear'\nfile = 'wear.bbmodel'\n";
+        config(declaration + "mode = 'raw_segments'\n");
+        assertEquals(ModelRenderMode.MODEL_RENDER_MODE_RAW_SEGMENTS,
+                ModelConfig.read(directory, ignored -> {}).models().getFirst().mode());
+        config(declaration);
+        assertEquals(ModelRenderMode.MODEL_RENDER_MODE_DEFAULT,
+                ModelConfig.read(directory, ignored -> {}).models().getFirst().mode());
+        config(declaration + "mode = 'raw'\n");
+        assertThrows(IllegalArgumentException.class, () -> ModelConfig.read(directory, ignored -> {}));
+    }
 
     @Test
     void onlyRegisteredFilesAreReturnedAndStrayModelsAreNotParsed() throws Exception {

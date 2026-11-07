@@ -52,7 +52,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 /** 业务客户端共享权威快照；屏幕关闭后仍接收即时回执，避免连接状态悬空。 */
-public final class VolumeModule implements ClientModule {
+public final class VolumeModule implements ClientModule, WornPreview.EquipmentActions {
     private static final String WINDOW = "bs3d:launcher";
     private static final int WINDOW_MIN_WIDTH_PIXELS = 280;
     private static final int WINDOW_MIN_HEIGHT_PIXELS = 220;
@@ -504,6 +504,15 @@ public final class VolumeModule implements ClientModule {
             request.setItem(item);
         }
         request(request.build());
+    }
+
+    public void unequip(String item, long revision) {
+        // 只允许当前画面列出的挂载根装备；事务负责主背包容量、归属与幂等校验。
+        if (!ready() || busy() || state.getRevision() != revision
+                || ModelEquipment.worn(state).stream().noneMatch(entry -> entry.id().equals(item))) {
+            return;
+        }
+        move(item, Volumes.PLAYER, Cell.getDefaultInstance(), true /* automatic */);
     }
 
     private boolean canMovePlayerStack(PlayerSlotStack source) {

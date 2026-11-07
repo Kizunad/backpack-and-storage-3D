@@ -6,6 +6,7 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Cell;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.MoveRequest;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.Size;
+import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashMap;
@@ -28,13 +29,8 @@ public final class CursorTransfer {
                                     Function<ItemStack, Size> sizes, Map<String, ItemStack> ground) {
         // 光标作为临时根参与整棵树的唯一身份、嵌套和占格校验，不能绕过容器规则。
         SavedInventory previous = account.data();
-        if (request.revision() != previous.getRevision()) {
-            throw new IllegalArgumentException("背包已变化，请重新选择物品");
-        }
+        validateRequest(request, previous);
         boolean taking = !request.item().isEmpty();
-        if (taking == !request.container().isEmpty()) {
-            throw new IllegalArgumentException("必须只指定取出的物品或存入的容器");
-        }
         List<ItemStack> inventory = new ArrayList<>();
         for (ItemStack stack : account.inventory()) {
             inventory.add(stack.copy());
@@ -51,18 +47,39 @@ public final class CursorTransfer {
         } else {
             moved = storeCursor(context, request, sizes);
         }
-        var next =
-                previous.toBuilder()
-                        .setRevision(Math.addExact(previous.getRevision(), 1))
-                        .clearWorn()
-                        .addAllWorn(tree.worn())
-                        .build();
+        var next = saveCandidate(previous, tree);
         // 再解析候选，特别检查从光标存入的整个嵌套子树；失败不产生任何真实写入。
         TransferService.validate(next, account.registries());
         // 重建整树校验唯一身份、容量和嵌套；非法候选在此抛出，不写入真实库存。
         new ContainerTree(account.registries(), next, inventory, candidateGround);
         ItemStack nextCursor = inventory.remove(cursorIndex);
         return new Candidate(next, List.copyOf(inventory), nextCursor, moved, Map.copyOf(candidateGround));
+    }
+
+    private static void validateRequest(Request request, SavedInventory previous) {
+        // 只接收唯一来源与对应的目标类型，不能把穿戴挂点混入收纳请求。
+        if (request.revision() != previous.getRevision()) {
+            throw new IllegalArgumentException("背包已变化，请重新选择物品");
+        }
+        boolean taking = !request.item().isEmpty();
+        if (taking == !request.container().isEmpty()) {
+            throw new IllegalArgumentException("必须只指定取出的物品或存入的容器");
+        }
+        if (request.container().equals(Volumes.WORN) != (request.wornTarget() != null)) {
+            throw new IllegalArgumentException("穿戴目标与挂点必须同时指定");
+        }
+    }
+
+    private static SavedInventory saveCandidate(SavedInventory previous, ContainerTree tree) {
+        return
+                previous.toBuilder()
+                        .setFormatVersion(TransferService.SAVE_VERSION)
+                        .setRevision(Math.addExact(previous.getRevision(), 1))
+                        .clearWorn()
+                        .addAllWorn(tree.worn())
+                        .clearWornWearables()
+                        .addAllWornWearables(tree.wornWearables())
+                        .build();
     }
 
     private record CursorContext(ContainerTree tree, List<ItemStack> inventory,
@@ -102,6 +119,16 @@ public final class CursorTransfer {
         }
         var entry = tree.takePlayer(cursorIndex, cursor, UUID.randomUUID().toString(), size);
         ItemStack moved = tree.stack(entry);
+        var wornTarget = request.wornTarget();
+        if (wornTarget != null) {
+            tree.wear(entry, wornTarget);
+            return moved;
+        }
+        placeStored(tree, entry, request);
+        return moved;
+    }
+
+    private static void placeStored(ContainerTree tree, ContainerTree.Entry entry, Request request) {
         var destination =
                 MoveRequest.newBuilder()
                         .setTarget(request.container())
@@ -114,7 +141,6 @@ public final class CursorTransfer {
         } else {
             tree.place(entry, destination);
         }
-        return moved;
     }
 
     public record Request(
@@ -128,18 +154,25 @@ public final class CursorTransfer {
             Cell cell,
             // 正交朝向的稳定索引 0..23。
             int orientation,
-            Placement placement) {
+            Placement placement,
+            // 穿戴只提交声明层或挂点，类型与全部占层仍从服务端真实栈读取。
+            VolumeProtocol.Placement wornTarget) {
         public static Request take(long revision, String item) {
-            return new Request(revision, item, "", Cell.getDefaultInstance(), 0, Placement.MANUAL);
+            return new Request(revision, item, "", Cell.getDefaultInstance(), 0, Placement.MANUAL, null);
         }
 
         public static Request store(long revision, String container, Cell cell, int orientation) {
-            return new Request(revision, "", container, cell, orientation, Placement.MANUAL);
+            return new Request(revision, "", container, cell, orientation, Placement.MANUAL, null);
         }
 
         public static Request autoStore(long revision, String container, int orientation) {
             // 模型落点不带格坐标，服务端在完整容量里确定最终位置。
-            return new Request(revision, "", container, Cell.getDefaultInstance(), orientation, Placement.AUTOMATIC);
+            return new Request(revision, "", container, Cell.getDefaultInstance(),
+                    orientation, Placement.AUTOMATIC, null);
+        }
+
+        public static Request wear(long revision, VolumeProtocol.Placement target) {
+            return new Request(revision, "", Volumes.WORN, Cell.getDefaultInstance(), 0, Placement.MANUAL, target);
         }
     }
 

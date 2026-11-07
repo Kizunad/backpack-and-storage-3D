@@ -5,6 +5,7 @@ import dev.kizuna.backpack3d.item.ContainerSounds.Action;
 import net.minecraft.client.renderer.item.SpecialModelWrapper;
 import net.minecraft.client.sounds.JOrbisAudioStream;
 import dev.kizuna.backpack3d.item.ContainerItems;
+import dev.kizuna.backpack3d.item.WearableItems;
 import dev.kizuna.backpack3d.item.ItemRegistrations;
 
 import net.fabricmc.api.ClientModInitializer;
@@ -26,7 +27,7 @@ import java.util.List;
 public final class ResourceImportSmoke implements ClientModInitializer {
     private static final List<String> BONG_GEAR = List.of(
             "gu_jia_bei_lou", "xiu_kuang_bei_jia", "za_pi_xing_nang", "pi_nang_xiong_gua",
-            "herb_pouch", "ore_sack", "water_skin", "moisture_guard", "coin_box");
+            "herb_pouch", "ore_sack", "water_skin", "moisture_guard", "coin_box", "ku_teng_yao_dai");
     private static final Identifier HERB_POUCH = Identifier.fromNamespaceAndPath("bs3d", "herb_pouch");
     // 玩家导入：同 ID 覆盖灵草囊自带模型并换上五种动作音效；坏模型只影响自己。
     private static final String IMPORTED =
@@ -164,7 +165,7 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 String result =
                         "no-default-config; registered-only; invalid-file-isolation; override-bundled;"
                                 + " five-custom-ogg-actions; decode; revoke; malformed-config; restore;"
-                                + " bundled-addon-model; nine-bong-containers";
+                                + " bundled-addon-model; ten-bong-containers; raw-segments";
                 Files.writeString(client.gameDirectory.toPath().resolve("resources-ok.txt"), result);
                 System.out.println("BS3D_RESOURCES " + result);
                 step++;
@@ -217,6 +218,19 @@ public final class ResourceImportSmoke implements ClientModInitializer {
             animation.open();
             animation.advance(0);
             require(animation.ready(), "静态容器无法直接打开：" + name);
+        }
+        verifyWearableSegments();
+    }
+
+    private static void verifyWearableSegments() {
+        // 注册清单的原坐标模式须经过真实资源包加载与重载，不能只在内存几何测试里生效。
+        var id = Identifier.fromNamespaceAndPath("bs3d_smoke", "segmented_wearable");
+        var type = WearableItems.types().get(BuiltInRegistries.ITEM.getValue(id));
+        require(type != null, "非容器穿戴清单没有注册");
+        var asset = ModelResources.find(type.model());
+        require(asset != null, "分段模型未加载");
+        for (var slot : type.slots()) {
+            require(asset.segment(slot.getSegment()) != null, "分段模型没有对应顶层组");
         }
     }
 }

@@ -5,10 +5,14 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
 import dev.kizuna.backpack3d.client.BbModel.Cube;
 import dev.kizuna.backpack3d.client.BbModel.Face;
+import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelRenderMode;
 import org.joml.Vector3f;
 
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
@@ -38,11 +42,25 @@ public final class ModelAsset {
     private final List<Identifier> textures;
     private final float centerY;
     private final float groundOffset;
+    private final ModelRenderMode mode;
+    private final Map<String, ModelAsset> segmentAssets = new LinkedHashMap<>();
 
     ModelAsset(BbModel model) {
+        this(model, ModelRenderMode.MODEL_RENDER_MODE_DEFAULT);
+    }
+
+    ModelAsset(BbModel model, ModelRenderMode mode) {
         // 只接收已校验的登记资源，构造及逐帧渲染均不再按模型名隐式读文件。
         this.model = model;
+        this.mode = mode;
         cubes = model.cubes();
+        validateSegments();
+        textures = textures(cubes);
+        centerY = centerY(cubes);
+        groundOffset = closedGroundOffset();
+    }
+
+    private static List<Identifier> textures(List<Cube> cubes) {
         // 每张贴图对应一次几何提交，按首次出现顺序收集，避免逐帧遍历去重。
         var used = new LinkedHashSet<Identifier>();
         for (Cube cube : cubes) {
@@ -52,12 +70,20 @@ public final class ModelAsset {
                 }
             }
         }
-        textures = List.copyOf(used);
+        return List.copyOf(used);
+    }
+
+    private static float centerY(List<Cube> cubes) {
+        // 默认容器沿用原有最高点的一半作为纵向中心，原坐标模式不使用该平移。
         float top = Float.NEGATIVE_INFINITY;
         for (Cube cube : cubes) {
             top = Math.max(top, cube.to().y);
         }
-        centerY = top / 2;
+        return top / 2;
+    }
+
+    private float closedGroundOffset() {
+        // 落地高度使用关闭姿态的真实最低点，保留低于编辑原点的绑带几何。
         float lowest = Float.POSITIVE_INFINITY;
         for (Cube cube : cubes) {
             var matrices = new PoseStack();
@@ -69,8 +95,7 @@ public final class ModelAsset {
                                 matrices.last().pose().transformPosition(vertex).y);
             }
         }
-        // 落地高度使用关闭姿态的真实最低点，保留低于编辑原点的绑带几何。
-        groundOffset = -lowest;
+        return -lowest;
     }
 
     float openSeconds() {
@@ -149,51 +174,107 @@ public final class ModelAsset {
                 layer = RenderTypes.entityTranslucent(texture);
             }
             collector.submitCustomGeometry(matrices, layer,
-                    (entry, consumer) -> emit(entry, consumer, texture, pose, paint, lighting));
+                    (entry, consumer) -> emit(entry, consumer, new DrawPass(texture, pose, paint, lighting)));
         }
     }
 
     private void emit(
             PoseStack.Pose base,
             VertexConsumer consumer,
-            Identifier texture,
-            BagAnimation.Sample pose,
-            Paint paint,
-            Lighting lighting) {
+            DrawPass pass) {
         // 高亮轮廓使用同一几何，普通绘制只写出属于本次贴图的面。
         var matrices = new PoseStack();
         matrices.last().set(base);
         for (var cube : cubes) {
             matrices.pushPose();
-            transform(matrices, cube, pose);
+            transform(matrices, cube, pass.pose());
             var vertices = vertices(cube.from(), cube.to());
             for (int face = 0; face < FACE_VERTICES.length; face++) {
                 Face uv = cube.faces().get(face);
-                if (uv == null || (paint.tint() == null && !uv.texture().equals(texture))) {
+                if (uv == null || (pass.paint().tint() == null && !uv.texture().equals(pass.texture()))) {
                     continue;
                 }
-                emitFace(matrices.last(), consumer, vertices, face, uv, paint, lighting);
+                emitFace(matrices.last(), consumer, new FacePass(vertices, face, uv, pass.paint(), pass.lighting()));
             }
             matrices.popPose();
         }
     }
 
+    private static String segment(Cube cube) {
+        if (cube.bones().isEmpty()) {
+            return "";
+        }
+        return cube.bones().getFirst().name();
+    }
+
+    public Set<String> segments() {
+        var result = new LinkedHashSet<String>();
+        for (Cube cube : cubes) {
+            result.add(segment(cube));
+        }
+        return Set.copyOf(result);
+    }
+
+    public ModelAsset segment(String name) {
+        // 段视图复用全部动画和贴图；绘制、环境光、包围盒及命中走同一套几何入口。
+        if (mode != ModelRenderMode.MODEL_RENDER_MODE_RAW_SEGMENTS || !segments().contains(name)) {
+            throw new IllegalArgumentException("模型不存在原坐标骨段：" + name);
+        }
+        return segmentAssets.computeIfAbsent(name, selected -> {
+            List<Cube> selectedCubes = cubes.stream().filter(cube -> segment(cube).equals(selected)).toList();
+            var selectedModel = new BbModel(selectedCubes, model.textures(), model.open(), model.close());
+            return new ModelAsset(selectedModel, mode);
+        });
+    }
+
+    private void validateSegments() {
+        // 原坐标模式必须能以顶层组名唯一选段；动画仍按原始 UUID 查找。
+        if (mode == ModelRenderMode.UNRECOGNIZED) {
+            throw new IllegalArgumentException("未知模型渲染模式");
+        }
+        if (mode != ModelRenderMode.MODEL_RENDER_MODE_RAW_SEGMENTS) {
+            return;
+        }
+        Map<String, String> roots = new LinkedHashMap<>();
+        for (Cube cube : cubes) {
+            String name = segment(cube);
+            if (name.isBlank()) {
+                throw new IllegalArgumentException("raw_segments 的可见立方体必须位于具名顶层组");
+            }
+            String id = cube.bones().getFirst().id();
+            String previous = roots.putIfAbsent(name, id);
+            if (previous != null && !previous.equals(id)) {
+                throw new IllegalArgumentException("raw_segments 顶层组名重复：" + name);
+            }
+        }
+    }
+
+    private record DrawPass(Identifier texture, BagAnimation.Sample pose, Paint paint, Lighting lighting) {}
+
+    private record FacePass(Vector3f[] vertices, int face, Face uv, Paint paint, Lighting lighting) {}
+
     private static void emitFace(
             PoseStack.Pose entry,
             VertexConsumer consumer,
-            Vector3f[] vertices,
-            int face,
-            Face uv,
-            Paint paint,
-            Lighting lighting) {
+            FacePass pass) {
         // 半透明占位保留原模型几何，UV 旋转仅改变贴图四角的对应关系。
+        Face uv = pass.uv();
+        Paint paint = pass.paint();
+        Lighting lighting = pass.lighting();
         float[][] coords = {
             {uv.u0(), uv.v1()}, {uv.u1(), uv.v1()}, {uv.u1(), uv.v0()}, {uv.u0(), uv.v0()}
         };
+        int face = pass.face();
         var normal = NORMALS[face];
+        // 反射会改变面的正反；UV 随原顶点反序，法线仍按逆转置矩阵变换。
+        boolean mirrored = entry.pose().determinant3x3() < 0;
         for (int vertex = 0; vertex < VERTICES_PER_FACE; vertex++) {
-            var point = vertices[FACE_VERTICES[face][vertex]];
-            int uvCorner = Math.floorMod(vertex - uv.rotation(), VERTICES_PER_FACE);
+            int windingVertex = vertex;
+            if (mirrored) {
+                windingVertex = VERTICES_PER_FACE - 1 - vertex;
+            }
+            var point = pass.vertices()[FACE_VERTICES[face][windingVertex]];
+            int uvCorner = Math.floorMod(windingVertex - uv.rotation(), VERTICES_PER_FACE);
             consumer.addVertex(entry, point.x, point.y, point.z)
                     .setColor(paint.red(), paint.green(), paint.blue(), paint.alpha())
                     .setUv(coords[uvCorner][0], coords[uvCorner][1])
@@ -294,16 +375,15 @@ public final class ModelAsset {
 
     public static PoseStack copy(PoseStack source) {
         var copy = new PoseStack();
-        copy.last().pose().set(source.last().pose());
-        copy.last().normal().set(source.last().normal());
+        // Pose 同时保存法线是否需要归一化，复制两块矩阵会丢失这个状态。
+        copy.last().set(source.last());
         return copy;
     }
 
     /** 复制变换并在最外层叠加等比缩放，用于画中画贴图像素与 GUI 坐标互换；等比缩放不改变法线方向。 */
     static PoseStack scaled(PoseStack source, float factor) {
-        var scaled = new PoseStack();
+        var scaled = copy(source);
         scaled.last().pose().scaling(factor).mul(source.last().pose());
-        scaled.last().normal().set(source.last().normal());
         return scaled;
     }
 
@@ -318,7 +398,9 @@ public final class ModelAsset {
     }
 
     private void transform(PoseStack matrices, Cube cube, BagAnimation.Sample pose) {
-        matrices.translate(-MODEL_CENTER_XZ, -centerY, -MODEL_CENTER_XZ);
+        if (mode == ModelRenderMode.MODEL_RENDER_MODE_DEFAULT) {
+            matrices.translate(-MODEL_CENTER_XZ, -centerY, -MODEL_CENTER_XZ);
+        }
         ModelClip clip = pose.closing() ? model.close() : model.open();
         float progress = pose.progress();
         if (clip == null) {

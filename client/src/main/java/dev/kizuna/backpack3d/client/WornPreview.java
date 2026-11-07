@@ -27,7 +27,9 @@ import org.joml.Quaternionf;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -40,6 +42,7 @@ public final class WornPreview {
     // 标记由预览抽取的快照；世界中每帧新建的玩家快照不带这个值。
     private static final RenderStateDataKey<WornPreview> PREVIEW =
             RenderStateDataKey.create(() -> "bs3d worn preview");
+    private static final List<AttachmentTransform> ATTACHMENT_TRANSFORMS = new ArrayList<>();
     private static final float INITIAL_YAW_DEGREES = 145;
     private static final float MAX_PITCH_DEGREES = 55;
     private static final float DRAG_DEGREES_PER_PIXEL = 0.7f;
@@ -54,6 +57,7 @@ public final class WornPreview {
     private final Map<String, ModelAsset> assets = new LinkedHashMap<>();
     private final Map<String, PoseStack> transforms = new LinkedHashMap<>();
     private final PlayerSlotTargets slots = new PlayerSlotTargets();
+    private final EquipmentMenu equipment;
     private Map<String, BagAnimation> animations;
     private float yaw = INITIAL_YAW_DEGREES;
     private float pitch;
@@ -64,6 +68,7 @@ public final class WornPreview {
     private BoxShapes.LineScale lines;
     private String hovered = "";
     private String dropSource = "";
+    private ItemStack dropStack = ItemStack.EMPTY;
     private PoseStack torso;
     // 装备拖放体积单位为方块，略超出躯干，方便落在腰侧和胸背表面。
     private static final Vector3f EQUIP_FROM = new Vector3f(-0.5f, 0, -0.4f);
@@ -71,17 +76,41 @@ public final class WornPreview {
     private static final float WAIST_MIN_Y = 0.45f;
 
     public WornPreview(VolumeModule module) {
+        this(module, module);
+    }
+
+    public WornPreview(VolumeModule module, EquipmentActions actions) {
         // 预览只读取模块快照，物品归属始终由服务器维护。
         this.module = module;
+        equipment = new EquipmentMenu(module, actions);
+    }
+
+    /** 宿主保留自己的菜单、光标和在途请求校验，列表与模型仍共用同一实现。 */
+    public interface EquipmentActions {
+        boolean busy();
+        String status();
+        void unequip(String item, long revision);
     }
 
     public void dropSource(String source) {
         // 携物悬停使用独立颜色，不能与单击开盖的轮廓混淆。
+        dropSource(source, module.stack(source));
+    }
+
+    public void dropSource(String source, ItemStack stack) {
+        // 原版菜单可以提供自己的展示来源，实际转移仍需经过宿主服务器校验。
         dropSource = source;
+        dropStack = stack;
     }
 
     public void drawDropTarget(GuiGraphicsExtractor context, Font font, int x, int y) {
-        // 名称来自服务器容器目录，模型合盖时同样提供自动放置目标提示。
+        // 提示与释放目标一致，装备拖到人物时不能仍显示存入背包。
+        var stack = dropStack;
+        if (interactive && equipmentAt(x, y, stack) != null) {
+            context.text(font, "穿戴 " + stack.getHoverName().getString(), x, y + font.lineHeight,
+                    InventoryUiClient.runtime().color(ThemeTokens.INVENTORY_DROP_VALID));
+            return;
+        }
         if (!dropSource.isEmpty() && !hovered.isEmpty() && !dropSource.equals(hovered)) {
             context.text(font, module.container(hovered).getTitle(), x, y + font.lineHeight,
                     InventoryUiClient.runtime().color(ThemeTokens.INVENTORY_DROP_VALID));
@@ -97,6 +126,18 @@ public final class WornPreview {
                         helper.register(new Attachment(avatarRenderer, worldRenderer));
                     }
                 });
+    }
+
+    public static void registerAttachmentTransform(AttachmentTransform transform) {
+        // 附属只提供挂点前的身体增量，容器的缩放、朝向和偏移仍由 BS3D 维护。
+        ATTACHMENT_TRANSFORMS.add(transform);
+    }
+
+    public static void applyAttachmentTransforms(
+            PoseStack matrices, AvatarRenderState state, Mount mount) {
+        for (var transform : ATTACHMENT_TRANSFORMS) {
+            transform.apply(matrices, state, mount);
+        }
     }
 
     public void rotate(double dx, double dy) {
@@ -158,6 +199,59 @@ public final class WornPreview {
                                             y));
         }
         return slots.slotAt(x, y, depth);
+    }
+
+    public boolean onPlayer(double x, double y) {
+        // 身体与身上容器均属于人物，地面容器不能成为穿戴或卸装列表入口。
+        String hit = pick(x, y);
+        if (hit.isEmpty()) {
+            return Double.isFinite(slots.depth(x, y));
+        }
+        return module.state().getContainersList().stream()
+                .anyMatch(container -> container.getWorn() && container.getId().equals(hit));
+    }
+
+    public Placement equipmentAt(double x, double y, ItemStack stack) {
+        // 任意身体部位都能接收装备；连续腰角仍优先采用实际躯干落点。
+        if (!onPlayer(x, y)) {
+            return null;
+        }
+        var container = ContainerItems.definition(stack);
+        if (container != null) {
+            Placement precise = wearAt(x, y, container);
+            if (precise != null) {
+                return precise;
+            }
+        }
+        return ModelEquipment.placement(stack);
+    }
+
+    public boolean openEquipmentMenu(double x, double y) {
+        if (!onPlayer(x, y)) {
+            return false;
+        }
+        equipment.open();
+        return true;
+    }
+
+    public boolean equipmentMenuVisible() {
+        return equipment.visible();
+    }
+
+    public void closeEquipmentMenu() {
+        equipment.close();
+    }
+
+    public boolean clickEquipmentMenu(double x, double y, int button) {
+        return equipment.click(x, y, button);
+    }
+
+    public boolean scrollEquipmentMenu(double amount) {
+        return equipment.scroll(amount);
+    }
+
+    public void drawEquipmentMenu(GuiGraphicsExtractor context, InteriorRenderer.Rect viewport, int x, int y) {
+        equipment.draw(context, viewport, x, y);
     }
 
     public int handAt(double x, double y) {
@@ -300,11 +394,12 @@ public final class WornPreview {
         slots.renderPending(module, collector, textureScale);
         var body = ModelAsset.copy(local);
         model.body.translateAndRotate(body);
-        renderAttachments(body, collector, textureScale);
+        renderAttachments(body, collector, textureScale, state);
         slots.renderHover(interactive ? slotAt(mouseX, mouseY) : -1, collector, textureScale, lines);
     }
 
-    private void renderAttachments(PoseStack body, SubmitNodeCollector collector, float textureScale) {
+    private void renderAttachments(
+            PoseStack body, SubmitNodeCollector collector, float textureScale, AvatarRenderState state) {
         // 每帧使用当前目录，F3+T 删除注册后不能保留旧模型及其命中区。
         assets.clear();
         transforms.clear();
@@ -329,12 +424,19 @@ public final class WornPreview {
                 matrices.translate(groundIndex * GROUND_MODEL_SPACING_BLOCKS, GROUND_MODEL_Y_BLOCKS, 0);
                 matrices.scale(GROUND_MODEL_SCALE, -GROUND_MODEL_SCALE, -GROUND_MODEL_SCALE);
             } else {
+                Mount mount = container.getMount();
+                applyAttachmentTransforms(matrices, state, mount);
                 WornModelTransform.apply(
-                        matrices, asset, pouch, container.getMount(), container.getWaistAngleDegrees());
+                        matrices, asset, pouch, mount, container.getWaistAngleDegrees());
             }
             transforms.put(id, matrices);
         }
         renderAttachmentModels(collector, textureScale);
+    }
+
+    @FunctionalInterface
+    public interface AttachmentTransform {
+        void apply(PoseStack matrices, AvatarRenderState state, Mount mount);
     }
 
     private void renderAttachmentModels(SubmitNodeCollector collector, float textureScale) {

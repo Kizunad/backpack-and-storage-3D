@@ -132,3 +132,19 @@ items {
     asset { file: "models/CoinBox.bbmodel" }
   }
 }
+
+items {
+  id: "bs3d:ku_teng_yao_dai"
+  description_translation_key: "item.bs3d.ku_teng_yao_dai.description"
+  container {
+    title: "枯藤腰带"
+    model: "bs3d:ku_teng_yao_dai"
+    inside { width: 2 height: 1 depth: 1 }
+    outside { width: 2 height: 1 depth: 2 }
+    mounts: WAIST_RIGHT_FRONT
+    mounts: WAIST_LEFT_FRONT
+    mounts: WAIST_LEFT_BACK
+    mounts: WAIST_RIGHT_BACK
+    asset { file: "models/KuTengYaoDai.bbmodel" }
+  }
+}

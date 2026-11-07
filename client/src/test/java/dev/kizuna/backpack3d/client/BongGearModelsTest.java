@@ -18,14 +18,15 @@ import net.minecraft.resources.Identifier;
 
 /** 用真实导入资产覆盖归档读取、贴图、人体尺度与静态开包，而不是简化几何夹具。 */
 class BongGearModelsTest {
+    private static final int BONG_CONTAINER_COUNT = 10;
     private static final Path SOURCE = Path.of("../server/src/main/resources/bs3d/bong-gear");
     @TempDir Path directory;
 
     @Test
-    void allNineModelsLoadFromJarAndStayWithinWearableBounds() throws Exception {
+    void allBundledModelsLoadFromJarAndStayWithinWearableBounds() throws Exception {
         var registry = ItemRegistry.newBuilder();
         TextFormat.getParser().merge(Files.readString(SOURCE.resolve("items.txtpb")), registry);
-        assertEquals(9, registry.getItemsCount());
+        assertEquals(BONG_CONTAINER_COUNT, registry.getItemsCount());
         try (var zip = FileSystems.newFileSystem(directory.resolve("gear.jar"), Map.of("create", "true"))) {
             Path root = zip.getPath("/bs3d/bong-gear");
             for (var item : registry.getItemsList()) {
