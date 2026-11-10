@@ -22,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import java.util.List;
+import org.joml.Vector3f;
 
 /** 只在隔离验收入口执行：真实客户端白名单重载及自定义 OGG 解码。 */
 public final class ResourceImportSmoke implements ClientModInitializer {
@@ -29,6 +30,10 @@ public final class ResourceImportSmoke implements ClientModInitializer {
             "gu_jia_bei_lou", "xiu_kuang_bei_jia", "za_pi_xing_nang", "pi_nang_xiong_gua",
             "herb_pouch", "ore_sack", "water_skin", "moisture_guard", "coin_box", "ku_teng_yao_dai");
     private static final Identifier HERB_POUCH = Identifier.fromNamespaceAndPath("bs3d", "herb_pouch");
+    // 附属经 PlacedModels 登记的放置模型：验收模组把带盖背篓夹具当作方块模型登记，原点在格心底面。
+    private static final Identifier PLACED = Identifier.fromNamespaceAndPath("bs3d_smoke", "placed_basket");
+    private static final String PLACED_FILE = "bs3d/models/LidBasket.bbmodel";
+    private static final float BLOCK_CENTER_PIXELS = 8;
     // 玩家导入：同 ID 覆盖灵草囊自带模型并换上五种动作音效；坏模型只影响自己。
     private static final String IMPORTED =
             """
@@ -58,6 +63,8 @@ public final class ResourceImportSmoke implements ClientModInitializer {
         if (!Boolean.getBoolean("bs3d.resourcesSmoke")) {
             return;
         }
+        PlacedModels.register(FabricLoader.getInstance().getModContainer("bs3d_smoke").orElseThrow(), PLACED,
+                PLACED_FILE, new Vector3f(BLOCK_CENTER_PIXELS, 0, BLOCK_CENTER_PIXELS));
         ClientTickEvents.END_CLIENT_TICK.register(
                 client -> {
                     try {
@@ -95,6 +102,7 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 require(
                         ModelResources.find("bs3d_smoke:bundled_pouch") != null,
                         "附属 JAR 自带模型没有加载");
+                require(PlacedModels.find(PLACED) != null, "附属登记的放置模型没有加载");
                 // 玩家导入：把灵草囊自带的 bbmodel 复制进 config/bs3d，用 config.toml 覆盖同 ID 模型并换上自定义音效。
                 var bundled =
                         ItemRegistrations.bundledModels().stream()
@@ -158,6 +166,7 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 require(
                         ModelResources.find("bs3d_smoke:bundled_pouch") != null,
                         "损坏的 config.toml 连带停用了附属自带模型");
+                require(PlacedModels.find(PLACED) != null, "损坏的 config.toml 连带停用了放置模型");
                 reload(client, IMPORTED);
             }
             case 4 -> {
@@ -165,7 +174,7 @@ public final class ResourceImportSmoke implements ClientModInitializer {
                 String result =
                         "no-default-config; registered-only; invalid-file-isolation; override-bundled;"
                                 + " five-custom-ogg-actions; decode; revoke; malformed-config; restore;"
-                                + " bundled-addon-model; ten-bong-containers; raw-segments";
+                                + " bundled-addon-model; ten-bong-containers; raw-segments; placed-model";
                 Files.writeString(client.gameDirectory.toPath().resolve("resources-ok.txt"), result);
                 System.out.println("BS3D_RESOURCES " + result);
                 step++;

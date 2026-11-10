@@ -2,6 +2,14 @@
 
 适用：`0.1.0-SNAPSHOT`，业务协议 **v8**，玩家保存格式 **4**、地面保存格式 **1**，尚未发布。
 
+## 2026-11-10：放置模型（方块与物品）
+
+已实现：客户端入口 `PlacedModels`，供其他模组登记随 JAR 分发的 `.bbmodel`，经方块实体渲染器按方块状态和水平朝向画在方块位置上，并以 `bs3d:placed` 特殊物品模型画在手持、物品栏和掉落物上。放置模型按 `raw_segments` 原坐标加载，玩家 `config.toml` 同 ID 覆盖几何与贴图。契约见[模型资源](Model-Resources.md)「放置模型（方块与物品）」。业务协议、保存格式不变。
+
+Java 25 `test build :server:compileSmokeJava :client:runResourceSmoke` 通过：客户端 **46 项**（含新增 `PlacedModelsTest` 3 项：按原坐标分段加载且无动画音效、同 ID 重复登记拒绝、原点落在底面中心且正面随朝向转）、服务端 **117 项**，无失败、错误或跳过。资源验收在 Xvfb、`LIBGL_ALWAYS_SOFTWARE=1`、`ALSOFT_DRIVERS=null` 下运行，运行目录 `build/smoke/placed-20261110/resource-client/`，`resources-ok.txt` 末项为 `placed-model`：验收模组登记的放置模型随首次扫描加载，损坏的 `config.toml` 不连带停用它。日志为远程会话仓库 `handoff/brewing-models-20261110/logs/bs3d-test-build-smoke.log`。
+
+已验证（在炼药附属里）：炼药附属 `clienttest` 的真实客户端截图里，铁火盆、铁炉座、药材箱按 `facing` 四向转动，药刀和三件器具在手持、物品栏、掉落物和创造页都画出，截图存于远程会话仓库 `handoff/brewing-models-20261110/screenshots/`。未验证：方块破坏裂纹（不叠加，按设计）、物品展示框、玩家用 `config.toml` 覆盖放置模型的实际游戏画面、Windows 实例。Wiki 链接检查与 `git diff --check` 通过。没有提交或推送。
+
 ## 2026-11-03：非容器穿戴、原坐标分段模型与枯藤腰带
 
 新增 `wearable` 物品种类、骨名与偏移绑定、独立穿戴层、非容器装备保存与同步，以及 UI 层标签；模型增加 `raw_segments` 模式和具名顶层组的段视图。枯藤腰带作为第十件 Bong 容器登记，内部容量 2×1×1、外部占格 2×1×2、使用腰环，原有九件容量与模型不变。公开契约与后续接入边界见[非容器穿戴](Wearables.md)。

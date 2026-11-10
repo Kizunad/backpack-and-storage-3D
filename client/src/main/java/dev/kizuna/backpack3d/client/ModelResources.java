@@ -69,7 +69,7 @@ public final class ModelResources implements ResourceManagerReloadListener {
         var files = new LinkedHashMap<Identifier, byte[]>();
         JsonObject sounds = ModelSounds.defaults();
         List<ModelConfig.Entry> configured = readRegistrations(directory);
-        // 先加载附属 JAR 自带模型，玩家 config.toml 中同 ID 的登记随后覆盖它。
+        // 先加载附属 JAR 自带模型和放置模型，玩家 config.toml 中同 ID 的登记随后覆盖它。
         var overridden = new HashSet<Identifier>();
         configured.forEach(entry -> overridden.add(entry.id()));
         for (var bundled : ItemRegistrations.bundledModels()) {
@@ -78,6 +78,13 @@ public final class ModelResources implements ResourceManagerReloadListener {
                 continue;
             }
             loadModel(bundled.root(), ModelConfig.bundled(bundled), assets, files, sounds);
+        }
+        for (ModelConfig.Entry placed : PlacedModels.entries()) {
+            if (overridden.contains(placed.id())) {
+                LOG.info("放置模型 {} 由 config.toml 覆盖，跳过 {}", placed.id(), placed.file());
+                continue;
+            }
+            loadModel(placed.file().getParent(), placed, assets, files, sounds);
         }
         for (ModelConfig.Entry entry : configured) {
             loadModel(directory, entry, assets, files, sounds);
@@ -174,7 +181,7 @@ public final class ModelResources implements ResourceManagerReloadListener {
         return id == null ? null : models.get(id);
     }
 
-    private static void warnMissing(String name) {
+    static void warnMissing(String name) {
         if (missing.add(name)) {
             LOG.warn("模型 {} 未注册或导入失败，跳过绘制；请检查 config/bs3d/config.toml", name);
         }

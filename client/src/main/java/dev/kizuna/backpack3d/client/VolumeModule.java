@@ -124,6 +124,7 @@ public final class VolumeModule implements ClientModule, WornPreview.EquipmentAc
         InteriorRenderer.register();
         ModelResources.initialize();
         ContainerItemModels.register();
+        PlacedItemModels.register();
         ItemDescriptions.register();
         GroundBagRenderer.register();
         registerWindow(bindings);
