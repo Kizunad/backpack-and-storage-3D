@@ -24,7 +24,8 @@ import org.joml.Vector3fc;
  *
  * <p>附属在客户端入口里用 {@link #register} 登记模型，再用 {@link #renderBlockEntity} 把方块实体接到模型上；
  * 物品定义用 {@code minecraft:special} 引用 {@code bs3d:placed}。模型按原坐标绘制，不居中、不缩放，
- * 登记时给出的 {@code origin} 是落在方块底面中心的模型点（单位为模型像素）。格式限制与 config.toml 导入相同；
+ * 登记时给出的 {@code origin} 是落在方块底面中心的模型点（单位为模型像素）。模型可带名为 {@code open} 的剪辑，
+ * 物品定义用 {@code progress} 取它的某一时刻，方块里画进度 0。格式限制与 config.toml 导入相同；
  * 玩家在 config.toml 里用同一 ID 登记的模型会覆盖几何和贴图，原点仍用这里登记的。
  */
 public final class PlacedModels {
@@ -70,9 +71,10 @@ public final class PlacedModels {
     }
 
     static List<ModelConfig.Entry> entries() {
-        // 放置模型没有开合动画和动作音效，按原坐标分段模式加载。
+        // 按原坐标分段模式加载；可选 open 剪辑按约定名自动找（null），只按物品定义给的进度取样，
+        // 不写合剪辑（空字符串禁用，合方向由 open 倒放），放置模型没有动作音效。
         return REGISTERED.values().stream()
-                .map(registration -> new ModelConfig.Entry(registration.id(), registration.file(), "", "", Map.of(),
+                .map(registration -> new ModelConfig.Entry(registration.id(), registration.file(), null, "", Map.of(),
                         ModelRenderMode.MODEL_RENDER_MODE_RAW_SEGMENTS))
                 .toList();
     }

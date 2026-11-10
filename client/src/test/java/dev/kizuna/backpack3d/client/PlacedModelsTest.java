@@ -2,9 +2,12 @@ package dev.kizuna.backpack3d.client;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.google.gson.JsonParser;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.serialization.JsonOps;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelRenderMode;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.Identifier;
@@ -17,17 +20,18 @@ class PlacedModelsTest {
     private static final float HALF_BLOCK_PIXELS = 8;
     private static final float BLOCK_CENTER = 0.5f;
     private static final float MODEL_PIXELS_PER_BLOCK = 16;
+    private static final float POST_WIDTH = 2;
 
     @Test
-    void registeredModelsLoadAsRawSegmentsWithoutAnimationsOrSounds() {
-        // 放置模型沿用导入格式，按原坐标加载；空字符串表示不自动找开合动画。
+    void registeredModelsLoadAsRawSegmentsWithOpenClipOnlyAndNoSounds() {
+        // 放置模型沿用导入格式，按原坐标加载；open 按约定名自动找（null），合剪辑用空字符串禁用。
         Identifier id = Identifier.parse("placed_test:brazier");
         Path file = Path.of("models/brazier.bbmodel");
         PlacedModels.add(new PlacedModels.Registration(id, file, new Vector3f()));
         var entry = PlacedModels.entries().stream().filter(candidate -> candidate.id().equals(id)).findFirst()
                 .orElseThrow();
         assertEquals(file, entry.file());
-        assertEquals("", entry.openAnimation());
+        assertNull(entry.openAnimation());
         assertEquals("", entry.closeAnimation());
         assertEquals(Map.of(), entry.sounds());
         assertEquals(ModelRenderMode.MODEL_RENDER_MODE_RAW_SEGMENTS, entry.mode());
@@ -56,6 +60,58 @@ class PlacedModelsTest {
         Vector3f pixel = new Vector3f(2, 4, 6);
         assertPlaced(blockFrame, Direction.NORTH, pixel, new Vector3f(pixel).div(MODEL_PIXELS_PER_BLOCK));
     }
+
+    @Test
+    void itemDefinitionProgressDefaultsToClosedAndRejectsValuesOutsideTheClip() {
+        var codec = PlacedItemModels.CODEC.codec();
+        var bare = codec.parse(JsonOps.INSTANCE, JsonParser.parseString("{\"model\": \"placed_test:knife\"}"))
+                .getOrThrow();
+        assertEquals(0, bare.progress());
+        var open = codec.parse(JsonOps.INSTANCE,
+                JsonParser.parseString("{\"model\": \"placed_test:knife\", \"progress\": 0.625}")).getOrThrow();
+        assertEquals(0.625f, open.progress(), EPSILON);
+        assertTrue(codec.parse(JsonOps.INSTANCE,
+                JsonParser.parseString("{\"model\": \"placed_test:knife\", \"progress\": 1.5}")).isError());
+    }
+
+    @Test
+    void extentsFollowTheOpenClipAtTheGivenProgress() {
+        // 一根立柱绕底面转 90° 放倒：进度 0 立着高一格，进度 1 躺平只剩两像素高，掉落物据此贴地。
+        var asset = new ModelAsset(hingedPost(), ModelRenderMode.MODEL_RENDER_MODE_RAW_SEGMENTS);
+        var placed = new PlacedModels.Placed(asset, new Vector3f(HALF_BLOCK_PIXELS, 0, HALF_BLOCK_PIXELS));
+        Bounds standing = extents(placed, 0);
+        assertEquals(0, standing.min.y, EPSILON);
+        assertEquals(1, standing.max.y, EPSILON);
+        Bounds lying = extents(placed, 1);
+        assertEquals(0, lying.min.y, EPSILON);
+        assertEquals(POST_WIDTH / MODEL_PIXELS_PER_BLOCK, lying.max.y, EPSILON);
+        assertEquals(1, lying.max.z - lying.min.z, EPSILON);
+    }
+
+    private static Bounds extents(PlacedModels.Placed placed, float progress) {
+        var bounds = new Bounds(new Vector3f(Float.MAX_VALUE), new Vector3f(-Float.MAX_VALUE));
+        PlacedItemModels.extents(placed, progress, corner -> {
+            bounds.min.min(corner);
+            bounds.max.max(corner);
+        });
+        return bounds;
+    }
+
+    private static BbModel hingedPost() {
+        var face = new BbModel.Face(Identifier.parse("placed_test:post"), 0, 0, 1, 1, 0);
+        var hinge = new Vector3f(HALF_BLOCK_PIXELS, 0, HALF_BLOCK_PIXELS);
+        var bone = new BbModel.Bone("post", "post", hinge, new Vector3f());
+        var cube = new BbModel.Cube(new Vector3f(HALF_BLOCK_PIXELS - POST_WIDTH / 2, 0, HALF_BLOCK_PIXELS),
+                new Vector3f(HALF_BLOCK_PIXELS + POST_WIDTH / 2, MODEL_PIXELS_PER_BLOCK,
+                        HALF_BLOCK_PIXELS + POST_WIDTH), hinge, new Vector3f(), List.of(bone), List.of(face, face,
+                        face, face, face, face));
+        var fold = List.of(new ModelClip.Key(0, new Vector3f(), false),
+                new ModelClip.Key(1, new Vector3f(-90, 0, 0), false));
+        var open = new ModelClip(1, Map.of("post", Map.of("rotation", fold)));
+        return new BbModel(List.of(cube), Map.of(), open, null);
+    }
+
+    private record Bounds(Vector3f min, Vector3f max) {}
 
     private static void assertPlaced(PlacedModels.Placed placed, Direction facing, Vector3fc model,
             Vector3fc expected) {

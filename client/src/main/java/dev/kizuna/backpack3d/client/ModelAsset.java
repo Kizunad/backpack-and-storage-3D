@@ -7,12 +7,14 @@ import dev.kizuna.backpack3d.client.BbModel.Cube;
 import dev.kizuna.backpack3d.client.BbModel.Face;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelRenderMode;
 import org.joml.Vector3f;
+import org.joml.Vector3fc;
 
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
@@ -359,18 +361,24 @@ public final class ModelAsset {
             Float.NEGATIVE_INFINITY,
             Float.NEGATIVE_INFINITY
         };
+        corners(view, pose, point -> {
+            bounds[0] = Math.min(bounds[0], point.x());
+            bounds[1] = Math.min(bounds[1], point.y());
+            bounds[2] = Math.max(bounds[2], point.x());
+            bounds[3] = Math.max(bounds[3], point.y());
+        });
+        return bounds;
+    }
+
+    /** 按 pose 动画后每个立方体的八个角，经 view 变换后逐个交给 output；取景边界和物品包围盒共用。 */
+    public void corners(PoseStack view, BagAnimation.Sample pose, Consumer<Vector3fc> output) {
         for (var cube : cubes) {
             var matrices = copy(view);
             transform(matrices, cube, pose);
             for (var point : vertices(cube.from(), cube.to())) {
-                matrices.last().pose().transformPosition(point);
-                bounds[0] = Math.min(bounds[0], point.x);
-                bounds[1] = Math.min(bounds[1], point.y);
-                bounds[2] = Math.max(bounds[2], point.x);
-                bounds[3] = Math.max(bounds[3], point.y);
+                output.accept(matrices.last().pose().transformPosition(point));
             }
         }
-        return bounds;
     }
 
     public static PoseStack copy(PoseStack source) {

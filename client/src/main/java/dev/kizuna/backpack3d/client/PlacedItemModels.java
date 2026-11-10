@@ -1,6 +1,7 @@
 package dev.kizuna.backpack3d.client;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import dev.kizuna.backpack3d.client.mixin.SpecialModelRenderersAccess;
@@ -19,17 +20,21 @@ import org.joml.Vector3fc;
  *
  * <p>物品定义 {@code assets/<ns>/items/<id>.json} 用 {@code minecraft:special} 引用 {@code bs3d:placed}，
  * 字段 {@code model} 是 {@link PlacedModels#register} 登记的 ID；{@code base} 模型提供各视角的显示变换。
+ * 可选字段 {@code progress}（[0, 1]，缺省 0）取模型 {@code open} 剪辑的进度，物品定义可按视角或数值属性分档给不同进度。
  * 绘制与方块里朝北放置时相同，所以物品看到的是模型正面。
  */
 final class PlacedItemModels implements SpecialModelRenderer<PlacedModels.Placed> {
     static final Identifier TYPE = Identifier.fromNamespaceAndPath("bs3d", "placed");
-    private static final MapCodec<Unbaked> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
-                    Identifier.CODEC.fieldOf("model").forGetter(Unbaked::model))
+    static final MapCodec<Unbaked> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+                    Identifier.CODEC.fieldOf("model").forGetter(Unbaked::model),
+                    Codec.floatRange(0, 1).optionalFieldOf("progress", 0f).forGetter(Unbaked::progress))
             .apply(instance, Unbaked::new));
     private final Identifier model;
+    private final float progress;
 
-    private PlacedItemModels(Identifier model) {
+    private PlacedItemModels(Identifier model, float progress) {
         this.model = model;
+        this.progress = progress;
     }
 
     static void register() {
@@ -57,22 +62,34 @@ final class PlacedItemModels implements SpecialModelRenderer<PlacedModels.Placed
         }
         matrices.pushPose();
         PlacedModels.place(matrices, placed, Direction.NORTH);
-        placed.asset().render(matrices, collector, 0, null, light, overlay);
+        placed.asset().render(matrices, collector, progress, null, light, overlay);
         matrices.popPose();
     }
 
     @Override
     public void getExtents(Consumer<Vector3fc> output) {
-        // 烘焙时模型可能还没加载，按一格方块给出包围盒。
-        for (var corner : ModelAsset.vertices(new Vector3f(0), new Vector3f(1))) {
-            output.accept(corner);
+        // 原版第一次用到包围盒（掉落物贴地、展示框）时才取并记住，那时模型已加载；没加载成功按一格方块报。
+        PlacedModels.Placed placed = PlacedModels.find(model);
+        if (placed == null) {
+            for (var corner : ModelAsset.vertices(new Vector3f(0), new Vector3f(1))) {
+                output.accept(corner);
+            }
+            return;
         }
+        extents(placed, progress, output);
     }
 
-    record Unbaked(Identifier model) implements SpecialModelRenderer.Unbaked<PlacedModels.Placed> {
+    static void extents(PlacedModels.Placed placed, float progress, Consumer<Vector3fc> output) {
+        // 和 submit 同一套放法与同一进度，掉落物按模型真实最低点贴地。
+        var matrices = new PoseStack();
+        PlacedModels.place(matrices, placed, Direction.NORTH);
+        placed.asset().corners(matrices, new BagAnimation.Sample(false /* closing */, progress), output);
+    }
+
+    record Unbaked(Identifier model, float progress) implements SpecialModelRenderer.Unbaked<PlacedModels.Placed> {
         @Override
         public SpecialModelRenderer<PlacedModels.Placed> bake(BakingContext context) {
-            return new PlacedItemModels(model);
+            return new PlacedItemModels(model, progress);
         }
 
         @Override

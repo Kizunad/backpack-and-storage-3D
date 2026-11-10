@@ -2,6 +2,14 @@
 
 适用：`0.1.0-SNAPSHOT`，业务协议 **v8**，玩家保存格式 **4**、地面保存格式 **1**，尚未发布。
 
+## 2026-11-11：放置物品的开合进度与包围盒
+
+已实现：`bs3d:placed` 加可选 `progress`（0–1，缺省 0），按模型 `open` 剪辑取样；`PlacedModels` 的开剪辑改为按约定名自动找，合剪辑仍禁用，方块里画进度 0。放置物品的包围盒改按模型在该进度下的实际外形报（`ModelAsset.corners` 与取景边界共用），修掉物品按一格方块报包围盒、掉落物离地浮起的问题。契约见[模型资源](Model-Resources.md)。业务协议、保存格式不变。
+
+Java 25 `test build :server:compileSmokeJava :client:runResourceSmoke` 通过：客户端 **48 项**（`PlacedModelsTest` 改 1 项为「只按约定名找开剪辑」，新增 2 项：`progress` 缺省 0、超出 0–1 拒绝；一根绕底面转 90° 的立柱在进度 0/1 时包围盒分别为立着和躺平）、服务端 **117 项**，无失败、错误或跳过。资源验收运行目录 `build/smoke/knife-progress-20261111b/resource-client/`，13 项与上一轮相同，末项 `placed-model`。日志为远程会话仓库 `handoff/brewing-models-r2-20261110/wiring/logs/bs3d-test-build-smoke.log`。
+
+已验证（2026-11-11，炼药附属真实客户端截图，远程会话仓库 `handoff/brewing-models-r2-20261110/screenshots/s9-wiring/`）：药刀物品栏、展示框、人偶手持为进度 1（开），掉落物为进度 0（合），手持时随 PA 开刃剪辑的 `open` 轨道由合到开；药刀、晒药匾和两件炉具的掉落物在上下浮动最低点离地约 1/16 格，和同机位的原版炼药锅一样，不再浮起 0.16 格。`git diff --check` 通过。没有提交或推送。
+
 ## 2026-11-10：放置模型（方块与物品）
 
 已实现：客户端入口 `PlacedModels`，供其他模组登记随 JAR 分发的 `.bbmodel`，经方块实体渲染器按方块状态和水平朝向画在方块位置上，并以 `bs3d:placed` 特殊物品模型画在手持、物品栏和掉落物上。放置模型按 `raw_segments` 原坐标加载，玩家 `config.toml` 同 ID 覆盖几何与贴图。契约见[模型资源](Model-Resources.md)「放置模型（方块与物品）」。业务协议、保存格式不变。

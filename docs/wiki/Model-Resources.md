@@ -84,12 +84,14 @@ place = "sounds/travel_place.ogg"
 - `PlacedModels.register(ModContainer mod, Identifier id, String path, Vector3fc origin)`：在客户端入口（`ClientModInitializer`）里登记，首次扫描资源时一并加载，F3+T 随其他模型重载。`path` 相对模组 JAR 根目录，必须以 `.bbmodel` 结尾；外部贴图要放在模型同目录并用 `relative_path` 引用。`origin` 是落在方块底面中心的模型点，单位为模型像素：以 `(0, 0, 0)` 为底面中心画的模型写 `(0, 0, 0)`，按 0–16 方块格画的模型写 `(8, 0, 8)`。同一 ID 只能登记一次，重复登记抛出异常。
 - `PlacedModels.renderBlockEntity(BlockEntityType<E> type, Function<BlockState, Identifier> model)`：把一种方块实体接到放置模型上，函数按当前方块状态返回模型 ID，可让共用一种方块实体的几个方块各画各的。方块状态带 `BlockStateProperties.HORIZONTAL_FACING` 时随朝向转动，模型正面（-Z）朝该方向；没有朝向属性时按朝北画。
 - 物品定义 `assets/<命名空间>/items/<物品>.json` 用 `minecraft:special` 引用 `bs3d:placed`，字段 `model` 是登记的 ID；`base` 指向的物品模型只提供各视角 `display` 变换和破坏粒子。物品按方块朝北时的放法画，手持、物品栏和掉落物共用这一绘制。
+- 可选字段 `progress`（0–1，缺省 0）取模型里名为 `open` 的剪辑在该进度的姿态（时间 = 进度 × 剪辑时长）。一个 `bs3d:placed` 只画一个固定进度；要随视角或游戏状态变化，就在外层用原版 `minecraft:display_context`、`minecraft:range_dispatch` 分档，每档各写一个进度。超出 0–1 的值解析失败，该物品定义按原版规则报错。
+- 物品的包围盒按模型在该进度下的实际外形算（与绘制同一放法），掉落物按真实最低点贴地；登记的 ID 没加载成功时按一格方块算。原版在第一次用到包围盒时才取值并记住，F3+T 重载后重新取。
 
 ```json
 {"model": {"type": "minecraft:special", "base": "<命名空间>:item/<物品>", "model": {"type": "bs3d:placed", "model": "<命名空间>:<模型>"}}}
 ```
 
-放置模型按 `raw_segments` 原坐标模式加载：不居中、不缩放、没有开合动画和动作音效，格式限制与上节相同（Blockbench 4.x、逐面 UV 的 cube、16 MiB、4096 个元素）。玩家在 `config.toml` 里用同一 ID 登记的模型覆盖几何和贴图，原点仍用模组登记的。没登记或导入失败的 ID 只警告一次、不画，方块其余功能不受影响。方块模型 JSON 只需给出破坏粒子，几何全部由方块实体渲染器绘制；碰撞箱和选择框仍由方块自己的 `VoxelShape` 决定。方块破坏裂纹不叠在放置模型上。`bs3d:placed` 与 `bs3d:container` 一样经访问器写进原版特殊模型类型表。
+放置模型按 `raw_segments` 原坐标模式加载：不居中、不缩放、没有动作音效；只认名为 `open` 的剪辑供物品 `progress` 取样，没有合剪辑，方块里一律画进度 0，格式限制与上节相同（Blockbench 4.x、逐面 UV 的 cube、16 MiB、4096 个元素）。玩家在 `config.toml` 里用同一 ID 登记的模型覆盖几何和贴图，原点仍用模组登记的。没登记或导入失败的 ID 只警告一次、不画，方块其余功能不受影响。方块模型 JSON 只需给出破坏粒子，几何全部由方块实体渲染器绘制；碰撞箱和选择框仍由方块自己的 `VoxelShape` 决定。方块破坏裂纹不叠在放置模型上。`bs3d:placed` 与 `bs3d:container` 一样经访问器写进原版特殊模型类型表。
 
 ## 可选开合动画
 
