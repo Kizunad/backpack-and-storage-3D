@@ -38,6 +38,16 @@ message ContainerItem {
   kizuna.backpack3d.v1.Size outside = 4; // 整件物品被收纳时的占格。
   repeated kizuna.backpack3d.v1.Mount mounts = 5; // 可装备部位；空列表表示仅可收纳。
   ModelAsset asset = 6; // 可选：随附属 JAR 分发的模型，字段同 config.toml 的 [[models]]。
+  WaistFit waist_fit = 7; // 腰挂容器的贴合方式；省略为挂包。整圈腰带要求 mounts 含腰部挂点。
+}
+
+// 腰挂容器在身上的贴合方式，决定客户端绘制、穿戴落点和腰部计数；不改变挂点或存档。
+// 整圈腰带不计入腰挂数量上限，每人最多系一条。
+enum WaistFit {
+  WAIST_FIT_HANGING = 0; // 挂包：挂带顶贴腰、包体下垂，可沿腰环选角度；每模型像素画成 1/32 格。
+  // 整圈腰带：按玩家模型 1:1 建模（每像素 1/16 格），身体中心在 x=z=8、脚底 y=0、正面朝 -z；
+  // 绕腰一圈、正面朝前，忽略腰角。
+  WAIST_FIT_RING = 1;
 }
 
 // 非容器穿戴物品；无内部容量，收纳占格仍由 handling 规则决定，每层最多装备一件。

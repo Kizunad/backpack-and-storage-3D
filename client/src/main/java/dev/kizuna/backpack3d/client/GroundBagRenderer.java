@@ -25,9 +25,6 @@ import net.minecraft.world.phys.Vec3;
 /** 地面外观读取公开类型；不需要收到完整物品数据就能显示背包。 */
 final class GroundBagRenderer implements BlockEntityRenderer<GroundBagBlockEntity, GroundBagRenderer.State> {
     private static final float BLOCK_CENTER = 0.5f;
-    private static final float MODEL_PIXELS_PER_BLOCK = 16;
-    private static final float WAIST_SCALE = 0.5f;
-    private static final float TORSO_SCALE = 0.8f;
     private final ItemModelResolver items;
 
     private GroundBagRenderer(BlockEntityRendererProvider.Context context) {
@@ -92,7 +89,7 @@ final class GroundBagRenderer implements BlockEntityRenderer<GroundBagBlockEntit
             state.item.submit(matrices, collector, state.lightCoords, OverlayTexture.NO_OVERLAY, 0);
         } else {
             // 可穿戴容器按几何底部贴地，不悬空。
-            float scale = (state.type.waist() ? WAIST_SCALE : TORSO_SCALE) / MODEL_PIXELS_PER_BLOCK;
+            float scale = WornModelTransform.Fit.of(state.type).blocksPerModelUnit();
             matrices.translate(0, state.asset.groundOffset() * scale, 0);
             matrices.scale(scale, scale, scale);
             state.asset.render(matrices, collector, 0, null, state.lightCoords, OverlayTexture.NO_OVERLAY);

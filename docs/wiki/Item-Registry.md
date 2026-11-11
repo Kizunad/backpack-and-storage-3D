@@ -99,6 +99,7 @@ ItemRegistrations.register("end_botany", ItemRegistry.newBuilder()
 | `container.model` | 必填完整模型 ID，与 `config.toml` 的 `[[models]] id` 相同 |
 | `container.inside` / `outside` | 必填，内部容量与外部占格，单位为格，宽、高、深均为正整数 |
 | `container.mounts` | 可装备部位，不能含 `MOUNT_DEFAULT` 或重复值；空列表表示仅可收纳 |
+| `container.waist_fit` | 腰挂贴合方式，省略为 `WAIST_FIT_HANGING`（挂包：挂带顶贴腰、沿腰环选角度，模型每像素画成 1/32 格）。`WAIST_FIT_RING` 为整圈腰带：按玩家模型 1:1 建模（每像素 1/16 格，身体中心在 x=z=8、脚底 y=0、正面朝 -z），绕腰一圈、正面朝前、不取腰角，要求 `mounts` 含 `WAIST_RIGHT_FRONT`。整圈腰带不计入玩家腰部数量上限，每人最多系一条；挂点与存档不变 |
 | `container.asset` | 可选自带模型，见下节；模型 ID 取 `container.model` |
 | `asset.file` | 必填 `.bbmodel` 相对路径 |
 | `asset.open_animation` / `close_animation` | 省略时自动寻找 `open` / `close`；指定其他名称时必须存在；空字符串禁用该方向片段 |

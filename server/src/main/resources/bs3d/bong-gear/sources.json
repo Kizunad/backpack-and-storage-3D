@@ -108,7 +108,7 @@
       "source": "modelScript/gear/ku_teng_yao_dai/KuTengYaoDai_tex.bbmodel",
       "source_blob_sha1": "cbed2086d850186d1e6b02dc0f65ec52cf1ed6ac",
       "removed_body_groups": [],
-      "mount": "waist",
+      "mount": "belt",
       "removed_element_prefixes": [],
       "cubes": 152
     }

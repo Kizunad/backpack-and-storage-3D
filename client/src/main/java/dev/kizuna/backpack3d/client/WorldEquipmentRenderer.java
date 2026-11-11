@@ -46,7 +46,7 @@ final class WorldEquipmentRenderer {
                 continue;
             }
             var matrices = ModelAsset.copy(body);
-            WornModelTransform.apply(matrices, asset, type.waist(), worn.getMount(), worn.getWaistAngleDegrees());
+            WornModelTransform.apply(matrices, asset, type, worn.getMount(), worn.getWaistAngleDegrees());
             asset.render(matrices, collector, 0, null, light, overlay);
         }
     }

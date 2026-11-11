@@ -26,6 +26,7 @@ import java.util.*;
 
 /** 覆盖双手、盔甲、便携内容和装备上限；所有断言都观察真实候选与提交后的库存。 */
 class EquipmentTransferTest {
+    private static final int BELT_AND_TWO_POUCHES = 3;
     private final TransferService service = new TransferService(stack -> Volumes.UNIT);
     private final MemoryAccount account = new MemoryAccount();
 
@@ -283,6 +284,29 @@ class EquipmentTransferTest {
     }
 
     @Test
+    void beltLeavesBothWaistPlacesForPouchesAndOnlyOneBeltFits() throws IOException {
+        // 默认上限 2：系上腰带后还能挂两个挂包；第三个挂包、第二条腰带都拒绝，身上不变。
+        wearNew(TestContainers.BELT, Mount.WAIST_RIGHT_FRONT);
+        wearNew(TestContainers.POUCH, Mount.WAIST_LEFT_FRONT);
+        wearNew(TestContainers.POUCH, Mount.WAIST_RIGHT_FRONT);
+        assertEquals(BELT_AND_TWO_POUCHES, account.data.getWornCount());
+        assertEquals("腰部最多挂 " + ContainerItems.DEFAULT_WAIST_LIMIT + " 件挂包，腰带不算在内",
+                waistRejection(TestContainers.POUCH));
+        assertEquals("腰带只能系一条", waistRejection(TestContainers.BELT));
+        assertEquals(BELT_AND_TWO_POUCHES, account.data.getWornCount());
+    }
+
+    @Test
+    void waistLimitOverrideCountsOnlyPouches() throws IOException {
+        // 上限降到 0 时腰带照系；已挂的挂包数才决定上限能不能降。
+        wearNew(TestContainers.BELT, Mount.WAIST_RIGHT_FRONT);
+        TransferService.validate(account.data.toBuilder().setWaistLimit(0).build(), TestRegistries.VANILLA);
+        wearNew(TestContainers.POUCH, Mount.WAIST_LEFT_FRONT);
+        var noPouches = account.data.toBuilder().setWaistLimit(0).build();
+        assertThrows(IllegalArgumentException.class, () -> TransferService.validate(noPouches, TestRegistries.VANILLA));
+    }
+
+    @Test
     void torsoSlotsAreExclusiveAndContainersCannotUseWrongMounts() throws IOException {
         wearNew(TestContainers.BASKET, Mount.TORSO_BACK);
         account.inventory.set(0, ContainerItems.create(TestContainers.BASKET));
@@ -404,6 +428,15 @@ class EquipmentTransferTest {
                         .setWornTarget(Placement.newBuilder().setMount(mount))
                         .build());
         return id;
+    }
+
+    /** 手持一件新容器挂到腰部左后，返回服务端拒绝的原因。 */
+    private String waistRejection(Identifier type) {
+        account.inventory.set(0, ContainerItems.create(type));
+        var request = fromPlayer(0, Volumes.WORN)
+                .setWornTarget(Placement.newBuilder().setMount(Mount.WAIST_LEFT_BACK))
+                .build();
+        return assertThrows(IllegalArgumentException.class, () -> service.commit(account, request)).getMessage();
     }
 
     private MoveRequest.Builder move(String item, String target) {

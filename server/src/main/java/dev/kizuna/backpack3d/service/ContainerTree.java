@@ -476,9 +476,11 @@ public final class ContainerTree {
     }
 
     private void validateEquipment() {
-        // 胸前、背后各一个独立位置；腰部按数量限制，连续角度不折回四个固定槽位。
+        // 胸前、背后各一个独立位置；腰部挂包按数量限制，连续角度不折回四个固定槽位。
+        // 整圈腰带不占腰部名额，另限条数。
         Set<Mount> torso = new HashSet<>();
         int waistCount = 0;
+        int ringCount = 0;
         for (Node node : roots) {
             if (node.grounded || node.playerSlot >= 0) {
                 continue;
@@ -492,13 +494,20 @@ public final class ContainerTree {
                         || node.angle >= ContainerItems.FULL_CIRCLE_DEGREES) {
                     throw new IllegalArgumentException("腰部角度必须位于 [0,360)");
                 }
-                waistCount++;
+                if (node.type.waistRing()) {
+                    ringCount++;
+                } else {
+                    waistCount++;
+                }
             } else if (!torso.add(node.mount)) {
                 throw new IllegalArgumentException("这个胸背位置已有容器");
             }
         }
         if (waistCount > waistLimit) {
-            throw new IllegalArgumentException("腰部最多装备 " + waistLimit + " 件物品");
+            throw new IllegalArgumentException("腰部最多挂 " + waistLimit + " 件挂包，腰带不算在内");
+        }
+        if (ringCount > ContainerItems.MAX_WAIST_RINGS) {
+            throw new IllegalArgumentException("腰带只能系一条");
         }
         validateWearableLayers();
     }

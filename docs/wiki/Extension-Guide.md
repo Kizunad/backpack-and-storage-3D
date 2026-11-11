@@ -46,7 +46,12 @@ ContainerItems.register(
         optional);
 ```
 
-该片段仅展示当前源码注册入口，需要在两端初始化、注册表冻结前调用，并另行提供模型及语言资源。注册时复制整个字段对象，读取时也返回副本，注册方和附属不能通过修改 JSON 悄悄改写已有配置。
+该片段仅展示当前源码注册入口，需要在两端初始化、注册表冻结前调用，并另行提供模型及语言资源。
+
+2026-11-11：八参数入口登记的腰挂容器一律按挂包画。整圈腰带等需要声明贴合方式的类型改用
+`ContainerItems.register(Definition definition, String descriptionTranslationKey, Map<Identifier, JsonObject> optional)`，
+`Definition` 的最后一项是 `WaistFit`，含义同[物品清单](Item-Registry.md)的 `container.waist_fit`。
+八参数入口保留不变，已有附属不用改。注册时复制整个字段对象，读取时也返回副本，注册方和附属不能通过修改 JSON 悄悄改写已有配置。
 
 原版及第三方已注册物品通过 `ItemMetadata.register(Item item, String descriptionTranslationKey, Map<Identifier, JsonObject> optional)` 补充描述和附属字段，例如 `ItemMetadata.register(Items.IRON_SWORD, "item.example.iron_sword.description", optional)`。该入口不创建或替换真实物品；每个物品类型只允许登记一次，容器注册已自动登记，不要重复调用。查询入口为 `ItemMetadata.of(ItemStack)`，其 `descriptionTranslationKey()` 返回语言键，`optional(Identifier)` 返回 `Optional<JsonObject>`；未登记类型按无描述和空字段表处理。字段属于物品类型，不是容器 UUID，也不会写入物品数据或由客户端请求上报。
 
@@ -109,7 +114,7 @@ CreativeModeTabEvents.modifyOutputEvent(ContainerItems.TAB).register(entries -> 
 
 容器规格集中在 `ContainerItems`，使用上方带描述与 `optional` 的八参数入口同时注册真实不可堆叠物品及类型定义。两端必须在物品注册表冻结前注册相同类型；空挂点列表表示仅可收纳。当前 API 未冻结。新增模型还需提供对应客户端资源；类型的内部容量与外部占格不受普通 item tag 尺寸规则覆盖。UI 颜色来自 Framework 当前主题的语义令牌。
 
-`ContainerItems.Definition.mounts()` 定义每类容器支持的挂点，UI 与世界玩家外观通过 `WornModelTransform` 共用 body 骨架的局部变换。新增挂点需要同步 protobuf 枚举、服务端合法列表与此变换；当前有腰环与胸背两类挂载，不能仅添加枚举而不实现变换。人物转动不改变持久化挂点；物品朝向使用共享 `OrthogonalRotation`，详见[协议](Protocol.md)。
+`ContainerItems.Definition.mounts()` 定义每类容器支持的挂点，UI 与世界玩家外观通过 `WornModelTransform` 共用 body 骨架的局部变换。新增挂点需要同步 protobuf 枚举、服务端合法列表与此变换；当前有腰部与胸背两类挂载，不能仅添加枚举而不实现变换。腰部按类型的 `waistFit` 分挂包和整圈腰带两种画法，由 `WornModelTransform.Fit.of(definition)` 选择；附属计算共穿边界时传入 `Definition` 即可，不要自己判断。人物转动不改变持久化挂点；物品朝向使用共享 `OrthogonalRotation`，详见[协议](Protocol.md)。
 
 世界外观由 `WorldEquipmentRenderer` 按服务器下发的注册物品 ID 选择资产，复用同一模型与纹理；未知或不可装备的类型跳过。环境光和受伤叠色由原版传入，F3+T 后重新解析世界模型。扩展方无需注册第二个网络通道；`bs3d:appearance` 经 Framework 统一路由，且只携带外观字段。UI 的开盖与鼠标命中留在 `WornPreview`，不向旁观者广播个人操作界面。
 
@@ -119,7 +124,7 @@ CreativeModeTabEvents.modifyOutputEvent(ContainerItems.TAB).register(entries -> 
 
 ## 玩家腰部上限
 
-`PlayerContainerLimits.set(ServerPlayer player, int limit)` 在逻辑服务器主线程修改并原子保存玩家变量，支持 0..16，缺省为 2。已有装备数大于新上限或转移仍在运行时拒绝修改。管理员可用 `/bs3d waist-limit <玩家选择器> <数量>`，例如 `/bs3d waist-limit @s 2`；命令要求权限等级 2，普通业务消息不提供改写上限的入口。
+`PlayerContainerLimits.set(ServerPlayer player, int limit)` 在逻辑服务器主线程修改并原子保存玩家变量，支持 0..16，缺省为 2。上限只数挂包；整圈腰带不计入，另限每人一条（`ContainerItems.MAX_WAIST_RINGS`）。已挂挂包数大于新上限或转移仍在运行时拒绝修改。管理员可用 `/bs3d waist-limit <玩家选择器> <数量>`，例如 `/bs3d waist-limit @s 2`；命令要求权限等级 2，普通业务消息不提供改写上限的入口。
 
 ## 附属只读数据与界面信息
 

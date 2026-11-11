@@ -16,6 +16,7 @@ import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelAsset;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelRenderMode;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelSounds;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.OptionalField;
+import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.WaistFit;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.WearableItem;
 
 import net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents;
@@ -274,6 +275,13 @@ public final class ItemRegistrations {
                 throw new IllegalArgumentException(location + "：container.mounts 重复挂点：" + mount);
             }
         }
+        WaistFit fit = container.getWaistFit();
+        if (fit == WaistFit.UNRECOGNIZED) {
+            throw new IllegalArgumentException(location + "：container.waist_fit 未知");
+        }
+        if (fit == WaistFit.WAIST_FIT_RING && !mounts.contains(Mount.WAIST_RIGHT_FRONT)) {
+            throw new IllegalArgumentException(location + "：container.waist_fit 为整圈腰带时 mounts 必须含腰部挂点");
+        }
     }
 
     private static void requireWearable(String location, WearableItem wearable) {
@@ -386,14 +394,17 @@ public final class ItemRegistrations {
         Item item;
         if (entry.hasContainer()) {
             var container = entry.getContainer();
-            item = ContainerItems.register(
+            var definition = new ContainerItems.Definition(
                     prepared.id(),
                     container.getTitle(),
-                    entry.getDescriptionTranslationKey(),
                     container.getModel(),
                     container.getInside(),
                     container.getOutside(),
                     container.getMountsList(),
+                    container.getWaistFit());
+            item = ContainerItems.register(
+                    definition,
+                    entry.getDescriptionTranslationKey(),
                     prepared.optional());
         } else if (entry.hasWearable()) {
             var wearable = entry.getWearable();

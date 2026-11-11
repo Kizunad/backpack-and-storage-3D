@@ -185,6 +185,6 @@ message SavedInventory {
   repeated Receipt receipts = 4;
   repeated Placement placements = 5;
   repeated WornContainer worn = 6;
-  optional uint32 waist_limit = 7; // 缺省为 2，显式 0 表示禁止腰挂。
+  optional uint32 waist_limit = 7; // 缺省为 2，显式 0 表示禁止挂包；整圈腰带不计入。
   repeated WornWearable worn_wearables = 8; // 非容器穿戴物及其外观层。
 }

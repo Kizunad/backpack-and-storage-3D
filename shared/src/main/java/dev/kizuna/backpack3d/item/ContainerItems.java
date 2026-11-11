@@ -3,6 +3,7 @@ package dev.kizuna.backpack3d.item;
 import com.google.gson.JsonObject;
 import dev.kizuna.backpack3d.protocol.Messages;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.*;
+import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.WaistFit;
 import dev.kizuna.backpack3d.world.GroundBags;
 
 import net.fabricmc.api.ModInitializer;
@@ -41,6 +42,8 @@ public final class ContainerItems implements ModInitializer {
     public static final int MAX_NESTING_DEPTH = 4;
     public static final int MAX_CONTAINERS = 32;
     public static final int MAX_WAIST_LIMIT = 16;
+    // 整圈腰带不占腰部名额，但每人只系一条：多条会画在同一处。
+    public static final int MAX_WAIST_RINGS = 1;
     public static final float FULL_CIRCLE_DEGREES = 360;
     private static final String DATA_KEY = "bs3d_container";
     private static final String ID_KEY = "id";
@@ -78,15 +81,22 @@ public final class ContainerItems implements ModInitializer {
             Size outside,
             List<Mount> mounts,
             Map<Identifier, JsonObject> optional) {
+        // 第三方沿用的入口：腰挂一律按挂包画，整圈腰带改用 Definition 入口声明贴合方式。
+        var definition = new Definition(id, title, model, inside, outside, mounts, WaistFit.WAIST_FIT_HANGING);
+        return register(definition, descriptionTranslationKey, optional);
+    }
+
+    public static Item register(
+            Definition definition,
+            String descriptionTranslationKey,
+            Map<Identifier, JsonObject> optional) {
         // 尺寸由两端共同注册的类型决定，物品 NBT 和客户端请求不能扩大容量。
-        requireSize(inside);
-        requireSize(outside);
         var metadata = new ItemMetadata(descriptionTranslationKey, optional);
-        var definition = new Definition(id, title, model, inside, outside, List.copyOf(mounts));
+        Identifier id = definition.id();
         if (BuiltInRegistries.ITEM.containsKey(id)) {
             throw new IllegalArgumentException("容器物品重复注册：" + id);
         }
-        ContainerSounds.register(model);
+        ContainerSounds.register(definition.model());
         ResourceKey<Item> key = ResourceKey.create(Registries.ITEM, id);
         Item item = Registry.register(BuiltInRegistries.ITEM, key, new ContainerItem(key));
         TYPES.put(item, definition);
@@ -184,9 +194,29 @@ public final class ContainerItems implements ModInitializer {
             // 整件物品放进另一容器时的占格，单位为格。
             Size outside,
             // 可装备部位；空列表表示不可穿戴。
-            List<Mount> mounts) {
+            List<Mount> mounts,
+            // 腰挂容器的贴合方式；非腰挂容器只能是默认的挂包值。
+            WaistFit waistFit) {
+        public Definition {
+            // Java 调用与文本清单遵守同一约束，保存副本防止注册后改变挂点。
+            requireSize(inside);
+            requireSize(outside);
+            mounts = List.copyOf(mounts);
+            if (waistFit == WaistFit.UNRECOGNIZED) {
+                throw new IllegalArgumentException("未知的腰挂贴合方式");
+            }
+            if (waistFit == WaistFit.WAIST_FIT_RING && !mounts.contains(Mount.WAIST_RIGHT_FRONT)) {
+                throw new IllegalArgumentException("整圈腰带必须声明腰部挂点");
+            }
+        }
+
         public boolean waist() {
             return mounts.contains(Mount.WAIST_RIGHT_FRONT);
+        }
+
+        /** 整圈腰带按人体坐标绕腰一圈，只有一种戴法，不沿腰环选角度。 */
+        public boolean waistRing() {
+            return waistFit == WaistFit.WAIST_FIT_RING;
         }
     }
 

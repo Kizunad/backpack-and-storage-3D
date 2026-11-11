@@ -357,6 +357,10 @@ public final class WornPreview {
         if (!Double.isFinite(depth)) {
             return null;
         }
+        if (type.waistRing()) {
+            // 整圈腰带只有一种戴法：落在躯干任意处都系在腰上，不取腰环角度。
+            return Placement.newBuilder().setMount(Mount.WAIST_RIGHT_FRONT).build();
+        }
         Vector3f local =
                 new Matrix4f(torso.last().pose())
                         .invert()
@@ -416,7 +420,8 @@ public final class WornPreview {
             }
             assets.put(id, asset);
             var type = ContainerItems.definition(module.stack(id));
-            boolean pouch = type != null && type.waist();
+            // 查不到类型的容器按胸背件画，与先前一致。
+            var fit = type == null ? WornModelTransform.Fit.TORSO : WornModelTransform.Fit.of(type);
             var matrices = ModelAsset.copy(body);
             if (container.getGrounded()) {
                 // 已授权地面背包绘制在人物旁，独立于开盖窗口提供模型落点。
@@ -426,8 +431,7 @@ public final class WornPreview {
             } else {
                 Mount mount = container.getMount();
                 applyAttachmentTransforms(matrices, state, mount);
-                WornModelTransform.apply(
-                        matrices, asset, pouch, mount, container.getWaistAngleDegrees());
+                WornModelTransform.apply(matrices, asset, fit, mount, container.getWaistAngleDegrees());
             }
             transforms.put(id, matrices);
         }

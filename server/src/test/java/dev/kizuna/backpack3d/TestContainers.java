@@ -26,6 +26,8 @@ import java.util.Map;
  */
 public final class TestContainers {
     public static final Identifier POUCH = Identifier.fromNamespaceAndPath("bs3d", "herb_pouch");
+    // 整圈腰带用 Bong 枯藤腰带。
+    public static final Identifier BELT = Identifier.fromNamespaceAndPath("bs3d", "ku_teng_yao_dai");
     public static final Identifier BASKET = Identifier.fromNamespaceAndPath("bs3d_test", "basket");
     public static final Identifier BOX = Identifier.fromNamespaceAndPath("bs3d_test", "box");
     private static boolean registered;

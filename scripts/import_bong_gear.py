@@ -17,6 +17,13 @@ TORSO_Y_BLOCKS = 0.38
 TORSO_Z_BLOCKS = 0.36
 TORSO_SCALE = 0.8
 WAIST_SCALE = 0.5
+BELT_SCALE = 1
+# 导入时按挂载方式放大模型，穿戴时再按同一比例缩回；物品栏与手持统一画成原模型的 0.8 倍。
+MOUNT_SCALES = {"back": TORSO_SCALE, "front": TORSO_SCALE, "waist": WAIST_SCALE, "belt": BELT_SCALE}
+ITEM_SCALE = 0.8
+# 整圈腰带 1:1 套在手上比躯干还宽、掉在地上占满一格；手持和掉落时缩小压扁成一盘，略向前倾露出盘面。
+BELT_COILED_SCALE = [0.4, 0.2, 0.4]
+BELT_COILED_TILT = [20, 0, 0]
 WAIST_MOUNTS = ("WAIST_RIGHT_FRONT", "WAIST_LEFT_FRONT", "WAIST_LEFT_BACK", "WAIST_RIGHT_BACK")
 SOURCE_BLOBS = {
     "gu_jia_bei_lou": "fd7ce4260c70f80b73cca4649a18560407792ae7",
@@ -32,6 +39,7 @@ SOURCE_BLOBS = {
 }
 
 # 容量与外部占格均按宽、高、深排列，单位为格；不从模型外观推导权威容量。
+# 挂载方式：back、front 贴躯干；waist 是腰挂挂包；belt 是绕腰一圈的整圈腰带，挂点同腰挂。
 GEAR = (
     ("gu_jia_bei_lou", "GuJiaBeiLou", "骨架背篓", "Bone Frame Basket", (3, 4, 3), (3, 4, 3), "back", 180, (),
      "兽骨框架托起的草编背篓，装备在背后。", "A woven basket on a bone frame, worn on the back."),
@@ -53,7 +61,7 @@ GEAR = (
     ("coin_box", "CoinBox", "骨币匣", "Bone Coin Box", (2, 1, 1), (2, 1, 2), "waist", 0,
      ("belt_strap", "belt_buckle", "belt_tab", "rags_front", "rags_back"),
      "带铁搭扣的腰挂木匣，适合小件物品。", "A wooden waist box with an iron clasp for small items."),
-    ("ku_teng_yao_dai", "KuTengYaoDai", "枯藤腰带", "Withered Vine Belt", (2, 1, 1), (2, 1, 2), "waist", 0, (),
+    ("ku_teng_yao_dai", "KuTengYaoDai", "枯藤腰带", "Withered Vine Belt", (2, 1, 1), (2, 1, 2), "belt", 0, (),
      "缠结枯藤制成的腰带，挂有小刀、葫芦、骨哨与麻绳。",
      "A withered vine belt with a knife, gourd, bone whistle and rope."),
 )
@@ -86,15 +94,17 @@ def adapt_model(original, item_id, mount, yaw_degrees, removed_groups):
     model["elements"] = [cube for cube in model["elements"] if cube["uuid"] not in removed]
     cubes = model["elements"]
     top_pixels = max(cube["to"][1] for cube in cubes)
-    if mount == "waist":
-        scale = WAIST_SCALE
+    scale = MOUNT_SCALES[mount]
+    if mount == "belt":
+        # 整圈腰带 1:1 保留原人体坐标：身体中心从 x=z=0 移到模型中心，脚底仍是 y=0。
+        shift = (MODEL_CENTER_PIXELS, 0, MODEL_CENTER_PIXELS)
+    elif mount == "waist":
         bottom_pixels = min(cube["from"][1] for cube in cubes)
         center_x = (min(cube["from"][0] for cube in cubes) + max(cube["to"][0] for cube in cubes)) / 2
         center_z = (min(cube["from"][2] for cube in cubes) + max(cube["to"][2] for cube in cubes)) / 2
         shift = (MODEL_CENTER_PIXELS - center_x / scale, -bottom_pixels / scale,
                  MODEL_CENTER_PIXELS - center_z / scale)
     else:
-        scale = TORSO_SCALE
         # 逆解 WornModelTransform 与 ModelAsset 的居中；原人体脚底 y=0、肩顶 y=24。
         # 导入后再次穿戴时恢复源模型的真实尺寸，胸背挂带不会缩进身体。
         body_anchor_pixels = BODY_TOP_PIXELS - TORSO_Y_BLOCKS * MODEL_PIXELS_PER_BLOCK
@@ -142,24 +152,32 @@ def build_outputs(source):
             raise ValueError(f"{source_path} 与固定版本 {SOURCE_REF} 不一致，请重新核对坐标适配")
         model = adapt_model(json.loads(data), item_id, mount, yaw, removed)
         outputs[resource / f"models/{name}.bbmodel"] = json_text(model)
-        mounts = WAIST_MOUNTS if mount == "waist" else ("TORSO_" + mount.upper(),)
+        mounts = WAIST_MOUNTS if mount in ("waist", "belt") else ("TORSO_" + mount.upper(),)
+        fit = ["    waist_fit: WAIST_FIT_RING"] if mount == "belt" else []
         entries.extend([
             "items {", f'  id: "bs3d:{item_id}"',
             f'  description_translation_key: "item.bs3d.{item_id}.description"',
             "  container {", f'    title: "{chinese}"', f'    model: "bs3d:{item_id}"',
             f"    inside {{ width: {inside[0]} height: {inside[1]} depth: {inside[2]} }}",
             f"    outside {{ width: {outside[0]} height: {outside[1]} depth: {outside[2]} }}",
-            *[f"    mounts: {value}" for value in mounts],
+            *[f"    mounts: {value}" for value in mounts], *fit,
             f'    asset {{ file: "models/{name}.bbmodel" }}', "  }", "}", "",
         ])
         # 物品栏和手持沿用既有动态渲染入口；缩放抵消导入时的挂载比例补偿。
-        item_scale = 0.4 if mount == "waist" else 0.64
+        item_scale = round(ITEM_SCALE * MOUNT_SCALES[mount], 6)
+        display = {
+            "gui": {"rotation": [20, 35, 0], "scale": [item_scale] * 3},
+            "thirdperson_righthand": {"translation": [0, 2, 0], "scale": [item_scale] * 3},
+            "firstperson_righthand": {"scale": [item_scale] * 3},
+        }
+        if mount == "belt":
+            # 物品栏仍画整圈；手持与掉落画成盘起的一小盘。
+            coiled = {"rotation": BELT_COILED_TILT, "scale": BELT_COILED_SCALE}
+            display["thirdperson_righthand"] = {"translation": [0, 2, 0], **coiled}
+            display["firstperson_righthand"] = coiled
+            display["ground"] = {"scale": BELT_COILED_SCALE}
         outputs[ROOT / f"client/src/main/resources/assets/bs3d/models/item/{item_id}.json"] = json_text({
-            "gui_light": "front", "display": {
-                "gui": {"rotation": [20, 35, 0], "scale": [item_scale] * 3},
-                "thirdperson_righthand": {"translation": [0, 2, 0], "scale": [item_scale] * 3},
-                "firstperson_righthand": {"scale": [item_scale] * 3},
-            },
+            "gui_light": "front", "display": display,
         })
         # 26.2 的物品定义引用已注册的特殊模型渲染器；只生成旧模型入口不能绘制手持物品。
         outputs[ROOT / f"client/src/main/resources/assets/bs3d/items/{item_id}.json"] = json.dumps({

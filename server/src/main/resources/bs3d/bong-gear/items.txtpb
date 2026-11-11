@@ -145,6 +145,7 @@ items {
     mounts: WAIST_LEFT_FRONT
     mounts: WAIST_LEFT_BACK
     mounts: WAIST_RIGHT_BACK
+    waist_fit: WAIST_FIT_RING
     asset { file: "models/KuTengYaoDai.bbmodel" }
   }
 }

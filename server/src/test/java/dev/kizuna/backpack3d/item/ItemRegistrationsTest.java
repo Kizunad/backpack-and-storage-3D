@@ -7,6 +7,7 @@ import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ContainerItem;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ItemEntry;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ItemRegistry;
 import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.PlainItem;
+import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.WaistFit;
 import com.google.protobuf.UnknownFieldSet;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
@@ -27,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class ItemRegistrationsTest {
     @TempDir Path directory;
     private static final Identifier WEIGHT = Identifier.fromNamespaceAndPath("bs3d_weights", "weight");
+    // 新版本可能增加的贴合方式；旧版本读到时只能拒绝，不能猜成挂包或整圈。
+    private static final int UNKNOWN_WAIST_FIT = 7;
 
     @BeforeAll
     static void bootstrap() {
@@ -99,6 +102,61 @@ class ItemRegistrationsTest {
         assertEquals(Volumes.size(1, 1, 2), definition.inside());
         assertEquals(List.of(Mount.WAIST_RIGHT_FRONT, Mount.WAIST_LEFT_FRONT), definition.mounts());
         assertEquals("test_botany:seed_pouch", definition.model());
+    }
+
+    @Test
+    void waistFitDefaultsToHangingAndAcceptsRingOnWaistMount() {
+        // 省略 waist_fit 的旧清单仍是挂包；腰挂容器可以声明整圈腰带。
+        ItemRegistrations.registerText("test:waist_fit", """
+                version: 1
+                items { id: "test_fit:pouch" container {
+                  title: "挂包" model: "test_fit:pouch"
+                  inside { width: 1 height: 1 depth: 1 } outside { width: 1 height: 1 depth: 1 }
+                  mounts: WAIST_RIGHT_FRONT
+                } }
+                items { id: "test_fit:belt" container {
+                  title: "腰带" model: "test_fit:belt"
+                  inside { width: 1 height: 1 depth: 1 } outside { width: 1 height: 1 depth: 1 }
+                  mounts: WAIST_RIGHT_FRONT
+                  waist_fit: WAIST_FIT_RING
+                } }
+                """);
+        TestRegistries.bindComponents();
+        var pouch = ContainerItems.definition(ContainerItems.create(Identifier.parse("test_fit:pouch")));
+        var belt = ContainerItems.definition(ContainerItems.create(Identifier.parse("test_fit:belt")));
+        assertEquals(WaistFit.WAIST_FIT_HANGING, pouch.waistFit());
+        assertFalse(pouch.waistRing());
+        assertTrue(belt.waist());
+        assertTrue(belt.waistRing());
+    }
+
+    @Test
+    void waistRingOutsideWaistMountsOrUnknownFitRegistersNothing() {
+        // 整圈腰带只能声明在腰挂容器上；读不懂的贴合方式也拒绝。非法时什么都不注册。
+        assertThrows(IllegalArgumentException.class, () -> ItemRegistrations.registerText("test:torso_ring", """
+                version: 1
+                items { id: "test_fit:torso_ring" container {
+                  title: "背带" model: "test_fit:torso_ring"
+                  inside { width: 1 height: 1 depth: 1 } outside { width: 1 height: 1 depth: 1 }
+                  mounts: TORSO_BACK
+                  waist_fit: WAIST_FIT_RING
+                } }
+                """));
+        var unknownFit = ContainerItem.newBuilder()
+                .setTitle("袋")
+                .setModel("test_fit:unknown")
+                .setInside(Volumes.UNIT)
+                .setOutside(Volumes.UNIT)
+                .addMounts(Mount.WAIST_RIGHT_FRONT)
+                .setWaistFitValue(UNKNOWN_WAIST_FIT);
+        assertThrows(IllegalArgumentException.class, () -> ItemRegistrations.register("test:unknown_fit",
+                registry(ItemEntry.newBuilder().setId("test_fit:unknown").setContainer(unknownFit).build())));
+        // Java 注册入口直接构造类型时走同一条约束。
+        assertThrows(IllegalArgumentException.class, () -> new ContainerItems.Definition(
+                Identifier.parse("test_fit:java_ring"), "背带", "test_fit:java_ring", Volumes.UNIT, Volumes.UNIT,
+                List.of(Mount.TORSO_BACK), WaistFit.WAIST_FIT_RING));
+        assertFalse(BuiltInRegistries.ITEM.containsKey(Identifier.parse("test_fit:torso_ring")));
+        assertFalse(BuiltInRegistries.ITEM.containsKey(Identifier.parse("test_fit:unknown")));
     }
 
     @Test
