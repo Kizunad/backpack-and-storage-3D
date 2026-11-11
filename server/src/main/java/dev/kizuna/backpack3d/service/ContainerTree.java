@@ -252,6 +252,46 @@ public final class ContainerTree {
         throw new IllegalArgumentException("物品已不存在");
     }
 
+    public void replace(String itemId, ItemStack replacement) {
+        // 只改写随身树里的普通物品：同种物品的较少数量、同一件改了组件内容，或整件取走（空栈）。
+        // 格位、朝向、占格和实例 UUID 都不变；容器、穿戴物和地面库存必须走移动流程。
+        for (Node node : nodes.values()) {
+            for (int index = 0; index < node.entries.size(); index++) {
+                Entry entry = node.entries.get(index);
+                if (!entry.item.getId().equals(itemId)) {
+                    continue;
+                }
+                if (root(node).grounded) {
+                    throw new IllegalArgumentException("地面背包里的物品不能改写");
+                }
+                if (entry.container != null || entry.wearable != null) {
+                    throw new IllegalArgumentException("容器和穿戴物品不能改写");
+                }
+                if (replacement.isEmpty()) {
+                    node.entries.remove(index);
+                    return;
+                }
+                ItemStack original = StackCodec.decode(entry.item.getStackNbt(), registries);
+                if (replacement.getItem() != original.getItem() || replacement.getCount() > original.getCount()) {
+                    throw new IllegalArgumentException("只能换成同种物品、数量不多于原来的栈");
+                }
+                entry.item = entry.item.toBuilder()
+                        .setStackNbt(StackCodec.encode(replacement, registries))
+                        .build();
+                return;
+            }
+        }
+        throw new IllegalArgumentException("物品已不存在");
+    }
+
+    private static Node root(Node node) {
+        Node root = node;
+        while (root.parent != null) {
+            root = root.parent;
+        }
+        return root;
+    }
+
     public Entry takePlayer(int slot, ItemStack stack, String itemId, Size size) {
         // 原版来源的完整内容已由指纹验证，容器保留自己的 UUID，不用操作号改写身份。
         PlayerSource source = takePlayerSource(slot, stack, itemId, size);

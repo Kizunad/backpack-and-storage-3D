@@ -6,6 +6,7 @@ import dev.kizuna.backpack3d.protocol.StackCodec;
 import dev.kizuna.backpack3d.protocol.Volumes;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.service.CursorTransfer;
+import dev.kizuna.backpack3d.service.StoredRewrite;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.server.level.ServerPlayer;
@@ -83,6 +84,37 @@ public final class InventoryAccess {
         player.containerMenu.setCarried(candidate.cursor());
         player.getInventory().setChanged();
         // 光标由原版关闭页面流程归还、丢弃及保存，不另建一份持久化物品。
+    }
+
+    /**
+     * 按 {@link #snapshot} 的修订号改写随身树里的普通物品：换成同种物品的较少数量，或同一件改了内容的栈
+     * （比如少了东西的潜影盒、收纳袋）；空栈表示整件取走。键是容器内 {@code Item.id}，物品格位、朝向和 UUID 不变。
+     *
+     * <p>整笔检查都通过才生效，否则抛出 {@link IllegalArgumentException}，库存不动。只改内存里的玩家对象，
+     * 与原版背包、区块一起由原版自动保存；已打开的背包页面在下一 tick 按新修订号重发。
+     * 组件内容是否只少不多由调用方保证。
+     *
+     * @return 新的修订号
+     */
+    public static long rewriteStored(ServerPlayer player, long revision, Map<String, ItemStack> replacements) {
+        if (!player.level().getServer().isSameThread()) {
+            throw new IllegalStateException("随身容器改写必须在服务器主线程执行");
+        }
+        if (!player.isAlive() || player.isSpectator()) {
+            throw new IllegalArgumentException("玩家当前无法操作物品");
+        }
+        var candidate = StoredRewrite.prepare(new PlayerAccount(player), revision, replacements);
+        ((PlayerStorage) player).bs3d$setInventory(candidate.data());
+        var inventory = player.getInventory();
+        for (int slot = 0; slot < candidate.inventory().size(); slot++) {
+            // 只换掉内容变了的槽：原版槽里 BS3D 容器的子树改写后，根容器栈随之更新。
+            ItemStack next = candidate.inventory().get(slot);
+            if (!ItemStack.matches(inventory.getItem(slot), next)) {
+                inventory.setItem(slot, next);
+            }
+        }
+        inventory.setChanged();
+        return candidate.data().getRevision();
     }
 
     public static CursorTransaction cursorTransaction(ServerPlayer player) {

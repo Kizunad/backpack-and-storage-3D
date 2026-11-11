@@ -127,6 +127,8 @@ CreativeModeTabEvents.modifyOutputEvent(ContainerItems.TAB).register(entries -> 
 
 客户端 `ContainerDetails.register(Identifier, Provider)` 在初始化时登记短文本提供者；`summary()` 显示背包页总览，`container(String containerId)` 根据容器 UUID 提供标题附加文字。空文本不增加占位，绘制沿用当前主题；宿主统一裁切标题，附属不接管场景或输入。身份重复时拒绝注册。API 未冻结，接入方必须使用包含这些入口的新产物。
 
+2026-11-11 未发布源码增加 `InventoryAccess.rewriteStored(ServerPlayer, long revision, Map<String, ItemStack>)`，供附属从随身树里扣掉一部分物品（Structure Placer 用它扣建材）。键是 `snapshot` 里的容器内 `Item.id`，值是同种物品的较少数量、同一件改了内容的栈（如少了东西的潜影盒、收纳袋），或空栈表示整件取走；格位、朝向和 UUID 不变，BS3D 容器和穿戴物品本身不能经此改写。修订号与快照不符、玩家死亡或旁观、任一项不合规则时抛异常，库存不动；整笔通过才写入内存里的玩家对象，随原版背包一起保存，返回新的修订号。组件内容是否只少不多由调用方保证；地面背包不在随身树里，不能经此改写。
+
 容器物品的 UUID 和内容属于保存契约。集成方应移动真实 ItemStack，不能复用同一 UUID 创建多份库存；嵌套限制和字段说明见[通信契约](Protocol.md)。
 
 ## 地面容器接入

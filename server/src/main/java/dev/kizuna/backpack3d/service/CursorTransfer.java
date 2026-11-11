@@ -70,7 +70,8 @@ public final class CursorTransfer {
         }
     }
 
-    private static SavedInventory saveCandidate(SavedInventory previous, ContainerTree tree) {
+    static SavedInventory saveCandidate(SavedInventory previous, ContainerTree tree) {
+        // 修订号加一，穿戴根和原版槽位根都从候选树写出；改写已存物品也用同一份写法。
         return
                 previous.toBuilder()
                         .setFormatVersion(TransferService.SAVE_VERSION)
