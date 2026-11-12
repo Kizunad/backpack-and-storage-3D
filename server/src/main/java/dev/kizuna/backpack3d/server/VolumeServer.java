@@ -25,6 +25,7 @@ public final class VolumeServer implements ModInitializer, FabricServerModule {
     public void onInitialize() {
         PlayerContainerLimits.register();
         GroundInventory.register();
+        TrackedPlayers.register();
         ResourceLoader.get(PackType.SERVER_DATA)
                 .registerReloadListener(Identifier.fromNamespaceAndPath("bs3d", "handling_rules"), RULES);
         ServerTickEvents.END_SERVER_TICK.register(

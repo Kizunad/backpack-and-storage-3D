@@ -27,7 +27,6 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import java.io.IOException;
 import java.util.List;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -50,6 +49,7 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayer> {
     private List<ItemStack> lastInventory = List.of();
     private boolean lastCreative;
     private long lastRevision = -1;
+    private final VolumeTreeView treeView = new VolumeTreeView();
 
     public VolumeSession(
             MinecraftServer server,
@@ -282,7 +282,26 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayer> {
             return true;
         }
         for (int index = 0; index < inventory.getContainerSize(); index++) {
-            if (!ItemStack.matches(lastInventory.get(index), inventory.getItem(index))) {
+            ItemStack before = lastInventory.get(index);
+            ItemStack now = inventory.getItem(index);
+            // 状态包只带手持、副手、盔甲和容器树；别的槽里普通物品的进出、数量和耐久变化不进包，不触发重发。
+            if (!shown(index) && !VolumeTreeView.stores(before) && !VolumeTreeView.stores(now)) {
+                continue;
+            }
+            if (!ItemStack.matches(before, now)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean shown(int slot) {
+        // 上一次状态包里作为身体落点发出去的槽：当时的手持槽、副手和四个盔甲槽。
+        if (slot == lastSelectedSlot || slot == Inventory.SLOT_OFFHAND) {
+            return true;
+        }
+        for (var equipment : PlayerSlots.ARMOR) {
+            if (slot == PlayerSlots.armorSlot(equipment)) {
                 return true;
             }
         }
@@ -313,12 +332,22 @@ public final class VolumeSession implements ServerModuleSession<ServerPlayer> {
                         .setTransfer(transfer);
         try {
             var account = account();
-            var tree =
-                    new ContainerTree(account.registries(), saved, new ArrayList<>(lastInventory), account.ground());
-            state.putAllGroundRevisions(account.groundRevisions());
-            state.addAllItems(tree.items());
-            state.addAllContainers(tree.containers());
-            state.addAllWearables(tree.wearables());
+            var tree = treeView.lists(account.registries(), saved, lastInventory, account.ground());
+            if (tree.built()) {
+                state.putAllGroundRevisions(account.groundRevisions());
+            }
+            if (tree.items() != null) {
+                state.addAllItems(tree.items());
+            }
+            if (tree.containers() != null) {
+                state.addAllContainers(tree.containers());
+            }
+            if (tree.wearables() != null) {
+                state.addAllWearables(tree.wearables());
+            }
+            if (tree.invalid() != null) {
+                throw new IllegalArgumentException(tree.invalid());
+            }
         } catch (IllegalArgumentException invalid) {
             // 外部获得的损坏或重复身份物品只禁用本次业务视图，不让同步异常终止服务器 tick。
             transfer =

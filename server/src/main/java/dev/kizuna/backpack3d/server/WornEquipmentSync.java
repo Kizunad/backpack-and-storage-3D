@@ -9,9 +9,10 @@ import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.SavedInventory;
 import dev.kizuna.backpack3d.protocol.pb.VolumeProtocol.WornModel;
 import dev.kizuna.inventoryui.server.ServerConnection;
 
-import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -33,11 +34,15 @@ final class WornEquipmentSync {
         }
         ServerPlayer viewer = connection.context();
         var visible = new HashSet<UUID>();
-        for (ServerPlayer player : PlayerLookup.level(viewer.level())) {
-            if (player != viewer && !PlayerLookup.tracking(player).contains(viewer)) {
+        visible.add(viewer.getUUID());
+        update(viewer);
+        // 看得见谁由追踪事件记好，这里不再逐个玩家现查追踪集合。
+        for (UUID tracked : TrackedPlayers.seenBy(viewer.getUUID())) {
+            // 按所在世界找人，不查在线名单：别的模组放进世界、没有登录连接的玩家实体同样要同步外观。
+            if (!(viewer.level().getPlayerByUUID(tracked) instanceof ServerPlayer player)) {
                 continue;
             }
-            visible.add(player.getUUID());
+            visible.add(tracked);
             update(player);
         }
 
@@ -60,20 +65,21 @@ final class WornEquipmentSync {
     private void update(ServerPlayer player) {
         SavedInventory saved = ((PlayerStorage) player).bs3d$getInventory();
         Observed previous = known.get(player.getUUID());
-        String dimension = player.level().dimension().identifier().toString();
+        var level = player.level().dimension();
         // protobuf 存档不可变；未变更时不反复解码 NBT，重生实体仍会触发完整同步。
         if (previous != null
                 && previous.saved() == saved
                 && previous.appearance().getEntityId() == player.getId()
-                && previous.appearance().getDimension().equals(dimension)) {
+                && previous.level() == level) {
             return;
         }
+        String dimension = level.identifier().toString();
         EquipmentAppearance next =
                 appearance(player.getUUID(), player.getId(), dimension, saved, player.registryAccess());
         if (previous == null || !previous.appearance().equals(next)) {
             connection.send(Messages.APPEARANCE, next);
         }
-        known.put(player.getUUID(), new Observed(saved, next));
+        known.put(player.getUUID(), new Observed(saved, level, next));
     }
 
     static EquipmentAppearance appearance(
@@ -118,6 +124,6 @@ final class WornEquipmentSync {
         }
     }
 
-    /** saved 是不可变存档引用；appearance 只保留可公开的装备外观。 */
-    private record Observed(SavedInventory saved, EquipmentAppearance appearance) {}
+    /** saved 是不可变存档引用；level 是当时所在维度的注册键；appearance 只保留可公开的装备外观。 */
+    private record Observed(SavedInventory saved, ResourceKey<Level> level, EquipmentAppearance appearance) {}
 }

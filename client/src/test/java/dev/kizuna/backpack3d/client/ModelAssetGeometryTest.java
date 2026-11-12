@@ -54,6 +54,34 @@ class ModelAssetGeometryTest {
         }
     }
 
+    @Test
+    void bakedGeometryFollowsThePoseAndIsTheSameWhenThePoseReturns() throws Exception {
+        // 有开合动画的模型按姿态各烘焙一份：开盖、半开和关着的几何互不相同，换回关着时和第一次逐点相同。
+        java.nio.file.Path root = java.nio.file.Path.of("src/test/resources/fixtures");
+        var asset = new ModelAsset(BbModel.read(root, new ModelConfig.Entry(
+                Identifier.fromNamespaceAndPath("example", "pouch"), root.resolve("LidPouch.bbmodel"), null, null,
+                java.util.Map.of())));
+        var closed = positions(asset, 0);
+        var open = positions(asset, 1);
+        var half = positions(asset, 0.5f);
+        var closedAgain = positions(asset, 0);
+        var openAgain = positions(asset, 1);
+        assertFalse(closed.isEmpty());
+        assertEquals(closed, closedAgain);
+        assertEquals(open, openAgain);
+        assertFalse(closed.equals(open));
+        assertFalse(open.equals(half));
+        assertFalse(closed.equals(half));
+    }
+
+    private static List<Vector3f> positions(ModelAsset asset, float lid) {
+        var collector = new GeometryCollector();
+        asset.render(new PoseStack(), collector, lid, null);
+        var vertices = new RecordingConsumer();
+        collector.geometry().render(collector.pose(), vertices);
+        return vertices.positions;
+    }
+
     private static RecordingConsumer vertices(ModelAsset asset, Matrix4f transform) {
         var collector = new GeometryCollector();
         var matrices = new PoseStack();

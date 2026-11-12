@@ -9,6 +9,7 @@ import dev.kizuna.backpack3d.registry.pb.ItemRegistryProto.ModelRenderMode;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -46,6 +47,9 @@ public final class ModelAsset {
     private final float groundOffset;
     private final ModelRenderMode mode;
     private final Map<String, ModelAsset> segmentAssets = new LinkedHashMap<>();
+    // 最近用过的两个姿态各留一份烘焙结果：常见的是关着的和正在开合的各一个实例。
+    private Baked recent;
+    private Baked earlier;
 
     ModelAsset(BbModel model) {
         this(model, ModelRenderMode.MODEL_RENDER_MODE_DEFAULT);
@@ -185,21 +189,101 @@ public final class ModelAsset {
             VertexConsumer consumer,
             DrawPass pass) {
         // 高亮轮廓使用同一几何，普通绘制只写出属于本次贴图的面。
-        var matrices = new PoseStack();
-        matrices.last().set(base);
+        // 骨链和立方体自身的变换已经烘焙进顶点，这里只剩提交时的那一个矩阵。
+        Paint paint = pass.paint();
+        Lighting lighting = pass.lighting();
+        boolean baseMirrored = base.pose().determinant3x3() < 0;
+        for (BakedFace face : baked(pass.pose()).faces()) {
+            if (paint.tint() == null && !face.texture().equals(pass.texture())) {
+                continue;
+            }
+            // 反射会改变面的正反；UV 随原顶点反序，法线仍按逆转置矩阵变换。
+            boolean mirrored = baseMirrored != face.mirrored();
+            for (int vertex = 0; vertex < VERTICES_PER_FACE; vertex++) {
+                int corner = vertex;
+                if (mirrored) {
+                    corner = VERTICES_PER_FACE - 1 - vertex;
+                }
+                consumer.addVertex(base, face.positions()[corner * 3], face.positions()[corner * 3 + 1],
+                                face.positions()[corner * 3 + 2])
+                        .setColor(paint.red(), paint.green(), paint.blue(), paint.alpha())
+                        .setUv(face.uvs()[corner * 2], face.uvs()[corner * 2 + 1])
+                        .setOverlay(lighting.overlay())
+                        .setLight(lighting.light())
+                        .setNormal(base, face.normalX(), face.normalY(), face.normalZ());
+            }
+        }
+    }
+
+    /**
+     * 一个面在模型自身坐标里烘焙好的数据。positions、uvs 按面的四个角排列；
+     * mirrored 表示骨链和立方体变换本身带反射，绘制时和提交矩阵的反射异或后决定绕序。
+     */
+    private record BakedFace(
+            Identifier texture, float[] positions, float[] uvs, float normalX, float normalY, float normalZ,
+            boolean mirrored) {}
+
+    private record Baked(BagAnimation.Sample pose, List<BakedFace> faces) {}
+
+    private Baked baked(BagAnimation.Sample pose) {
+        // 没有开合动画的模型任何姿态都是同一份几何；有动画的按姿态各烘焙一份。
+        BagAnimation.Sample key = pose;
+        if (model.open() == null && model.close() == null) {
+            key = BagAnimation.Sample.CLOSED;
+        }
+        if (recent != null && recent.pose().equals(key)) {
+            return recent;
+        }
+        Baked found = earlier;
+        if (found == null || !found.pose().equals(key)) {
+            found = bake(key);
+        }
+        earlier = recent;
+        recent = found;
+        return found;
+    }
+
+    private Baked bake(BagAnimation.Sample pose) {
+        List<BakedFace> faces = new ArrayList<>();
         for (var cube : cubes) {
-            matrices.pushPose();
-            transform(matrices, cube, pass.pose());
-            var vertices = vertices(cube.from(), cube.to());
+            var matrices = new PoseStack();
+            transform(matrices, cube, pose);
+            PoseStack.Pose entry = matrices.last();
+            var corners = vertices(cube.from(), cube.to());
+            for (var corner : corners) {
+                entry.pose().transformPosition(corner);
+            }
+            boolean mirrored = entry.pose().determinant3x3() < 0;
             for (int face = 0; face < FACE_VERTICES.length; face++) {
                 Face uv = cube.faces().get(face);
-                if (uv == null || (pass.paint().tint() == null && !uv.texture().equals(pass.texture()))) {
+                if (uv == null) {
                     continue;
                 }
-                emitFace(matrices.last(), consumer, new FacePass(vertices, face, uv, pass.paint(), pass.lighting()));
+                faces.add(bakeFace(entry, corners, face, uv, mirrored));
             }
-            matrices.popPose();
         }
+        return new Baked(pose, List.copyOf(faces));
+    }
+
+    private static BakedFace bakeFace(
+            PoseStack.Pose entry, Vector3f[] corners, int face, Face uv, boolean mirrored) {
+        // 半透明占位保留原模型几何，UV 旋转仅改变贴图四角的对应关系。
+        float[][] coords = {
+            {uv.u0(), uv.v1()}, {uv.u1(), uv.v1()}, {uv.u1(), uv.v0()}, {uv.u0(), uv.v0()}
+        };
+        float[] positions = new float[VERTICES_PER_FACE * 3];
+        float[] uvs = new float[VERTICES_PER_FACE * 2];
+        for (int corner = 0; corner < VERTICES_PER_FACE; corner++) {
+            var point = corners[FACE_VERTICES[face][corner]];
+            positions[corner * 3] = point.x;
+            positions[corner * 3 + 1] = point.y;
+            positions[corner * 3 + 2] = point.z;
+            int uvCorner = Math.floorMod(corner - uv.rotation(), VERTICES_PER_FACE);
+            uvs[corner * 2] = coords[uvCorner][0];
+            uvs[corner * 2 + 1] = coords[uvCorner][1];
+        }
+        var normal = entry.transformNormal(NORMALS[face], new Vector3f());
+        return new BakedFace(uv.texture(), positions, uvs, normal.x, normal.y, normal.z, mirrored);
     }
 
     private static String segment(Cube cube) {
@@ -252,39 +336,6 @@ public final class ModelAsset {
     }
 
     private record DrawPass(Identifier texture, BagAnimation.Sample pose, Paint paint, Lighting lighting) {}
-
-    private record FacePass(Vector3f[] vertices, int face, Face uv, Paint paint, Lighting lighting) {}
-
-    private static void emitFace(
-            PoseStack.Pose entry,
-            VertexConsumer consumer,
-            FacePass pass) {
-        // 半透明占位保留原模型几何，UV 旋转仅改变贴图四角的对应关系。
-        Face uv = pass.uv();
-        Paint paint = pass.paint();
-        Lighting lighting = pass.lighting();
-        float[][] coords = {
-            {uv.u0(), uv.v1()}, {uv.u1(), uv.v1()}, {uv.u1(), uv.v0()}, {uv.u0(), uv.v0()}
-        };
-        int face = pass.face();
-        var normal = NORMALS[face];
-        // 反射会改变面的正反；UV 随原顶点反序，法线仍按逆转置矩阵变换。
-        boolean mirrored = entry.pose().determinant3x3() < 0;
-        for (int vertex = 0; vertex < VERTICES_PER_FACE; vertex++) {
-            int windingVertex = vertex;
-            if (mirrored) {
-                windingVertex = VERTICES_PER_FACE - 1 - vertex;
-            }
-            var point = pass.vertices()[FACE_VERTICES[face][windingVertex]];
-            int uvCorner = Math.floorMod(windingVertex - uv.rotation(), VERTICES_PER_FACE);
-            consumer.addVertex(entry, point.x, point.y, point.z)
-                    .setColor(paint.red(), paint.green(), paint.blue(), paint.alpha())
-                    .setUv(coords[uvCorner][0], coords[uvCorner][1])
-                    .setOverlay(lighting.overlay())
-                    .setLight(lighting.light())
-                    .setNormal(entry, normal.x, normal.y, normal.z);
-        }
-    }
 
     private record Lighting(int light, int overlay) {}
 
