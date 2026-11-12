@@ -1081,9 +1081,10 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         return player.slotBounds(slot);
     }
 
+    /** 把容器拖到这一点释放时会采用的精确挂点；不在人物或身上容器上、或落点没有精确挂点时为 null。 */
     public Placement containerPlacementAt(double x, double y, String item) {
         var type = ContainerItems.definition(module.stack(item));
-        return type == null ? null : player.wearAt(x, y, type);
+        return type == null || !player.onPlayer(x, y) ? null : player.wearAt(x, y, type);
     }
 
     public float[] handBounds(int slot) {

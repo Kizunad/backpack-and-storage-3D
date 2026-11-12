@@ -912,7 +912,8 @@ public final class SmokeClient implements ClientModInitializer {
         return true;
     }
 
-    private static int[] visibleSlot(VolumeScreen screen, int slot) {
+    /** 身体部位投影范围内第一个真正命中该部位的像素；被挡住时为 null。 */
+    static int[] visibleSlot(VolumeScreen screen, int slot) {
         var bounds = screen.playerSlotBounds(slot);
         if (bounds != null) {
             for (int y = (int) Math.ceil(bounds[1]); y < bounds[3]; y++) {
@@ -943,7 +944,8 @@ public final class SmokeClient implements ClientModInitializer {
         screen.mouseReleased(mouse(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT));
     }
 
-    private static int[] visibleBag(VolumeScreen screen, String item) {
+    /** 容器模型投影范围内第一个真正命中该模型的像素；被挡住时为 null。只扫投影范围，全屏逐像素命中要几分钟。 */
+    static int[] visibleBag(VolumeScreen screen, String item) {
         var bounds = screen.bagBounds(item);
         if (bounds != null) {
             for (int y = (int) Math.ceil(bounds[1]); y < bounds[3]; y++) {

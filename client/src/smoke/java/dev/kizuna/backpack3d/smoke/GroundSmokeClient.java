@@ -188,18 +188,8 @@ final class GroundSmokeClient {
 
     private boolean dropOnGroundModel(VolumeScreen screen) {
         // 从真实副手命中拖到人物旁的地面模型，落点无需指定内景格位。
-        int[] source = null;
-        int[] target = null;
-        for (int y = 0; y < screen.height; y++) {
-            for (int x = 0; x < screen.width; x++) {
-                if (source == null && screen.playerSlotAt(x, y) == Inventory.SLOT_OFFHAND) {
-                    source = new int[] {x, y};
-                }
-                if (target == null && screen.bagHit(id, x, y)) {
-                    target = new int[] {x, y};
-                }
-            }
-        }
+        int[] source = SmokeClient.visibleSlot(screen, Inventory.SLOT_OFFHAND);
+        int[] target = SmokeClient.visibleBag(screen, id);
         if (source == null || target == null) {
             return false;
         }
@@ -211,16 +201,13 @@ final class GroundSmokeClient {
 
     private boolean openGroundModel(VolumeScreen screen) {
         // 场景直接发现合盖地面模型，真实鼠标点击后才打开其内景。
-        for (int y = 0; y < screen.height; y++) {
-            for (int x = 0; x < screen.width; x++) {
-                if (screen.bagHit(id, x, y)) {
-                    screen.mouseClicked(mouse(x, y, 0), false);
-                    screen.mouseReleased(mouse(x, y, 0));
-                    return true;
-                }
-            }
+        int[] hit = SmokeClient.visibleBag(screen, id);
+        if (hit == null) {
+            return false;
         }
-        return false;
+        screen.mouseClicked(mouse(hit[0], hit[1], 0), false);
+        screen.mouseReleased(mouse(hit[0], hit[1], 0));
+        return true;
     }
 
     private String restart(Minecraft client, VolumeModule module) throws IOException {
