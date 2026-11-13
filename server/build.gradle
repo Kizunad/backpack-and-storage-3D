@@ -12,6 +12,11 @@ sourceSets.create('smoke') {
     compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
     runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
 }
+// 生存配方的服务端验收：真服务器加载数据包后检查工作台配方和配方书解锁，正式包不含这里的代码。
+sourceSets.create('gametest') {
+    compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+}
 // 验收清单的自带模型复用客户端单元测试里带开合动画的夹具，不在夹具目录保存第二份 bbmodel。
 processSmokeResources {
     from(rootProject.files('client/src/test/resources/fixtures/LidPouch.bbmodel',
@@ -21,6 +26,7 @@ loom {
     mods {
         'backpack_storage_3d' { sourceSet sourceSets.main }
         'bs3d_smoke' { sourceSet sourceSets.smoke }
+        'bs3d_gametest' { sourceSet sourceSets.gametest }
     }
     runs {
         server {
@@ -33,6 +39,14 @@ loom {
             runDir "../build/smoke/${project.rootProject.findProperty('smokeRun') ?: 'manual'}/server"
             property 'bs3d.smoke', 'true'
             programArg 'nogui'
+        }
+        gametest {
+            server()
+            source sourceSets.gametest
+            // 每次用新的 -PgametestRun 名，新目录新世界，旧局的日志和世界原样留着。
+            runDir "../build/gametest/${project.rootProject.findProperty('gametestRun') ?: 'manual'}"
+            vmArg '-Dfabric-api.gametest'
+            vmArg '-Dfabric-api.gametest.report-file=results/gametest.xml'
         }
     }
 }

@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "P": "#minecraft:planks",
+    "N": "minecraft:iron_nugget"
+  },
+  "pattern": [
+    "PNP",
+    "P P",
+    "PPP"
+  ],
+  "result": {
+    "id": "bs3d:coin_box"
+  }
+}

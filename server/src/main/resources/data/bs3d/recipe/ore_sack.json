@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "W": "#minecraft:wool",
+    "S": "minecraft:string",
+    "L": "minecraft:leather"
+  },
+  "pattern": [
+    "WSW",
+    "W W",
+    "LLL"
+  ],
+  "result": {
+    "id": "bs3d:ore_sack"
+  }
+}

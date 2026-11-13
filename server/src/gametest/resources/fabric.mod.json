@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "bs3d_gametest",
+  "version": "1.0.0",
+  "name": "3D 背包生存来源验收",
+  "environment": "server",
+  "entrypoints": {
+    "fabric-gametest": ["dev.kizuna.backpack3d.gametest.ContainerRecipeGameTest"]
+  },
+  "depends": {
+    "backpack_storage_3d": "*"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "B": "minecraft:bone",
+    "S": "minecraft:string",
+    "H": "minecraft:hay_block",
+    "L": "minecraft:leather"
+  },
+  "pattern": [
+    "BSB",
+    "HLH",
+    "BLB"
+  ],
+  "result": {
+    "id": "bs3d:gu_jia_bei_lou"
+  }
+}

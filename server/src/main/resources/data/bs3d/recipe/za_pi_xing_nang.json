@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "L": "minecraft:leather",
+    "S": "minecraft:string",
+    "R": "minecraft:rabbit_hide"
+  },
+  "pattern": [
+    "LSL",
+    "RLR",
+    "LSL"
+  ],
+  "result": {
+    "id": "bs3d:za_pi_xing_nang"
+  }
+}

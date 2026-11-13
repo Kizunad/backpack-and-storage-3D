@@ -2,6 +2,10 @@
 
 适用：`0.1.0-SNAPSHOT`，业务协议 **v8**，玩家保存格式 **4**、地面保存格式 **1**，尚未发布。
 
+## 2026-11-13：生存合成配方
+
+新增 `server` 的 `gametest` 源集与 `runGametest`（`-PgametestRun=<新名字>` 选新目录新世界，正式包不含这里的代码）。`ContainerRecipeGameTest.everyContainerCraftsFromVanillaMaterialsAndUnlocksOnItsMainMaterial` 在真服务器加载数据包后，对注册表里 `bs3d` 命名空间的十件物品逐件检查：同名配方存在；用配方每格的第一种材料摆满工作台，原版选中的就是这份配方（没有被原版配方抢走），产出本物品；`recipes/tools/` 下的解锁进度存在、发这份配方；一个新玩家背包里进了进度写的主材料后，配方书里出现这份配方。
+
 ## 2026-11-13：四阶段验收恢复通过
 
 四阶段 smoke 上一次整跑通过是 2026-11-02，此后坏了三处，都在验收自身，产品行为没有改：

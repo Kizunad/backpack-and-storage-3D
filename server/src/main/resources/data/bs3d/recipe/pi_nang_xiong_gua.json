@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "S": "minecraft:string",
+    "L": "minecraft:leather",
+    "G": "minecraft:glass_bottle"
+  },
+  "pattern": [
+    "S S",
+    "LGL",
+    " L "
+  ],
+  "result": {
+    "id": "bs3d:pi_nang_xiong_gua"
+  }
+}

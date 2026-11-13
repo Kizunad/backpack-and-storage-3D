@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "S": "minecraft:string",
+    "W": "#minecraft:wool"
+  },
+  "pattern": [
+    " S ",
+    "W W",
+    " W "
+  ],
+  "result": {
+    "id": "bs3d:herb_pouch"
+  }
+}

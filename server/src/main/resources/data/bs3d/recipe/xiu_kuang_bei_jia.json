@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "S": "minecraft:string",
+    "L": "minecraft:leather"
+  },
+  "pattern": [
+    "ISI",
+    "LSL",
+    "ILI"
+  ],
+  "result": {
+    "id": "bs3d:xiu_kuang_bei_jia"
+  }
+}

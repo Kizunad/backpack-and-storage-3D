@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "M": "minecraft:moss_block",
+    "S": "minecraft:string",
+    "W": "#minecraft:wool"
+  },
+  "pattern": [
+    "MSM",
+    "W W",
+    "MWM"
+  ],
+  "result": {
+    "id": "bs3d:moisture_guard"
+  }
+}

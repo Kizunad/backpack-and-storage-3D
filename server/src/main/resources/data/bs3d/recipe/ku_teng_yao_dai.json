@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "V": "minecraft:vine",
+    "S": "minecraft:string",
+    "L": "minecraft:leather",
+    "B": "minecraft:bone"
+  },
+  "pattern": [
+    "VVV",
+    "SLB"
+  ],
+  "result": {
+    "id": "bs3d:ku_teng_yao_dai"
+  }
+}
