@@ -94,6 +94,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
     private double pressY;
     private long frameTime;
     private final Runnable exit;
+    private final OpenKeyHold openKeyHold = new OpenKeyHold();
 
     public VolumeScreen(VolumeModule module) {
         // 独立快捷键入口沿用 Minecraft 屏幕生命周期。
@@ -107,6 +108,11 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         this.exit = exit;
         player = new WornPreview(module);
         help = new ControlsHelp(module);
+    }
+
+    void openedByKey() {
+        // 这次是按打开背包键打开的：键多半还按着，这一次按下松开时不关界面。
+        openKeyHold.opened(module.openKeyDown());
     }
 
     void cancelInput() {
@@ -126,6 +132,11 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         // 鼠标在窗口外松开时游戏可能收不到释放事件，失焦立即撤销残留捕获。
         if (!minecraft.isWindowActive()) {
             releaseCapture();
+            openKeyHold.cancel();
+        }
+        // 打开背包键按一下松开才关界面；按着它点过物品的那一次只当修饰键。
+        if (!closing && openKeyHold.released(module.openKeyDown())) {
+            onClose();
         }
     }
 
@@ -632,7 +643,8 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             if (snapshot != null && !snapshot.getUnavailableReason().isEmpty()) {
                 hint = snapshot.getUnavailableReason();
             } else if (snapshot != null && !snapshot.getStackNbt().isEmpty()) {
-                if (minecraft.hasShiftDown()) {
+                if (module.quickMoveHeld()) {
+                    openKeyHold.usedAsModifier();
                     module.quickStore(snapshot);
                     return true;
                 }
@@ -743,8 +755,9 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         pressedItem = hitItem;
         pressX = x;
         pressY = y;
-        if (minecraft.hasShiftDown()) {
+        if (module.quickMoveHeld()) {
             // 内景快捷取出只进入原版随身槽位，不依赖其他窗口是否打开。
+            openKeyHold.usedAsModifier();
             module.move(selected, Volumes.PLAYER, Cell.getDefaultInstance(), true /* automatic */, orientation);
             clearSelection();
         }
@@ -962,8 +975,9 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             return true;
         }
         if (help.visible()) {
-            if (module.openKey().matches(event)
-                    || minecraft.options.keyInventory.matches(event)) {
+            if (module.openKey().matches(event)) {
+                openKeyHold.pressed();
+            } else if (minecraft.options.keyInventory.matches(event)) {
                 onClose();
             }
             return true;
@@ -978,8 +992,12 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
             turn(true);
             return true;
         }
-        if (module.openKey().matches(event)
-                || minecraft.options.keyInventory.matches(event)) {
+        if (module.openKey().matches(event)) {
+            // 这个键按着点物品是快速存取：按下先不关，松开时由 tick 决定关不关。
+            openKeyHold.pressed();
+            return true;
+        }
+        if (minecraft.options.keyInventory.matches(event)) {
             onClose();
             return true;
         }
@@ -1025,6 +1043,7 @@ public final class VolumeScreen extends Screen implements VanillaHudHidden {
         sceneAuthorized = false;
         player.closeEquipmentMenu();
         releaseCapture();
+        openKeyHold.cancel();
         windows.reset();
         closing = false;
         clearSelection();

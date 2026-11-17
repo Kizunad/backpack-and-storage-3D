@@ -2,8 +2,13 @@ package dev.kizuna.backpack3d.smoke;
 
 import java.io.IOException;
 
-/** 仅向当前 Xvfb DISPLAY 注入 Shift，不触碰用户桌面。 */
-final class SmokeShift {
+/** 仅向当前 Xvfb DISPLAY 注入一个真实按键，不触碰用户桌面。 */
+enum SmokeKey {
+    /** 左 Shift。 */
+    SHIFT(0xffe1),
+    /** 小写 b：默认的打开背包键。 */
+    OPEN_BACKPACK(0x62);
+
     private static final String SCRIPT = """
             import ctypes, sys
             x11 = ctypes.CDLL("libX11.so.6")
@@ -17,32 +22,35 @@ final class SmokeShift {
             display = x11.XOpenDisplay(None)
             if not display:
                 raise RuntimeError("Xvfb DISPLAY unavailable")
-            key = x11.XKeysymToKeycode(display, 0xffe1)
+            key = x11.XKeysymToKeycode(display, int(sys.argv[2]))
             xtest.XTestFakeKeyEvent(display, key, int(sys.argv[1] == "press"), 0)
             x11.XFlush(display)
             x11.XCloseDisplay(display)
             """;
 
-    private SmokeShift() {
-        // 夹具不保存任何全局键盘钩子。
+    private final int keysym;
+
+    SmokeKey(int keysym) {
+        // 夹具不保存任何全局键盘钩子，只记 X 的键符号。
+        this.keysym = keysym;
     }
 
-    static void press() {
+    void press() {
         // 使用 XTest 设置 GLFW 真实读取的按键状态。
         send("press");
     }
 
-    static void release() {
+    void release() {
         // 操作结束后立即释放，避免下一次拖放意外保留修饰键。
         send("release");
     }
 
-    private static void send(String action) {
+    private void send(String action) {
         // 子进程继承本次烟测 DISPLAY；不用 AWT，兼容 Minecraft 的 headless 设置。
         try {
-            int result = new ProcessBuilder("python3", "-c", SCRIPT, action).inheritIO().start().waitFor();
+            int result = new ProcessBuilder("python3", "-c", SCRIPT, action, Integer.toString(keysym)).inheritIO().start().waitFor();
             if (result != 0) {
-                throw new IllegalStateException("Shift 注入失败");
+                throw new IllegalStateException(name() + " 注入失败");
             }
         } catch (IOException failure) {
             throw new IllegalStateException(failure);

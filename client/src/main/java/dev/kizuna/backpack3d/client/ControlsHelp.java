@@ -109,7 +109,8 @@ final class ControlsHelp {
                         "内景上方范围条：下方滑块控制最低层，上方滑块控制最高层；至少保留一层，各窗口独立。",
                         "已占用格以连接轮廓高亮，相邻格不显示内部亮线。手动放置须让物品完整占格处于可见层内。",
                         "拖动物品：放入目标格；普通物品拖到容器模型：自动找空位，合盖时也可用。",
-                        "Shift 点击原版物品：放入随身容器，腰挂优先；Shift 点击内景物品：取回原版背包。",
+                        "按住 " + module.openKeyName() + " 点击原版物品：放入随身容器，腰挂优先；按住 "
+                                + module.openKeyName() + " 点击内景物品：取回原版背包。",
                         module.rotateYaw().getDisplayName().getString()
                                 + "：左右旋转物品；"
                                 + module.rotatePitch().getDisplayName().getString()
@@ -122,6 +123,7 @@ final class ControlsHelp {
                         "拖动细标题：移动窗口；−：最小化；×：关闭。",
                         "转移即时完成；ESC 只关闭帮助或合盖退出。拒绝时物品保留原位。",
                         "旋转键在 config/bs3d/config.toml 的 controls 表修改，F3+T 重载；打开背包键在游戏设置中修改。",
+                        module.openKeyName() + "：按一下松开关闭界面；按着它点过物品的那一次不关。",
                         "当前状态：" + status)) {
             lines.addAll(font.split(Component.literal(paragraph), textWidth));
         }

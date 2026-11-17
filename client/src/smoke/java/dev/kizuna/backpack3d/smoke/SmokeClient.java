@@ -45,6 +45,12 @@ public final class SmokeClient implements ClientModInitializer {
     private static final String ADDRESS = "127.0.0.1:25579";
     private static final long TIMEOUT_MILLIS = 240_000;
     private static final int STEP_TIMEOUT_TICKS = 400;
+    /** 即时输入验收：按键状态、选中、回执落定要等的 tick 数。 */
+    private static final int INSTANT_SETTLE_TICKS = 10;
+    /** 即时输入验收：容器模型开合盖、界面重开以后模型就位要等的 tick 数。 */
+    private static final int INSTANT_MODEL_TICKS = 30;
+    /** 即时输入验收：按一下打开背包键以后，界面最迟这么多 tick 内要关掉或打开。 */
+    private static final int INSTANT_TOGGLE_TICKS = 200;
 
     private enum Step {
         WAIT_GROUND,
@@ -108,7 +114,8 @@ public final class SmokeClient implements ClientModInitializer {
     private int itemPickAttempts;
     private final GroundSmokeClient groundSmoke = new GroundSmokeClient();
     private final WorkspaceBackpackProbe workspaceProbe = new WorkspaceBackpackProbe();
-    private int instantStep;
+    private Instant instant = Instant.SHIFT_DOWN;
+    private VolumeScreen instantScreen;
     private int instantTicks;
 
     @Override
@@ -429,7 +436,7 @@ public final class SmokeClient implements ClientModInitializer {
                 }
                 if (ticks > 12) {
                     shot(client, "04-two-windows-interior");
-                    selectSword(screen);
+                    selectSword(screen, false /* quickMove */);
                     screen.mouseReleased(mouse(0, 0, GLFW.GLFW_MOUSE_BUTTON_LEFT));
                     cellsBeforeDrag = sampleCells(screen, basket);
                     dragEmptySpace(screen, basket);
@@ -459,7 +466,7 @@ public final class SmokeClient implements ClientModInitializer {
                     shot(client, "08-controls-help");
                     screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_ESCAPE, 0, 0));
                     require(client.gui.screen() == screen, "ESC 关闭帮助时意外关闭背包");
-                    selectSword(screen);
+                    selectSword(screen, false /* quickMove */);
                     int orientation = rotateWithReboundKey(screen, module);
                     dropSwordIntoBasket(client, screen, module, orientation);
                     next(Step.CAPTURE_TRANSFER);
@@ -728,7 +735,8 @@ public final class SmokeClient implements ClientModInitializer {
                 if (verifyInstantInputs(client, module)) {
                     finish(client, "revision=24; restart-persistence; hand-to-hand; armor-drag;"
                             + " portable-bag; waist-drag; torso-drag; instant-transfer; close-after-commit;"
-                            + " hand-drag-both-directions; left-handed; shift-both-directions;"
+                            + " hand-drag-both-directions; left-handed; open-key-quick-move-both-directions;"
+                            + " shift-ignored; open-key-tap-toggles;"
                             + " closed-model-drop; gravity-preserved");
                 }
             }
@@ -736,98 +744,124 @@ public final class SmokeClient implements ClientModInitializer {
         }
     }
 
+    /** 即时输入验收的步骤，按顺序走；条件不满足就留在原地等下一个 tick。 */
+    private enum Instant {
+        SHIFT_DOWN, SHIFT_CLICK, SHIFT_IGNORED, STORE_CLICK, STORE_RESULT, STORE_RELEASED, TAKE_DOWN, TAKE_CLICK,
+        TAKE_RESULT, TAP_DOWN, TAP_HELD, TAP_CLOSED, REOPENED, REOPEN_RELEASED, MODEL_DRAG, MODEL_RESULT,
+        MODEL_RETURNED, DONE
+    }
+
     private boolean verifyInstantInputs(Minecraft client, VolumeModule module) {
-        // 使用 Xvfb 的真实 Shift 键状态，鼠标仍通过实际 Screen 分派。
+        // 修饰键用 Xvfb 里真实的按键状态，鼠标仍通过实际 Screen 分派。走完最后一步返回 true。
         if (module.busy()) {
             return false;
         }
-        var screen = (VolumeScreen) client.gui.screen();
         instantTicks++;
+        Instant before = instant;
         try {
-            boolean progressed;
-            if (instantStep < 5) {
-                progressed = verifyShiftInputs(client, module, screen);
-            } else if (instantStep < 7) {
-                progressed = verifyModelDrag(client, module, screen);
-            } else {
-                progressed = verifyModelResult(client, module, screen);
-                if (instantStep == 8) {
-                    return progressed;
-                }
-            }
-            if (!progressed) {
-                return false;
-            }
-        } finally {
-            // 未按住 Shift 的步骤不留下上一操作的按键状态。
-            if (instantStep > 4) {
-                SmokeShift.release();
-            }
+            instantInput(client, module);
+        } catch (RuntimeException failure) {
+            // 失败时不把按着的键留在 Xvfb 里。
+            SmokeKey.SHIFT.release();
+            SmokeKey.OPEN_BACKPACK.release();
+            SmokeRecorder.stop();
+            throw failure;
         }
-        instantStep++;
-        instantTicks = 0;
-        return false;
+        if (instant != before) {
+            // 每一小步各自计时，整段不压在外层一步的停滞上限上。
+            instantTicks = 0;
+            ticks = 0;
+            SmokeRecorder.mark(instant.name());
+        }
+        if (instant == Instant.DONE) {
+            SmokeRecorder.stop();
+        }
+        return instant == Instant.DONE;
     }
 
-
-    private boolean verifyShiftInputs(Minecraft client, VolumeModule module, VolumeScreen screen) {
-        // 通过真实 Shift 键状态验证腰挂优先存入及原版快捷取回。
-        switch (instantStep) {
-            case 0 -> {
-                if (module.state().getRevision() != 20) {
-                    return false;
+    private void instantInput(Minecraft client, VolumeModule module) {
+        var screen = client.gui.screen() instanceof VolumeScreen open ? open : null;
+        long revision = module.state().getRevision();
+        if (instantTicks < SmokeRecorder.stepTicks()) {
+            return;
+        }
+        switch (instant) {
+            case SHIFT_DOWN -> {
+                // Shift 不再是快速存取的修饰键：按着它点原版物品只是选中，不存进背包。
+                if (revision != 20) {
+                    return;
                 }
-                SmokeShift.press();
+                instantScreen = screen;
+                SmokeRecorder.start("bs3d-quick-move", client.getWindow().getWidth(), client.getWindow().getHeight());
+                SmokeKey.SHIFT.press();
+                instant = Instant.SHIFT_CLICK;
             }
-            case 1 -> {
-                if (!client.hasShiftDown()) {
-                    return false;
+            case SHIFT_CLICK -> {
+                if (!client.hasShiftDown() || !clickSelectedSlot(client, screen)) {
+                    return;
                 }
-                int[] source = visibleSlot(screen, client.player.getInventory().getSelectedSlot());
-                if (source == null) {
-                    rotatePreview(screen);
-                    return false;
-                }
-                screen.mouseClicked(mouse(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
-                screen.mouseReleased(mouse(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT));
-                SmokeShift.release();
+                SmokeKey.SHIFT.release();
+                instant = Instant.SHIFT_IGNORED;
             }
-            case 2 -> {
-                if (module.state().getRevision() != 21) {
-                    return false;
+            case SHIFT_IGNORED -> {
+                if (instantTicks < INSTANT_SETTLE_TICKS || client.hasShiftDown()) {
+                    return;
+                }
+                require(revision == 20, "按住 Shift 点物品仍然触发了背包的快速存入");
+                SmokeKey.OPEN_BACKPACK.press();
+                instant = Instant.STORE_CLICK;
+            }
+            case STORE_CLICK -> {
+                // 按着打开背包键点原版物品：存进随身容器，腰挂优先。键先不松，看界面会不会被关掉。
+                if (!module.openKeyDown()) {
+                    return;
+                }
+                require(screen == instantScreen, "打开背包键刚按下、还没点物品，界面就关了");
+                if (!clickSelectedSlot(client, screen)) {
+                    return;
+                }
+                instant = Instant.STORE_RESULT;
+            }
+            case STORE_RESULT -> {
+                if (revision != 21) {
+                    return;
                 }
                 var stored = storedItems(module.state()).stream()
                         .filter(item -> module.stack(item.getId()).is(Items.IRON_SWORD))
                         .findFirst().orElseThrow();
-                require(stored.getContainer().equals(pouch), "Shift 未优先选择腰挂容器");
+                require(stored.getContainer().equals(pouch), "按住打开背包键点物品未优先存入腰挂容器");
                 sword = stored.getId();
+                require(screen == instantScreen, "按着打开背包键点物品时背包界面被关掉了");
+                SmokeKey.OPEN_BACKPACK.release();
+                instant = Instant.STORE_RELEASED;
+            }
+            case STORE_RELEASED -> {
+                if (instantTicks < INSTANT_SETTLE_TICKS || module.openKeyDown()) {
+                    return;
+                }
+                require(screen == instantScreen, "点过物品以后松开打开背包键，界面不该关");
                 screen.openContainer(pouch);
+                instant = Instant.TAKE_DOWN;
             }
-            case 3 -> {
-                if (instantTicks < 30 || screen.viewport(pouch) == null) {
-                    return false;
+            case TAKE_DOWN -> {
+                if (instantTicks < INSTANT_MODEL_TICKS || screen.viewport(pouch) == null) {
+                    return;
                 }
-                SmokeShift.press();
+                SmokeKey.OPEN_BACKPACK.press();
+                instant = Instant.TAKE_CLICK;
             }
-            case 4 -> {
-                if (!client.hasShiftDown()) {
-                    return false;
+            case TAKE_CLICK -> {
+                // 按着打开背包键点内景物品：取回原版背包。
+                if (!module.openKeyDown()) {
+                    return;
                 }
-                selectSword(screen);
-                SmokeShift.release();
+                selectSword(screen, true /* quickMove */);
+                SmokeKey.OPEN_BACKPACK.release();
+                instant = Instant.TAKE_RESULT;
             }
-            default -> throw new IllegalStateException("未知即时输入验收步骤");
-        }
-        return true;
-    }
-
-
-    private boolean verifyModelDrag(Minecraft client, VolumeModule module, VolumeScreen screen) {
-        // 等待模型合盖后，以真实命中坐标提交自动放入。
-        switch (instantStep) {
-            case 5 -> {
-                if (module.state().getRevision() != 22) {
-                    return false;
+            case TAKE_RESULT -> {
+                if (revision != 22 || module.openKeyDown()) {
+                    return;
                 }
                 int swordSlot = -1;
                 for (int index = 0; index < Inventory.INVENTORY_SIZE; index++) {
@@ -836,38 +870,74 @@ public final class SmokeClient implements ClientModInitializer {
                         break;
                     }
                 }
-                require(swordSlot >= 0, "Shift 取出未进入原版槽位");
+                require(swordSlot >= 0, "按住打开背包键取出未进入原版槽位");
+                require(screen == instantScreen, "按着打开背包键取物以后界面不该关");
                 slot(client, swordSlot);
                 screen.closeContainer(pouch);
+                instant = Instant.TAP_DOWN;
             }
-            case 6 -> {
-                if (instantTicks < 30) {
-                    return false;
+            case TAP_DOWN -> {
+                // 只按一下打开背包键：按着的时候不关，松开才关。
+                if (instantTicks < INSTANT_SETTLE_TICKS) {
+                    return;
                 }
+                SmokeKey.OPEN_BACKPACK.press();
+                instant = Instant.TAP_HELD;
+            }
+            case TAP_HELD -> {
+                if (!module.openKeyDown() || instantTicks < INSTANT_SETTLE_TICKS) {
+                    return;
+                }
+                require(screen == instantScreen, "打开背包键还按着，界面就关了");
+                SmokeKey.OPEN_BACKPACK.release();
+                instant = Instant.TAP_CLOSED;
+            }
+            case TAP_CLOSED -> {
+                // 合盖动画播完界面才真的撤掉；等到没有界面，再从世界里按一下打开。
+                if (client.gui.screen() != null) {
+                    require(instantTicks < INSTANT_TOGGLE_TICKS,
+                            "只按一下打开背包键没有关掉界面：" + client.gui.screen().getClass().getSimpleName());
+                    return;
+                }
+                SmokeKey.OPEN_BACKPACK.press();
+                instant = Instant.REOPENED;
+            }
+            case REOPENED -> {
+                if (screen == null) {
+                    require(instantTicks < INSTANT_TOGGLE_TICKS, "在世界里按打开背包键没有打开界面：" + client.gui.screen());
+                    return;
+                }
+                instantScreen = screen;
+                SmokeKey.OPEN_BACKPACK.release();
+                instant = Instant.REOPEN_RELEASED;
+            }
+            case REOPEN_RELEASED -> {
+                // 打开界面的那一次按下是在界面外发生的：松开不关。
+                if (instantTicks < INSTANT_MODEL_TICKS || module.openKeyDown()) {
+                    return;
+                }
+                require(screen == instantScreen, "按键打开界面以后松开，界面不该跟着关");
+                instant = Instant.MODEL_DRAG;
+            }
+            case MODEL_DRAG -> {
+                // 模型合盖时，以真实命中坐标把原版物品拖到容器模型上，自动放入。
                 int[] source = visibleSlot(screen, client.player.getInventory().getSelectedSlot());
                 int[] target = visibleBag(screen, basket);
                 if (source == null || target == null) {
                     rotatePreview(screen);
-                    return false;
+                    return;
                 }
                 require(!screen.openContainers().contains(basket), "模型自动放置验收要求合盖");
                 screen.mouseClicked(mouse(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
                 screen.mouseDragged(mouse(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT),
                         target[0] - source[0], target[1] - source[1]);
                 screen.mouseReleased(mouse(target[0], target[1], GLFW.GLFW_MOUSE_BUTTON_LEFT));
+                instant = Instant.MODEL_RESULT;
             }
-            default -> throw new IllegalStateException("未知即时输入验收步骤");
-        }
-        return true;
-    }
-
-
-    private boolean verifyModelResult(Minecraft client, VolumeModule module, VolumeScreen screen) {
-        // 权威回执必须保留目标容器并允许立即进行下一次操作。
-        switch (instantStep) {
-            case 7 -> {
-                if (module.state().getRevision() != 23) {
-                    return false;
+            case MODEL_RESULT -> {
+                // 权威回执必须保留目标容器并允许立即进行下一次操作。
+                if (revision != 23) {
+                    return;
                 }
                 var stored = storedItems(module.state()).stream()
                         .filter(item -> module.stack(item.getId()).is(Items.IRON_SWORD))
@@ -875,12 +945,26 @@ public final class SmokeClient implements ClientModInitializer {
                 require(stored.getContainer().equals(basket), "拖到合盖模型未自动放入");
                 shot(client, "instant-closed-model-drop");
                 module.move(stored.getId(), Volumes.PLAYER, Cell.getDefaultInstance(), true /* automatic */);
+                instant = Instant.MODEL_RETURNED;
             }
-            case 8 -> {
-                return module.state().getRevision() == 24;
+            case MODEL_RETURNED -> {
+                if (revision == 24) {
+                    instant = Instant.DONE;
+                }
             }
-            default -> throw new IllegalStateException("未知即时输入验收步骤");
+            case DONE -> {}
         }
+    }
+
+    private static boolean clickSelectedSlot(Minecraft client, VolumeScreen screen) {
+        // 在人物模型上点一下当前快捷栏那一格的物品（按下再原地松开）；那一格转到背面看不见时先转人物，下一 tick 再试。
+        int[] source = visibleSlot(screen, client.player.getInventory().getSelectedSlot());
+        if (source == null) {
+            rotatePreview(screen);
+            return false;
+        }
+        screen.mouseClicked(mouse(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT), false);
+        screen.mouseReleased(mouse(source[0], source[1], GLFW.GLFW_MOUSE_BUTTON_LEFT));
         return true;
     }
 
@@ -1125,7 +1209,7 @@ public final class SmokeClient implements ClientModInitializer {
         throw new IllegalStateException("找不到容纳手持物品的三维格位");
     }
 
-    private void selectSword(VolumeScreen screen) {
+    private void selectSword(VolumeScreen screen, boolean quickMove) {
         // 从可见内景寻找剑的投影，走鼠标点击而不是直接写选中状态。
         var source = screen.viewport(pouch);
         boolean picked = false;
@@ -1139,8 +1223,8 @@ public final class SmokeClient implements ClientModInitializer {
                 }
             }
         }
-        require(picked && (Minecraft.getInstance().hasShiftDown()
-                || screen.selectedItem().equals(sword)), "三维物品命中失败");
+        // 按着打开背包键时这一下直接取走、不留选中；没按着时要选中这件物品。
+        require(picked && (quickMove || screen.selectedItem().equals(sword)), "三维物品命中失败");
     }
 
     private static java.util.List<Cell> sampleCells(VolumeScreen screen, String container) {

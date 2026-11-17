@@ -39,6 +39,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
@@ -202,8 +203,11 @@ public final class VolumeModule implements ClientModule, WornPreview.EquipmentAc
         if (embedded != null) {
             InventoryUiClient.runtime().open("bs3d:open", "");
             InventoryUiClient.runtime().openWorkspace();
+            embedded.scene().openedByKey();
         } else {
-            Minecraft.getInstance().gui.setScreen(new VolumeScreen(this));
+            var screen = new VolumeScreen(this);
+            screen.openedByKey();
+            Minecraft.getInstance().gui.setScreen(screen);
         }
     }
 
@@ -339,6 +343,34 @@ public final class VolumeModule implements ClientModule, WornPreview.EquipmentAc
 
     public KeyMapping openKey() {
         return openKey;
+    }
+
+    /** 打开背包键现在绑的那个键此刻是不是实际按着。界面开着时原版不更新映射的按住状态，所以直接读窗口。 */
+    public boolean openKeyDown() {
+        var client = Minecraft.getInstance();
+        var key = KeyMappingHelper.getBoundKeyOf(openKey);
+        int value = key.getValue();
+        if (key.getType() == InputConstants.Type.MOUSE) {
+            return GLFW.glfwGetMouseButton(client.getWindow().handle(), value) == GLFW.GLFW_PRESS;
+        }
+        // 没绑键、绑的是扫描码：不交给按键码查询，一律算没按着。
+        return key.getType() == InputConstants.Type.KEYSYM
+                && value != GLFW.GLFW_KEY_UNKNOWN
+                && InputConstants.isKeyDown(client.getWindow(), value);
+    }
+
+    /** 快速存取的修饰键：按着打开背包键点物品。文本框正在收字时（铁砧改名、创造搜索）按这个键是在打字，不算。 */
+    public boolean quickMoveHeld() {
+        var screen = Minecraft.getInstance().gui.screen();
+        if (screen != null && screen.getFocused() instanceof EditBox box && box.canConsumeInput()) {
+            return false;
+        }
+        return openKeyDown();
+    }
+
+    /** 提示文字里用的键名：跟着玩家在「控制」里改的绑定走。 */
+    public String openKeyName() {
+        return openKey.getTranslatedKeyMessage().getString();
     }
 
     public InputConstants.Key rotateYaw() {
