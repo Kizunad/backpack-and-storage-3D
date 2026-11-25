@@ -13,7 +13,7 @@ subprojects {
     apply plugin: 'net.fabricmc.fabric-loom'
     apply plugin: 'com.google.protobuf'
     group = 'dev.kizuna.backpack3d'
-    version = '0.1.0-SNAPSHOT'
+    version = '0.1.0'
     base.archivesName = "backpack-storage-3d-${project.name}"
     repositories {
         maven { url = 'https://maven.fabricmc.net/' }
@@ -61,7 +61,11 @@ subprojects {
     test { useJUnitPlatform() }
     processResources {
         inputs.property 'version', project.version
-        filesMatching('fabric.mod.json') { expand version: project.version }
+        def preserveJsonEscapes = true
+        inputs.property 'preserveJsonEscapes', preserveJsonEscapes
+        filesMatching('fabric.mod.json') {
+            expand([version: project.version]) { escapeBackslash = preserveJsonEscapes }
+        }
     }
     jar { from rootProject.file('LICENSE') }
 }
@@ -72,7 +76,7 @@ tasks.named('check') { dependsOn ':client:check', ':server:check' }
 // 协议包包含固定版本的公共 schema，方便独立语言实现服务端。
 tasks.register('protocolZip', Zip) {
     dependsOn ':server:generateProto'
-    archiveFileName = 'backpack-storage-3d-0.1.0-SNAPSHOT-proto.zip'
+    archiveFileName = "backpack-storage-3d-${project(':server').version}-proto.zip"
     destinationDirectory = layout.buildDirectory.dir('distributions')
     from('shared/src/main/proto')
     from(new File(frameworkDir, 'src/main/proto'))

@@ -3,6 +3,13 @@
   "id": "backpack_storage_3d_client",
   "version": "${version}",
   "name": "Backpack and Storage 3D",
+  "description": "Open a worn bag and rotate its three-dimensional interior to arrange the items inside.\n打开身上的背包，转动内景，从不同角度摆放物品。",
+  "contact": {
+    "homepage": "https://github.com/Kizunad/backpack-and-storage-3D",
+    "sources": "https://github.com/Kizunad/backpack-and-storage-3D",
+    "issues": "https://github.com/Kizunad/backpack-and-storage-3D/issues"
+  },
+  "icon": "assets/backpack_storage_3d_client/icon.png",
   "environment": "client",
   "authors": [
     "Kizunad"
@@ -15,11 +22,11 @@
   },
   "depends": {
     "java": ">=25",
-    "backpack_storage_3d": "0.1.0-SNAPSHOT",
+    "backpack_storage_3d": "0.1.0",
     "minecraft": "26.2",
     "fabricloader": ">=0.20.1",
     "fabric-api": ">=0.161.0+26.2",
-    "kizuna_inventory_ui": "0.1.0-SNAPSHOT",
+    "kizuna_inventory_ui": "0.1.0",
     "owo": "0.13.1+26.2"
   },
   "mixins": [
