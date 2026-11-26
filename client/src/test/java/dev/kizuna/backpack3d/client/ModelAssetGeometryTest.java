@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.PoseStack;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -57,7 +58,7 @@ class ModelAssetGeometryTest {
     @Test
     void bakedGeometryFollowsThePoseAndIsTheSameWhenThePoseReturns() throws Exception {
         // 有开合动画的模型按姿态各烘焙一份：开盖、半开和关着的几何互不相同，换回关着时和第一次逐点相同。
-        java.nio.file.Path root = java.nio.file.Path.of("src/test/resources/fixtures");
+        Path root = Path.of(System.getProperty("bs3d.projectRoot"), "client/src/test/resources/fixtures");
         var asset = new ModelAsset(BbModel.read(root, new ModelConfig.Entry(
                 Identifier.fromNamespaceAndPath("example", "pouch"), root.resolve("LidPouch.bbmodel"), null, null,
                 java.util.Map.of())));

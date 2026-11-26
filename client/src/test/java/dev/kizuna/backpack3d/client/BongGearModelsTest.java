@@ -25,7 +25,8 @@ import net.minecraft.resources.Identifier;
 /** 用真实导入资产覆盖归档读取、贴图、人体尺度与静态开包，而不是简化几何夹具。 */
 class BongGearModelsTest {
     private static final int BONG_CONTAINER_COUNT = 10;
-    private static final Path SOURCE = Path.of("../server/src/main/resources/bs3d/bong-gear");
+    private static final Path SOURCE = Path.of(System.getProperty("bs3d.projectRoot"),
+            "server/src/main/resources/bs3d/bong-gear");
     private static final String BELT = "bs3d:ku_teng_yao_dai";
     private static final float[] WAIST_ANGLES = {0, 90, 180, 270};
     private static final float MODEL_UNITS_PER_BLOCK = 16;

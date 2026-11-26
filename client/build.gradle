@@ -8,6 +8,11 @@ dependencies {
     include libs.tomlj
     include libs.antlr.runtime
 }
+test {
+    systemProperty 'bs3d.projectRoot', rootProject.projectDir.absolutePath
+    workingDir layout.buildDirectory.dir('test-runtime')
+    doFirst { workingDir.mkdirs() }
+}
 sourceSets.create('smoke') {
     compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
     runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
